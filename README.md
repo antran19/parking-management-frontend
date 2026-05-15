@@ -1,4 +1,4 @@
-# 🚗 Parking Building Management System
+#  Parking Building Management System
 
 Frontend for Parking Building Management System  
 **SWP391 - SU26SWP08 | FPT University**
