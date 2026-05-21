@@ -1,1 +1,0 @@
-export type UserRole = "driver" | "manager" | "staff" | "admin" | null;
