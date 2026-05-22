@@ -1,16 +1,35 @@
-# React + Vite
+#  Parking Building Management System
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend for Parking Building Management System  
+**SWP391 - SU26SWP08 | FPT University**
 
-Currently, two official plugins are available:
+## Tech Stack
+- ReactJS 18 + Vite
+- Tailwind CSS
+- React Query
+- Axios
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Team
+| Name | Role |
+|------|------|
+| Trần Nguyễn Minh An | Team Leader / Backend |
+| Nguyễn Duy Tùng | Backend / Auth & API |
+| Nguyễn Khắc Toàn | Backend / AI Slot Allocation |
+| Bùi Ngọc Tá Thiên | Lead Frontend |
+| Huỳnh Ngọc Quảng | Frontend / QA |
 
-## React Compiler
+## Branch Strategy
+- `main` → Code ổn định
+- `develop` → Nhánh phát triển chính
+- `feature/*` → Tính năng mới
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Getting Started
+```bash
+# Clone repo
+git clone https://github.com/antran19/parking-management-frontend.git
 
-## Expanding the ESLint configuration
+# Install dependencies
+npm install
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# Run development server
+npm run dev
