@@ -1,382 +1,605 @@
-import { useState } from "react";
-import parkingBg from "../../assets/parking-bg.jpg";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import axiosClient from "../../api/axiosClient";
+
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  @keyframes fadeInUp { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+  @keyframes slideDown { from { opacity:0; transform:translateY(-20px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes scaleIn { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
+  @keyframes bounce { 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-6px); } }
+
+  .nav-link { color: rgba(255,255,255,0.8); text-decoration:none; font-size:15px; font-weight:500;
+    padding:8px 16px; border-radius:8px; transition:all 0.2s; }
+  .nav-link:hover { color:#fff; background:rgba(255,255,255,0.1); }
+
+  .hero-btn { display:inline-flex; align-items:center; gap:10px; padding:14px 32px;
+    border-radius:12px; font-size:15px; font-weight:600; cursor:pointer; transition:all 0.3s;
+    text-decoration:none; border:none; }
+  .hero-btn:hover { transform:translateY(-2px); }
+
+  .modal-input { width:100%; height:50px; padding:0 16px; font-size:14px; border-radius:12px;
+    border:1px solid #e5e7eb; background:#f9fafb; color:#111; outline:none;
+    box-sizing:border-box; transition:all 0.2s; font-family:inherit; }
+  .modal-input:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.12); }
+  .modal-input::placeholder { color:#9ca3af; }
+
+  .modal-overlay { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); animation:fadeIn 0.25s ease; }
+  .modal-card { background:#fff; border-radius:24px; padding:40px; width:100%; max-width:420px;
+    box-shadow:0 25px 60px rgba(0,0,0,0.3); animation:scaleIn 0.35s ease; position:relative; }
+
+  .submit-btn { width:100%; height:50px; border-radius:12px; border:none;
+    background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; font-size:15px;
+    font-weight:600; cursor:pointer; transition:all 0.25s; font-family:inherit; }
+  .submit-btn:hover:not(:disabled) { background:linear-gradient(135deg,#2563eb,#1d4ed8);
+    box-shadow:0 8px 24px rgba(37,99,235,0.35); transform:translateY(-1px); }
+  .submit-btn:disabled { opacity:0.6; cursor:not-allowed; }
+`;
+
+const SLIDES = [
+  "https://images.pexels.com/photos/1004409/pexels-photo-1004409.jpeg?auto=compress&cs=tinysrgb&w=1920",
+  "https://images.pexels.com/photos/1004410/pexels-photo-1004410.jpeg?auto=compress&cs=tinysrgb&w=1920",
+  "https://images.pexels.com/photos/63294/autos-technology-vw-702-63294.jpeg?auto=compress&cs=tinysrgb&w=1920",
+];
 
 export function LoginScreen({ onLogin }) {
-  const [mode, setMode] = useState("login");
-
+  const [showLogin, setShowLogin] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const [emailError, setEmailError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
-
-  const validateEmail = (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!email) {
-      setEmailError("Vui lòng nhập email");
-      return false;
-    }
-
-    if (!emailRegex.test(email)) {
-      setEmailError("Email không hợp lệ");
-      return false;
-    }
-
-    setEmailError("");
-    return true;
-  };
-
-  const validatePassword = (password) => {
-    if (!password) {
-      setPasswordError("Vui lòng nhập mật khẩu");
-      return false;
-    }
-
-    if (password.length < 8) {
-      setPasswordError("Mật khẩu phải có ít nhất 8 ký tự");
-      return false;
-    }
-
-    setPasswordError("");
-    return true;
-  };
-
-  const handleSubmit = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-
+    setLoading(true);
     setError("");
-    setSuccess("");
+    try {
+      const res = await axiosClient.post("/auth/login", { email, password });
+      const { accessToken, user } = res.data.data;
+      localStorage.setItem("accessToken", accessToken);
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          role: user.role,
+          fullName: user.fullName,
+          email: user.email,
+        })
+      );
 
-    if (!validateEmail(email)) return;
-
-    if (mode === "forgot-password") {
-      setSuccess("Liên kết đặt lại mật khẩu đã được gửi đến email của bạn!");
-
-      setTimeout(() => {
-        setMode("login");
-      }, 2000);
-
-      return;
-    }
-
-    if (!validatePassword(password)) return;
-
-    if (mode === "register") {
-      if (!fullName) {
-        setError("Vui lòng nhập họ và tên");
-        return;
-      }
-
-      if (password !== confirmPassword) {
-        setError("Mật khẩu xác nhận không khớp");
-        return;
-      }
-
-      setSuccess("Đăng ký thành công! Vui lòng đăng nhập.");
-
-      setTimeout(() => {
-        setMode("login");
-        setSuccess("");
-      }, 2000);
-
-      return;
-    }
-
-    const lowerEmail = email.toLowerCase();
-
-    if (lowerEmail.includes("admin")) {
-      onLogin("admin");
-    } else if (lowerEmail.includes("staff")) {
-      onLogin("staff");
-    } else if (lowerEmail.includes("manager")) {
-      onLogin("manager");
-    } else if (lowerEmail.includes("driver")) {
-      onLogin("driver");
-    } else {
-      setError("Sai tài khoản hoặc mật khẩu.");
+      // Map backend role to the target project's role format
+      const roleMap = {
+        DRIVER: "driver",
+        STAFF: "staff",
+        MANAGER: "manager",
+        ADMIN: "admin",
+        SECURITY: "security",
+      };
+      const mappedRole = roleMap[user.role] || "driver";
+      onLogin(mappedRole);
+    } catch (err) {
+      setError(
+        err.response?.data?.message || "Email hoặc mật khẩu không đúng"
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleSocialLogin = (provider) => {
-    setSuccess(`Đang đăng nhập với ${provider}...`);
-
-    setTimeout(() => {
-      onLogin("driver");
-    }, 1000);
-  };
+  // Slideshow timer — chuyển ảnh mỗi 4s
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % SLIDES.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
-      <div className="hidden md:flex md:w-1/2 min-h-screen relative bg-slate-900">
-        <img
-          src={parkingBg}
-          alt="Bãi đỗ xe hiện đại"
-          className="object-cover w-full h-full opacity-80"
+    <>
+      <style>{css}</style>
+
+      <div
+        style={{
+          minHeight: "100vh",
+          position: "relative",
+          overflow: "hidden",
+          fontFamily: "'Inter', system-ui, sans-serif",
+        }}
+      >
+        {/* ===== BACKGROUND SLIDESHOW ===== */}
+        {SLIDES.map((url, i) => (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage: `url('${url}')`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              opacity: currentSlide === i ? 1 : 0,
+              transition: "opacity 1.5s ease-in-out",
+            }}
+          />
+        ))}
+        {/* Dark overlay */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 1,
+            background:
+              "linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.3) 40%, rgba(0,0,0,0.55) 100%)",
+          }}
         />
 
-        <div className="absolute inset-0 bg-linear-to-r from-blue-600/60 to-cyan-500/60" />
-
-        <div className="absolute inset-0 flex flex-col justify-center px-16 text-white">
-          <div className="w-16 h-16 rounded-xl bg-blue-500 flex items-center justify-center text-4xl font-bold mb-6 shadow-lg">
-            P
+        {/* ===== NAV BAR ===== */}
+        <nav
+          style={{
+            position: "relative",
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "20px 48px",
+            animation: "slideDown 0.6s ease-out",
+          }}
+        >
+          {/* Left links */}
+          <div style={{ display: "flex", gap: "4px" }}>
+            <a href="#" className="nav-link">
+              Trang chủ
+            </a>
+            <a href="#" className="nav-link">
+              Dịch vụ
+            </a>
+            <a href="#" className="nav-link">
+              Giới thiệu
+            </a>
+            <a href="#" className="nav-link">
+              Liên hệ
+            </a>
           </div>
 
-          <h1 className="text-4xl font-bold mb-4">Smart Parking</h1>
-
-          <p className="text-xl mb-2">
-            Hệ thống quản lý bãi đỗ xe
-          </p>
-
-          <p className="text-lg opacity-90">
-            Nhanh chóng. Bảo mật. Tự động.
-          </p>
-
-          <div className="mt-12 space-y-5">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
-                ✓
-              </div>
-
-              <span className="text-lg">
-                Xem chỗ trống theo từng tầng, từng khu vực
-              </span>
+          {/* Center logo */}
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              transform: "translateX(-50%)",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+            }}
+          >
+            <div
+              style={{
+                width: "42px",
+                height: "42px",
+                borderRadius: "12px",
+                background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "20px",
+                fontWeight: "800",
+                color: "white",
+                boxShadow: "0 4px 16px rgba(59,130,246,0.4)",
+              }}
+            >
+              P
             </div>
-
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
-                ✓
-              </div>
-
-              <span className="text-lg">
-                Đặt trước chỗ đỗ xe trực tuyến
-              </span>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
-                ✓
-              </div>
-
-              <span className="text-lg">
-                Thanh toán nhanh bằng QR Code
-              </span>
-            </div>
+            <span
+              style={{
+                fontSize: "18px",
+                fontWeight: "700",
+                color: "white",
+                letterSpacing: "-0.3px",
+              }}
+            >
+              SmartParking
+            </span>
           </div>
+
+          {/* Right button */}
+          <button
+            onClick={() => setShowLogin(true)}
+            className="hero-btn"
+            style={{
+              background: "transparent",
+              color: "white",
+              border: "2px solid rgba(255,255,255,0.5)",
+              padding: "10px 24px",
+              fontSize: "14px",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255,255,255,0.15)";
+              e.currentTarget.style.borderColor = "white";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.borderColor = "rgba(255,255,255,0.5)";
+            }}
+          >
+            Đăng Nhập
+            <svg
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" />
+            </svg>
+          </button>
+        </nav>
+
+        {/* ===== HERO CENTER ===== */}
+        <div
+          style={{
+            position: "relative",
+            zIndex: 5,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            color: "white",
+            minHeight: "calc(100vh - 180px)",
+            padding: "0 24px",
+          }}
+        >
+          <h1
+            style={{
+              fontSize: "clamp(36px, 5vw, 64px)",
+              fontWeight: "800",
+              lineHeight: 1.1,
+              letterSpacing: "-1px",
+              textTransform: "uppercase",
+              animation: "fadeInUp 0.8s ease-out",
+              textShadow: "0 4px 30px rgba(0,0,0,0.3)",
+              maxWidth: "900px",
+            }}
+          >
+            Bãi xe thông minh
+            <br />
+            <span style={{ color: "#60a5fa" }}>quản lý tự động</span>
+          </h1>
+
+          <p
+            style={{
+              fontSize: "16px",
+              lineHeight: 1.7,
+              color: "rgba(255,255,255,0.7)",
+              maxWidth: "620px",
+              marginTop: "24px",
+              animation: "fadeInUp 1s ease-out",
+            }}
+          >
+            Hệ thống quản lý bãi đỗ xe hiện đại — Check-in/out nhanh chóng,
+            theo dõi zone trống real-time, tính phí tự động và hỗ trợ đa vai
+            trò từ tài xế đến quản lý.
+          </p>
+
+          {/* CTA - Khám phá thêm */}
+          <div style={{ marginTop: "40px", animation: "fadeInUp 1.2s ease-out" }}>
+            <button
+              onClick={() => setShowLogin(true)}
+              className="hero-btn"
+              style={{
+                background: "rgba(255,255,255,0.1)",
+                border: "1.5px solid rgba(255,255,255,0.3)",
+                color: "white",
+                backdropFilter: "blur(6px)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth="2"
+                strokeLinecap="round"
+                style={{ animation: "bounce 2s infinite" }}
+              >
+                <path d="M12 5v14M19 12l-7 7-7-7" />
+              </svg>
+              Khám Phá Thêm
+            </button>
+          </div>
+        </div>
+
+        {/* ===== BOTTOM CTA ===== */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: "32px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10,
+            animation: "fadeInUp 1.4s ease-out",
+          }}
+        >
+          <button
+            onClick={() => setShowLogin(true)}
+            className="hero-btn"
+            style={{
+              background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+              color: "white",
+              boxShadow: "0 8px 30px rgba(37,99,235,0.4)",
+              padding: "16px 36px",
+              fontSize: "15px",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow =
+                "0 12px 40px rgba(37,99,235,0.55)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow =
+                "0 8px 30px rgba(37,99,235,0.4)";
+            }}
+          >
+            Đăng Nhập Ngay
+            <svg
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" />
+            </svg>
+          </button>
         </div>
       </div>
 
-      <div className="flex w-full md:w-1/2 items-center justify-center px-6 py-12">
-        <div className="w-full max-w-md">
-          <div className="bg-white rounded-3xl shadow-xl p-8 border border-slate-100">
-            <div className="text-center mb-8">
-              <div className="md:hidden mx-auto w-16 h-16 rounded-xl bg-blue-500 flex items-center justify-center text-4xl font-bold mb-4 text-white shadow-lg">
+      {/* ===== LOGIN MODAL ===== */}
+      {showLogin && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setShowLogin(false)}
+        >
+          <div className="modal-card">
+            {/* Close */}
+            <button
+              onClick={() => setShowLogin(false)}
+              style={{
+                position: "absolute",
+                top: "16px",
+                right: "16px",
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                border: "none",
+                background: "#f3f4f6",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "18px",
+                color: "#6b7280",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#e5e7eb";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#f3f4f6";
+              }}
+            >
+              ✕
+            </button>
+
+            {/* Logo */}
+            <div style={{ textAlign: "center", marginBottom: "28px" }}>
+              <div
+                style={{
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "14px",
+                  margin: "0 auto 12px",
+                  background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "22px",
+                  fontWeight: "800",
+                  color: "white",
+                  boxShadow: "0 6px 20px rgba(59,130,246,0.3)",
+                }}
+              >
                 P
               </div>
-
-              <h2 className="text-3xl font-bold text-slate-900 mb-2">
-                {mode === "login" && "Đăng nhập"}
-                {mode === "register" && "Đăng ký"}
-                {mode === "forgot-password" && "Quên mật khẩu"}
+              <h2
+                style={{
+                  fontSize: "24px",
+                  fontWeight: "700",
+                  color: "#111827",
+                }}
+              >
+                Đăng nhập
               </h2>
-
-              <p className="text-slate-500">
-                {mode === "login" &&
-                  "Đăng nhập để truy cập hệ thống"}
-
-                {mode === "register" &&
-                  "Tạo tài khoản mới"}
-
-                {mode === "forgot-password" &&
-                  "Nhập email để đặt lại mật khẩu"}
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: "#9ca3af",
+                  marginTop: "6px",
+                }}
+              >
+                Truy cập hệ thống SmartParking
               </p>
             </div>
 
+            {/* Error */}
             {error && (
-              <div className="mb-4 rounded-xl bg-red-50 border border-red-200 p-4 text-red-600">
+              <div
+                style={{
+                  marginBottom: "16px",
+                  padding: "12px 16px",
+                  borderRadius: "12px",
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  fontSize: "13px",
+                  color: "#dc2626",
+                }}
+              >
                 {error}
               </div>
             )}
 
-            {success && (
-              <div className="mb-4 rounded-xl bg-green-50 border border-green-200 p-4 text-green-600">
-                {success}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {mode === "register" && (
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Họ và tên
-                  </label>
-
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Nhập họ và tên"
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
+            {/* Form */}
+            <form onSubmit={handleLogin}>
+              <div style={{ marginBottom: "16px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    color: "#374151",
+                    marginBottom: "6px",
+                  }}
+                >
                   Email
                 </label>
-
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Nhập email"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                  placeholder="staff@park.com"
+                  required
+                  className="modal-input"
                 />
-
-                {emailError && (
-                  <p className="mt-2 text-sm text-red-500">
-                    {emailError}
-                  </p>
-                )}
               </div>
-
-              {mode !== "forgot-password" && (
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Mật khẩu
-                  </label>
-
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Nhập mật khẩu"
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-                  />
-
-                  {passwordError && (
-                    <p className="mt-2 text-sm text-red-500">
-                      {passwordError}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {mode === "register" && (
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Xác nhận mật khẩu
-                  </label>
-
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) =>
-                      setConfirmPassword(e.target.value)
-                    }
-                    placeholder="Nhập lại mật khẩu"
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-                  />
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-3 font-bold transition-all"
-              >
-                {mode === "login" && "Đăng nhập"}
-                {mode === "register" && "Đăng ký"}
-                {mode === "forgot-password" && "Gửi liên kết"}
+              <div style={{ marginBottom: "24px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    color: "#374151",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Mật khẩu
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••"
+                  required
+                  className="modal-input"
+                />
+              </div>
+              <button type="submit" disabled={loading} className="submit-btn">
+                {loading ? "Đang xác thực..." : "Đăng nhập"}
               </button>
             </form>
 
-            {mode === "login" && (
-              <>
-                <div className="my-6 flex items-center gap-4">
-                  <div className="h-px flex-1 bg-slate-200" />
-
-                  <span className="text-sm text-slate-400">
-                    Hoặc tiếp tục với
-                  </span>
-
-                  <div className="h-px flex-1 bg-slate-200" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+            {/* Demo accounts */}
+            <div
+              style={{
+                marginTop: "24px",
+                paddingTop: "20px",
+                borderTop: "1px solid #f3f4f6",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "11px",
+                  fontWeight: "600",
+                  color: "#9ca3af",
+                  textTransform: "uppercase",
+                  letterSpacing: "1.5px",
+                  marginBottom: "10px",
+                }}
+              >
+                Tài khoản demo
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "8px",
+                }}
+              >
+                {[
+                  { label: "Staff", email: "staff@parking.vn" },
+                  { label: "Driver", email: "driver@parking.vn" },
+                  { label: "Manager", email: "manager@parking.vn" },
+                  { label: "Admin", email: "admin@parking.vn" },
+                ].map((acc) => (
                   <button
-                    onClick={() => handleSocialLogin("Google")}
-                    className="rounded-xl border border-slate-300 py-3 font-semibold hover:bg-slate-50"
+                    key={acc.email}
+                    type="button"
+                    onClick={() => {
+                      setEmail(acc.email);
+                      setPassword("123456");
+                    }}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #e5e7eb",
+                      background: "#fafbfc",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "all 0.15s",
+                      fontFamily: "inherit",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "#3b82f6";
+                      e.currentTarget.style.background = "#eff6ff";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "#e5e7eb";
+                      e.currentTarget.style.background = "#fafbfc";
+                    }}
                   >
-                    Google
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: "13px",
+                        fontWeight: "600",
+                        color: "#111827",
+                      }}
+                    >
+                      {acc.label}
+                    </span>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: "11px",
+                        color: "#9ca3af",
+                        marginTop: "2px",
+                      }}
+                    >
+                      {acc.email}
+                    </span>
                   </button>
-
-                  <button
-                    onClick={() => handleSocialLogin("Facebook")}
-                    className="rounded-xl border border-slate-300 py-3 font-semibold hover:bg-slate-50"
-                  >
-                    Facebook
-                  </button>
-                </div>
-              </>
-            )}
-
-            <div className="mt-8 text-center text-sm text-slate-500">
-              {mode === "login" && (
-                <>
-                  Chưa có tài khoản?{" "}
-                  <button
-                    onClick={() => setMode("register")}
-                    className="font-semibold text-blue-600 hover:underline"
-                  >
-                    Đăng ký
-                  </button>
-                </>
-              )}
-
-              {mode === "register" && (
-                <>
-                  Đã có tài khoản?{" "}
-                  <button
-                    onClick={() => setMode("login")}
-                    className="font-semibold text-blue-600 hover:underline"
-                  >
-                    Đăng nhập
-                  </button>
-                </>
-              )}
-
-              {mode === "forgot-password" && (
-                <>
-                  Quay lại{" "}
-                  <button
-                    onClick={() => setMode("login")}
-                    className="font-semibold text-blue-600 hover:underline"
-                  >
-                    Đăng nhập
-                  </button>
-                </>
-              )}
-            </div>
-
-            {mode === "login" && (
-              <div className="mt-4 text-center">
-                <button
-                  onClick={() => setMode("forgot-password")}
-                  className="text-sm font-medium text-blue-600 hover:underline"
-                >
-                  Quên mật khẩu?
-                </button>
+                ))}
               </div>
-            )}
+            </div>
           </div>
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }
+
+export default LoginScreen;
