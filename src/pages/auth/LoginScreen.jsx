@@ -39,10 +39,12 @@ const css = `
   .submit-btn:disabled { opacity:0.6; cursor:not-allowed; }
 `;
 
+import parkingBg from "../../assets/parking-bg.jpg";
+
 const SLIDES = [
-  "https://images.pexels.com/photos/1004409/pexels-photo-1004409.jpeg?auto=compress&cs=tinysrgb&w=1920",
-  "https://images.pexels.com/photos/1004410/pexels-photo-1004410.jpeg?auto=compress&cs=tinysrgb&w=1920",
-  "https://images.pexels.com/photos/63294/autos-technology-vw-702-63294.jpeg?auto=compress&cs=tinysrgb&w=1920",
+  parkingBg,
+  "https://images.unsplash.com/photo-1470224114660-3f6686c562eb?auto=format&fit=crop&w=1920&q=80",
+  "https://images.unsplash.com/photo-1590674899484-d5640e854abe?auto=format&fit=crop&w=1920&q=80",
 ];
 
 export function LoginScreen({ onLogin }) {
@@ -90,8 +92,14 @@ export function LoginScreen({ onLogin }) {
     }
   };
 
-  // Slideshow timer — chuyển ảnh mỗi 4s
+  // Slideshow timer — chuyển ảnh mỗi 4s và preload ảnh để tránh bị màn hình xám khi chuyển
   useEffect(() => {
+    // Preload all background images
+    SLIDES.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+    });
+
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % SLIDES.length);
     }, 4000);
@@ -327,8 +335,10 @@ export function LoginScreen({ onLogin }) {
           style={{
             position: "absolute",
             bottom: "32px",
-            left: "50%",
-            transform: "translateX(-50%)",
+            left: 0,
+            right: 0,
+            display: "flex",
+            justifyContent: "center",
             zIndex: 10,
             animation: "fadeInUp 1.4s ease-out",
           }}

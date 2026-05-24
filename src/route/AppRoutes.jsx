@@ -13,6 +13,8 @@ import StaffMapping from "../pages/staff/StaffMapping";
 import ManagerDashboard from "../pages/manager/ManagerDashboard";
 import AdminDashboard from "../pages/admin/AdminDashboard";
 
+import StaffHistory from "../pages/staff/StaffHistory";
+
 function AppRoutes({ userRole, onLogin, onLogout }) {
   if (!userRole) {
     return (
@@ -60,7 +62,7 @@ function AppRoutes({ userRole, onLogin, onLogout }) {
         />
         <Route
           path="/staff/history"
-          element={<StaffDashboard onLogout={onLogout} />}
+          element={<StaffHistory onLogout={onLogout} />}
         />
         <Route path="*" element={<Navigate to="/staff/dashboard" replace />} />
       </Routes>
