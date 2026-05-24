@@ -1,20 +1,31 @@
-const API_URL = import.meta.env.VITE_API_URL;
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api";
 
 async function request(path, options = {}) {
-  const res = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
     },
-    ...options,
   });
 
-  if (!res.ok) {
-    const message = await res.text();
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
     throw new Error(message || "Call API thất bại");
   }
 
-  return res.json();
+  if (response.status === 204) {
+    return null;
+  }
+
+  const text = await response.text();
+
+  if (!text) {
+    return null;
+  }
+
+  return JSON.parse(text);
 }
 
 export function loginApi(data) {
