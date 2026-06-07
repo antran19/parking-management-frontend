@@ -1,0 +1,398 @@
+import { useState } from "react";
+import parkingBg from "../../assets/parking-bg.jpg";
+
+export function LoginScreen({ onLogin }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!email) {
+      setEmailError("Vui lòng nhập email");
+      return false;
+    }
+
+    if (!emailRegex.test(email)) {
+      setEmailError("Email không hợp lệ");
+      return false;
+    }
+
+    setEmailError("");
+    return true;
+  };
+
+  const validatePassword = (password) => {
+    if (!password) {
+      setPasswordError("Vui lòng nhập mật khẩu");
+      return false;
+    }
+
+    if (password.length < 8) {
+      setPasswordError("Mật khẩu phải có ít nhất 8 ký tự");
+      return false;
+    }
+
+    setPasswordError("");
+    return true;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+
+    setError("");
+    setSuccess("");
+
+    if (!validateEmail(email)) return;
+
+    if (mode === "forgot-password") {
+      setSuccess("Liên kết đặt lại mật khẩu đã được gửi đến email của bạn!");
+
+      setTimeout(() => {
+        setMode("login");
+        setSuccess("");
+      }, 2000);
+
+      return;
+    }
+
+    if (!validatePassword(password)) return;
+
+    if (mode === "register") {
+      if (!fullName.trim()) {
+        setError("Vui lòng nhập họ và tên");
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setError("Mật khẩu xác nhận không khớp");
+        return;
+      }
+
+      setSuccess("Đăng ký thành công! Vui lòng đăng nhập.");
+
+      setTimeout(() => {
+        setMode("login");
+        setSuccess("");
+      }, 2000);
+
+      return;
+    }
+
+    const lowerEmail = email.toLowerCase();
+
+    if (lowerEmail.includes("admin")) {
+      onLogin("admin");
+    } else if (lowerEmail.includes("staff")) {
+      onLogin("staff");
+    } else if (lowerEmail.includes("manager")) {
+      onLogin("manager");
+    } else if (lowerEmail.includes("driver")) {
+      onLogin("driver");
+    } else {
+      setError("Sai tài khoản hoặc mật khẩu.");
+    }
+  };
+
+  const handleSocialLogin = (provider) => {
+    setSuccess(`Đang đăng nhập với ${provider}...`);
+
+    setTimeout(() => {
+      onLogin("driver");
+    }, 1000);
+  };
+
+  return (
+    <div className="flex min-h-screen bg-slate-50">
+      <div className="relative hidden min-h-screen bg-slate-900 md:flex md:w-1/2">
+        <img
+          src={parkingBg}
+          alt="Bãi đỗ xe hiện đại"
+          className="h-full w-full object-cover opacity-80"
+        />
+
+        <div className="absolute inset-0 bg-linear-to-r from-blue-600/60 to-cyan-500/60" />
+
+        <div className="absolute inset-0 flex flex-col justify-center px-16 text-white">
+          <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-xl bg-blue-500 text-4xl font-bold shadow-lg">
+            P
+          </div>
+
+          <h1 className="mb-4 text-4xl font-bold">Smart Parking</h1>
+          <p className="mb-2 text-xl">Hệ thống quản lý bãi đỗ xe</p>
+          <p className="text-lg opacity-90">Nhanh chóng. Bảo mật. Tự động.</p>
+
+          <div className="mt-12 space-y-5">
+            <FeatureItem text="Xem chỗ trống theo từng tầng, từng khu vực" />
+            <FeatureItem text="Đặt chỗ gửi xe nhanh và an toàn" />
+            <FeatureItem text="Check-in, thanh toán và theo dõi xe dễ dàng" />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex min-h-screen w-full items-center justify-center bg-slate-50 p-8 md:w-1/2">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center md:hidden">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-blue-500 text-4xl font-bold text-white shadow-lg">
+              P
+            </div>
+            <h1 className="text-3xl font-bold text-slate-950">
+              Smart Parking
+            </h1>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl">
+            {mode !== "forgot-password" && (
+              <div className="mb-6 flex gap-2 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("login");
+                    setError("");
+                    setSuccess("");
+                  }}
+                  className={`flex-1 rounded-lg px-4 py-2.5 font-medium transition-colors ${
+                    mode === "login"
+                      ? "bg-slate-950 text-white shadow"
+                      : "text-slate-500 hover:text-slate-950"
+                  }`}
+                >
+                  Đăng nhập
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("register");
+                    setError("");
+                    setSuccess("");
+                  }}
+                  className={`flex-1 rounded-lg px-4 py-2.5 font-medium transition-colors ${
+                    mode === "register"
+                      ? "bg-slate-950 text-white shadow"
+                      : "text-slate-500 hover:text-slate-950"
+                  }`}
+                >
+                  Đăng ký
+                </button>
+              </div>
+            )}
+
+            {mode === "forgot-password" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("login");
+                  setError("");
+                  setSuccess("");
+                }}
+                className="mb-4 text-sm font-semibold text-blue-600 hover:underline"
+              >
+                ← Quay lại đăng nhập
+              </button>
+            )}
+
+            <h2 className="mb-6 text-2xl font-bold text-slate-950">
+              {mode === "login" && "Chào mừng trở lại"}
+              {mode === "register" && "Tạo tài khoản"}
+              {mode === "forgot-password" && "Đặt lại mật khẩu"}
+            </h2>
+
+            {success && (
+              <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+                {success}
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {mode === "register" && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Họ và tên
+                  </label>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-200"
+                    placeholder="Nhập họ và tên"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setEmailError("");
+                  }}
+                  onBlur={() => validateEmail(email)}
+                  className={`w-full rounded-lg border bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-200 ${
+                    emailError ? "border-red-500" : "border-slate-300"
+                  }`}
+                  placeholder="you@example.com"
+                />
+                {emailError && (
+                  <p className="mt-1 text-sm text-red-600">{emailError}</p>
+                )}
+              </div>
+
+              {mode !== "forgot-password" && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Mật khẩu
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setPasswordError("");
+                    }}
+                    onBlur={() =>
+                      mode === "register" && validatePassword(password)
+                    }
+                    className={`w-full rounded-lg border bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-200 ${
+                      passwordError ? "border-red-500" : "border-slate-300"
+                    }`}
+                    placeholder="••••••••"
+                  />
+                  {passwordError && (
+                    <p className="mt-1 text-sm text-red-600">
+                      {passwordError}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {mode === "register" && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Xác nhận mật khẩu
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-200"
+                    placeholder="••••••••"
+                  />
+                </div>
+              )}
+
+              {mode === "login" && (
+                <div className="flex items-center justify-between text-sm">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input type="checkbox" className="rounded border-slate-300" />
+                    <span className="text-slate-500">Ghi nhớ đăng nhập</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("forgot-password");
+                      setError("");
+                      setSuccess("");
+                    }}
+                    className="font-semibold text-blue-600 hover:underline"
+                  >
+                    Quên mật khẩu?
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-3 text-center font-semibold text-white shadow-md transition-colors hover:bg-blue-700 active:bg-blue-800"
+              >
+                {mode === "login" && "Đăng nhập"}
+                {mode === "register" && "Tạo tài khoản"}
+                {mode === "forgot-password" && "Gửi liên kết đặt lại mật khẩu"}
+              </button>
+            </form>
+
+            {mode !== "forgot-password" && (
+              <>
+                <div className="my-6 flex items-center gap-4">
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <span className="whitespace-nowrap text-sm text-slate-500">
+                    Hoặc tiếp tục với
+                  </span>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleSocialLogin("Google")}
+                    className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md active:scale-[0.98]"
+                  >
+                    <svg className="h-5 w-5" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      />
+                    </svg>
+                    Google
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSocialLogin("Facebook")}
+                    className="flex items-center justify-center gap-2 rounded-lg border border-[#1877F2] bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#166FE5] hover:shadow-md active:scale-[0.98]"
+                  >
+                    <svg className="h-5 w-5" fill="white" viewBox="0 0 24 24">
+                      <path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.438H7.078v-3.49h3.047V9.414c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.971H15.83c-1.491 0-1.956.931-1.956 1.884v2.265h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z" />
+                    </svg>
+                    Facebook
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeatureItem({ text }) {
+  return (
+    <div className="flex items-center gap-4">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-2xl">
+        ✓
+      </div>
+      <span className="text-lg">{text}</span>
+    </div>
+  );
+}
