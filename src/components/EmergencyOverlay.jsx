@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Client } from "@stomp/stompjs";
-import SockJS from "sockjs-client";
+import SockJS from "sockjs-client/dist/sockjs.js";
 import { staffApi } from "../api/parkingApi";
 
 const ROLE_LABELS = {
@@ -99,9 +99,14 @@ export default function EmergencyOverlay({ userRole }) {
             message: data.message,
             activatedAt: data.timestamp,
           };
-          setStatus(nextStatus);
-          setDismissedNotice(false);
-          if (nextStatus.active) playAlarm();
+          setStatus((prev) => {
+            // Chỉ reset dismissedNotice và play alarm khi có sự kiện SOS mới, hoặc trạng thái từ tắt -> bật
+            if (nextStatus.active && (!prev.active || prev.eventId !== nextStatus.eventId)) {
+              setDismissedNotice(false);
+              playAlarm();
+            }
+            return nextStatus;
+          });
         } catch (err) {
           console.error("Cannot parse emergency broadcast:", err);
         }
@@ -143,20 +148,20 @@ export default function EmergencyOverlay({ userRole }) {
     }
   };
 
-  if (!userRole || !status.active) return null;
+  if (!userRole || !status.active || dismissedNotice) return null;
 
   const canDeactivateEmergency = role === "SECURITY" || role === "MANAGER" || role === "ADMIN";
 
   return (
-    <div className="fixed inset-0 z-[9999] overflow-hidden bg-red-950/95 text-white backdrop-blur-md">
-      <div className="absolute inset-0 opacity-30">
+    <div className="fixed inset-0 z-[9999] overflow-y-auto overflow-x-hidden bg-red-950/95 text-white backdrop-blur-md">
+      <div className="fixed inset-0 opacity-30 pointer-events-none">
         <div className="absolute left-[-10%] top-[-15%] h-96 w-96 rounded-full bg-red-400 blur-3xl" />
         <div className="absolute bottom-[-12%] right-[-8%] h-[32rem] w-[32rem] rounded-full bg-orange-500 blur-3xl" />
       </div>
 
-      <div className="absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.12),transparent_32%)]" />
+      <div className="fixed inset-0 animate-pulse bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.12),transparent_32%)] pointer-events-none" />
 
-      <main className="relative z-10 flex min-h-screen items-center justify-center p-6">
+      <main className="relative z-10 flex min-h-screen py-12 md:py-20 items-center justify-center p-6">
         <section className="w-full max-w-5xl overflow-hidden rounded-[2.2rem] border-4 border-red-200 bg-red-700 shadow-[0_0_110px_rgba(239,68,68,0.9)]">
           <div className="border-b border-red-300/40 bg-white/10 px-8 py-5 text-center">
             <p className="text-xs font-black uppercase tracking-[0.55em] text-red-100">
@@ -238,14 +243,8 @@ export default function EmergencyOverlay({ userRole }) {
                   onClick={() => setDismissedNotice(true)}
                   className="w-full rounded-2xl border border-white/25 px-4 py-3 text-sm font-black text-white transition hover:bg-white/10"
                 >
-                  Tôi đã đọc hướng dẫn
+                  Tôi đã đọc hướng dẫn (Thoát)
                 </button>
-
-                {dismissedNotice && (
-                  <p className="text-center text-xs font-semibold text-red-100">
-                    Cảnh báo vẫn giữ toàn màn hình cho đến khi SOS được hủy.
-                  </p>
-                )}
               </div>
             </aside>
           </div>

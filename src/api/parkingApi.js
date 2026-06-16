@@ -163,10 +163,6 @@ export const staffApi = {
     return axiosClient.post(`/admin/parking-passes/${id}/renew`);
   },
 
-  controlBarrier(gateId, state) {
-    return axiosClient.put(`/admin/gates/${gateId}/barrier`, { state });
-  },
-
   getAdminSettings() {
     return axiosClient.get("/admin/settings");
   },
