@@ -107,6 +107,14 @@ export const staffApi = {
     return axiosClient.delete(`/admin/users/${id}`);
   },
 
+  resetAdminUserPassword(id, data) {
+    return axiosClient.post(`/admin/users/${id}/reset-password`, data);
+  },
+
+  getAdminPayments() {
+    return axiosClient.get("/admin/payments");
+  },
+
   createZone(data) {
     return axiosClient.post("/admin/zones", data);
   },
@@ -227,3 +235,5 @@ export const staffApi = {
     return axiosClient.delete(`/security/blacklist/${id}`, { data });
   },
 };
+
+export default staffApi;
