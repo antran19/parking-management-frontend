@@ -2,12 +2,11 @@ import { useState } from "react";
 import { BrowserRouter } from "react-router-dom";
 import AppRoutes from "./route/AppRoutes";
 import EmergencyOverlay from "./components/EmergencyOverlay";
-import { getStoredUser, getStoredUserRole } from "./utils/authStorage";
 
 function App() {
   const [userRole, setUserRole] = useState(() => {
-    const storedRole = getStoredUserRole();
-    if (storedRole) {
+    const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+    if (storedUser && storedUser.role) {
       const roleMap = {
         DRIVER: "driver",
         STAFF: "staff",
@@ -15,7 +14,7 @@ function App() {
         ADMIN: "admin",
         SECURITY: "security",
       };
-      return roleMap[storedRole] || null;
+      return roleMap[storedUser.role] || null;
     }
     return null;
   });
@@ -25,7 +24,7 @@ function App() {
   };
 
   const handleLogout = () => {
-    const user = getStoredUser();
+    const user = JSON.parse(localStorage.getItem("user") || "null");
     if (user?.role) localStorage.removeItem(`accessToken_${user.role}`);
     setUserRole(null);
     localStorage.removeItem("user");

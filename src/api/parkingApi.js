@@ -87,7 +87,11 @@ export const staffApi = {
     return axiosClient.post(`/driver/parking-passes/${passId}/pay`);
   },
 
-  getVnPayPassReturn(queryString) {
+  cancelDriverPass(passId) {
+    return axiosClient.delete(`/driver/parking-passes/${passId}/cancel`);
+  },
+
+  getVnPayPassReturn(queryString = "") {
     return axiosClient.get(`/driver/payments/vnpay-return${queryString}`);
   },
 
@@ -105,14 +109,6 @@ export const staffApi = {
 
   deleteAdminUser(id) {
     return axiosClient.delete(`/admin/users/${id}`);
-  },
-
-  resetAdminUserPassword(id, data) {
-    return axiosClient.post(`/admin/users/${id}/reset-password`, data);
-  },
-
-  getAdminPayments() {
-    return axiosClient.get("/admin/payments");
   },
 
   createZone(data) {
@@ -235,5 +231,3 @@ export const staffApi = {
     return axiosClient.delete(`/security/blacklist/${id}`, { data });
   },
 };
-
-export default staffApi;

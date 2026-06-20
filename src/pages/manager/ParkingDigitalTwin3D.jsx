@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { Client } from "@stomp/stompjs";
 
 const zonePalette = {
   low: { base: 0x14f195, rgb: "20, 241, 149", label: "Còn trống" },
@@ -66,8 +65,6 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
   const [selectedZone, setSelectedZone] = useState(null);
   const [tooltip, setTooltip] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const gateStatesRef = useRef({}); // { gateId: "OPEN" | "CLOSED" }
-  const gateMeshesRef = useRef([]); // Three.js meshes for gates
 
   const normalizedZones = useMemo(() => zones.map(normalizeZone), [zones]);
 
@@ -107,42 +104,6 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
     const locked = visibleZones.filter((zone) => ["LOCKED", "MAINTENANCE"].includes(String(zone.status || "").toUpperCase())).length;
     return { capacity, occupied, reserved, free: Math.max(capacity - occupied - reserved, 0), locked };
   }, [visibleZones]);
-
-  // WebSocket listener for real-time gate barrier updates
-  useEffect(() => {
-    const wsUrl = `ws://${window.location.hostname}:8080/ws`;
-    const client = new Client({
-      brokerURL: wsUrl,
-      reconnectDelay: 5000,
-      onConnect: () => {
-        client.subscribe("/topic/gates", (message) => {
-          try {
-            const data = JSON.parse(message.body);
-            const { gateId, barrierState } = data;
-            if (!gateId || !barrierState) return;
-
-            // Update ref state
-            gateStatesRef.current[gateId] = barrierState;
-
-            // Update 3D meshes in real-time
-            gateMeshesRef.current.forEach((mesh) => {
-              if (mesh?.userData?.gateId === gateId) {
-                mesh.userData.barrierState = barrierState;
-                // Update light color
-                if (mesh.userData.light) {
-                  mesh.userData.light.color.set(barrierState === "OPEN" ? 0x22c55e : 0xef4444);
-                }
-              }
-            });
-          } catch (e) {
-            console.warn("Gate WS parse error:", e);
-          }
-        });
-      },
-    });
-    client.activate();
-    return () => client.deactivate();
-  }, []);
 
   useEffect(() => {
     const resize = () => window.dispatchEvent(new Event("resize"));
@@ -305,17 +266,6 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
         barrier.position.y = barrier.userData.baseY + Math.sin(t * 1.5 + index) * 0.025;
       });
 
-      // Gate color pulse animation
-      gateMeshesRef.current.forEach((mesh) => {
-        if (!mesh) return;
-        const isOpen = mesh.userData.barrierState === "OPEN";
-        const targetColor = isOpen ? 0x22c55e : 0xef4444;
-        const targetEmissive = isOpen ? 0.35 + Math.sin(t * 3) * 0.15 : 0.18;
-        mesh.material.color.lerp(new THREE.Color(targetColor), 0.08);
-        mesh.material.emissive.lerp(new THREE.Color(targetColor), 0.08);
-        mesh.material.emissiveIntensity += (targetEmissive - mesh.material.emissiveIntensity) * 0.1;
-      });
-
       renderer.render(scene, cameraRef.current);
       animationRef.current = requestAnimationFrame(animate);
     };
@@ -350,7 +300,6 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
     root.name = "parking-tower-root";
     hoverablesRef.current = [];
     animatedRef.current = { floors: [], cars: [], barriers: [] };
-    gateMeshesRef.current = [];
 
     const floorsToRender = sortedFloors
       .filter((floor) => activeFloor === "all" || floor.floorName === activeFloor)
@@ -394,35 +343,14 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
         floorGroup.add(pillar);
       });
 
-      // Gate / ramp — color based on barrier state
-      const floorGates = (gates || []).filter((g, gi) => {
-        // Map gates to floors: distribute gates evenly across floors
-        const gateFloorIndex = gi % floorsToRender.length;
-        return gateFloorIndex === floorIndex;
-      });
-      const gateForFloor = floorGates[0];
-      const barrierState = gateForFloor
-        ? (gateStatesRef.current[gateForFloor.id] || gateForFloor.barrierState || gateForFloor.barrier || "CLOSED")
-        : "CLOSED";
-      const gateColor = barrierState === "OPEN" ? 0x22c55e : 0xef4444;
+      // ramp ribbon
       const ramp = new THREE.Mesh(
-        new THREE.BoxGeometry(1.1, 0.22, 5.6),
-        makeMat(gateColor, barrierState === "OPEN" ? 0.35 : 0.18, 0.85)
+        new THREE.BoxGeometry(1.1, 0.09, 5.6),
+        makeMat(0x2563eb, 0.18, 0.58)
       );
       ramp.position.set(6.6, 0.24, 0);
       ramp.rotation.z = -0.08;
-      ramp.userData.gateId = gateForFloor?.id;
-      ramp.userData.barrierState = barrierState;
-      ramp.name = `gate-${floorIndex}`;
       floorGroup.add(ramp);
-      gateMeshesRef.current.push(ramp);
-
-      // Gate label indicator
-      const gateLightColor = barrierState === "OPEN" ? 0x22c55e : 0xef4444;
-      const gateLight = new THREE.PointLight(gateLightColor, 1.5, 4);
-      gateLight.position.set(6.6, 0.8, 0);
-      ramp.userData.light = gateLight;
-      floorGroup.add(gateLight);
 
       const cols = Math.max(2, Math.ceil(Math.sqrt(floorZones.length || 1)));
       const laneWidth = 3.25;
@@ -690,19 +618,6 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
                   <span className="font-bold">{val.label}</span>
                 </div>
               ))}
-            </div>
-            <div className="mt-3 pt-3 border-t border-white/10">
-              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-500 mb-2">Trạng thái cổng</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 bg-green-500" />
-                  <span className="font-bold">Cổng mở</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 bg-red-500" />
-                  <span className="font-bold">Cổng khóa</span>
-                </div>
-              </div>
             </div>
           </div>
         </aside>
