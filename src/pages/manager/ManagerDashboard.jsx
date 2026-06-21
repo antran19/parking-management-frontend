@@ -332,11 +332,21 @@ export default function ManagerDashboard({ onLogout }) {
 
   // Mock dữ liệu cho biểu đồ Line/Bar vì API chỉ trả về tổng (Dựa vào tổng để chia đều mô phỏng biểu đồ)
   const generateChartData = (totalValue, count = 7) => {
+    // Sử dụng một seed cố định hoặc thuật toán đơn giản để kết quả nhất quán dựa trên totalValue
     return Array.from({ length: count }).map((_, i) => ({
       name: `Ngày ${i + 1}`,
-      value: Math.round(totalValue / count) + Math.floor(Math.random() * (totalValue * 0.1))
+      // Thay Math.random() bằng một logic dựa trên index để tạo ra độ lệch nhất quán
+      value: Math.round(totalValue / count) + Math.floor((((i * 7 + 13) % 10) / 10) * (totalValue * 0.1))
     }));
   };
+
+  const memoizedRevenueData = React.useMemo(() => {
+    return revenueData ? generateChartData(revenueData.totalRevenue) : [];
+  }, [revenueData]);
+
+  const memoizedVisitsData = React.useMemo(() => {
+    return visitsData ? generateChartData(visitsData.totalSessions, 7) : [];
+  }, [visitsData]);
 
   return (
     <div ref={containerRef} className="min-h-screen bg-[#f8fafc] text-slate-900 flex font-sans antialiased">
@@ -548,13 +558,13 @@ export default function ManagerDashboard({ onLogout }) {
                     <h3 className="text-lg font-bold text-slate-800 mb-6">Biểu đồ doanh thu</h3>
                     <div className="h-[300px] w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={generateChartData(revenueData.totalRevenue)}>
+                        <LineChart data={memoizedRevenueData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                           <XAxis dataKey="name" tick={{fontSize: 12}} stroke="#94a3b8" />
                           <YAxis tick={{fontSize: 12}} stroke="#94a3b8" width={80} tickFormatter={(val) => val.toLocaleString('vi-VN')} />
                           <RechartsTooltip formatter={(value) => [`${value.toLocaleString('vi-VN')} đ`, 'Doanh thu']} />
                           <Legend />
-                          <Line type="monotone" dataKey="value" name="Doanh thu" stroke="#6366f1" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+                          <Line type="linear" dataKey="value" name="Doanh thu" stroke="#6366f1" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -674,7 +684,7 @@ export default function ManagerDashboard({ onLogout }) {
                     <h3 className="text-lg font-bold text-slate-800 mb-6">Biểu đồ Lượt gửi xe</h3>
                     <div className="h-[300px] w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={generateChartData(visitsData.totalSessions, 7)}>
+                        <BarChart data={memoizedVisitsData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                           <XAxis dataKey="name" tick={{fontSize: 12}} stroke="#94a3b8" />
                           <YAxis tick={{fontSize: 12}} stroke="#94a3b8" />
