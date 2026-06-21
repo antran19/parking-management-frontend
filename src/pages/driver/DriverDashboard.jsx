@@ -157,10 +157,12 @@ export default function DriverDashboard({ onLogout }) {
   }, [activeTab]);
   const [newPlateInput, setNewPlateInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-
+  const [reservationSearchTerm, setReservationSearchTerm] = useState("");
+  const [qrModalData, setQrModalData] = useState(null);
   // Tự động chuyển hướng tab
   const handleScrollTo = (tabId) => {
     if (tabId === "current-session") setActiveTab("session");
+    else if (tabId === "my-reservations") setActiveTab("reservations");
     else if (tabId === "history-table") setActiveTab("history");
     else if (tabId === "profile-vip") setActiveTab("profile");
     else setActiveTab("dashboard");
@@ -181,6 +183,7 @@ export default function DriverDashboard({ onLogout }) {
     // Hỗ trợ cả dạng /driver/dashboard?tab=profile nếu sau này có chỗ khác dùng.
     if (tab === "profile") setActiveTab("profile");
     else if (tab === "history") setActiveTab("history");
+    else if (tab === "reservations") setActiveTab("reservations");
     else if (tab === "session") setActiveTab("session");
   }, [location.hash, location.search]);
 
@@ -222,6 +225,7 @@ const loadEmergencyStatus = async () => {
     let plates = [];
     let activeSession = null;
     let activeReservation = null;
+    let reservations = [];
     let historyList = [];
     let totalAvailable = 0;
 
@@ -234,8 +238,17 @@ const loadEmergencyStatus = async () => {
     }
 
     const reservationRes = await staffApi.getDriverReservations().catch(() => null);
-    const reservations = reservationRes?.data?.data || [];
-    activeReservation = reservations.find((item) => item.status === "CONFIRMED" || item.status === "PENDING") || null;
+
+    reservations = (reservationRes?.data?.data || [])
+      .slice()
+      .sort((a, b) => {
+        return new Date(b.createdAt || b.createdTime || b.reservedFrom || 0) -
+          new Date(a.createdAt || a.createdTime || a.reservedFrom || 0);
+      });
+
+    activeReservation = reservations.find((item) =>
+      ["CONFIRMED", "PENDING"].includes(String(item.status || "").toUpperCase())
+    ) || null;
 
     if (activeReservation?.licensePlate && !plates.includes(activeReservation.licensePlate)) {
       plates = [...plates, activeReservation.licensePlate];
@@ -312,17 +325,41 @@ const loadEmergencyStatus = async () => {
       },
       currentSession: activeSession,
       currentBooking: activeReservation ? {
-        bookingCode: activeReservation.reservationCode,
-        licensePlate: activeReservation.licensePlate,
-        vehicleTypeId: activeReservation.vehicleTypeId,
-        vehicleType: activeReservation.vehicleTypeName,
-        floor: activeReservation.floorName,
-        zoneCode: activeReservation.zoneCode,
-        zoneName: activeReservation.zoneName,
-        status: activeReservation.status,
-        createdTime: activeReservation.createdAt ? new Date(activeReservation.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "--",
-        reservedTo: activeReservation.reservedTo,
-      } : null,
+      id: activeReservation.id || activeReservation.reservationId,
+      bookingCode: activeReservation.reservationCode,
+      licensePlate: activeReservation.licensePlate,
+      vehicleTypeId: activeReservation.vehicleTypeId,
+      vehicleType: activeReservation.vehicleTypeName,
+      floor: activeReservation.floorName,
+      zoneCode: activeReservation.zoneCode,
+      zoneName: activeReservation.zoneName,
+      status: String(activeReservation.status || "--").toUpperCase(),
+      createdTime: activeReservation.createdAt
+        ? new Date(activeReservation.createdAt).toLocaleTimeString("vi-VN", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "--",
+      reservedFrom: activeReservation.reservedFrom,
+      reservedTo: activeReservation.reservedTo,
+    } : null,
+
+    reservations: reservations.map((reservation, idx) => ({
+      id: reservation.id || reservation.reservationId || reservation.reservationCode || idx,
+      reservationId: reservation.id || reservation.reservationId,
+      reservationCode: reservation.reservationCode || reservation.code || "--",
+      licensePlate: reservation.licensePlate || "--",
+      zoneCode: reservation.zoneCode || "--",
+      zoneName: reservation.zoneName || "--",
+      floorName: reservation.floorName || "--",
+      buildingName: reservation.buildingName || reservation.building?.name || "Smart Parking",
+      vehicleTypeId: reservation.vehicleTypeId,
+      vehicleTypeName: reservation.vehicleTypeName || reservation.vehicleType || "--",
+      reservedFrom: reservation.reservedFrom,
+      reservedTo: reservation.reservedTo,
+      status: String(reservation.status || "--").toUpperCase(),
+      createdAt: reservation.createdAt || reservation.createdTime,
+    })),
       stats: {
         totalParking: historyList.length,
         totalHours: totalMinutes > 0 ? `${Math.round(totalMinutes / 60)} giờ` : "0 giờ",
@@ -343,11 +380,11 @@ const loadEmergencyStatus = async () => {
       .replace(/[^a-zA-Z0-9]/g, "")
       .toUpperCase();
 
-    if (!compactPlate) return;
+    if (!compactPlate) return false;
 
     if (!isValidVietnamLicensePlate(normalizedPlate)) {
       alert(LICENSE_PLATE_HINT);
-      return;
+      return false;
     }
 
     /*
@@ -371,7 +408,7 @@ const loadEmergencyStatus = async () => {
 
     if (existedPlate) {
       alert("Biển số này đã tồn tại trong hồ sơ. Hệ thống đã nhận dạng cả dạng có dấu gạch/chấm và dạng không dấu.");
-      return;
+      return false;
     }
 
     try {
@@ -379,9 +416,11 @@ const loadEmergencyStatus = async () => {
       setNewPlateInput("");
       await loadUserData();
       alert("Đăng ký biển số xe thành công!");
+      return true;
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message || "Lỗi đăng ký biển số xe";
       alert(`Đăng ký biển số thất bại: ${errorMsg}`);
+      return false;
     }
   };
 
@@ -419,6 +458,29 @@ const loadEmergencyStatus = async () => {
       alert("❌ Không thể tạo thanh toán VNPay: " + (err.response?.data?.message || err.message));
     }
   };
+
+  const handleCancelReservation = async (reservation) => {
+  const reservationId = reservation?.reservationId || reservation?.id;
+
+  if (!reservationId) {
+    alert("Không tìm thấy ID đặt chỗ để hủy.");
+    return;
+  }
+
+  const code = reservation.reservationCode || reservationId;
+
+  if (!confirm(`Bạn có chắc muốn hủy đặt chỗ ${code} không?`)) {
+    return;
+  }
+
+  try {
+    await staffApi.cancelReservation(reservationId);
+    alert("Đã hủy đặt chỗ thành công!");
+    await loadUserData();
+  } catch (err) {
+    alert("Hủy đặt chỗ thất bại: " + (err.response?.data?.message || err.message));
+  }
+};
 
   useEffect(() => {
     // Style laser scan line hiệu ứng cho QR ticket
@@ -491,6 +553,7 @@ const emergencyInterval = setInterval(() => {
       const scrollToId = params.get("scrollTo");
       if (scrollToId) {
         if (scrollToId === "current-session") setActiveTab("session");
+        else if (scrollToId === "my-reservations") setActiveTab("reservations");
         else if (scrollToId === "history-table") setActiveTab("history");
         else if (scrollToId === "profile-vip") setActiveTab("profile");
       }
@@ -508,7 +571,7 @@ const emergencyInterval = setInterval(() => {
     );
   }
 
-  const { user, currentSession, currentBooking, stats, history } = data;
+  const { user, currentSession, currentBooking, stats, history, reservations = [] } = data;
 
   const qrPayload = currentSession ? JSON.stringify({
     type: "SESSION",
@@ -537,6 +600,71 @@ const emergencyInterval = setInterval(() => {
 
   // Chi phí thực tế tạm tính lấy trực tiếp từ hệ thống tính phí Backend
   const realTimeFee = currentSession ? currentSession.estimatedFee : 0;
+  const formatDateTime = (value) => {
+  if (!value) return "--";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+
+  return date.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const getReservationStatusStyle = (status) => {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  if (["PENDING", "CONFIRMED"].includes(normalizedStatus)) {
+    return "bg-emerald-50 text-emerald-700 border-emerald-100";
+  }
+
+  if (normalizedStatus === "CANCELLED") {
+    return "bg-rose-50 text-rose-700 border-rose-100";
+  }
+
+  if (normalizedStatus === "EXPIRED") {
+    return "bg-amber-50 text-amber-700 border-amber-100";
+  }
+
+  return "bg-slate-100 text-slate-600 border-slate-200";
+};
+
+const getReservationStatusLabel = (status) => {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  if (normalizedStatus === "PENDING") return "Pending";
+  if (normalizedStatus === "CONFIRMED") return "Confirmed";
+  if (normalizedStatus === "CANCELLED") return "Cancelled";
+  if (normalizedStatus === "EXPIRED") return "Expired";
+  if (normalizedStatus === "COMPLETED") return "Completed";
+
+  return normalizedStatus || "--";
+};
+
+const isReservationCancelable = (status) => {
+  return ["PENDING", "CONFIRMED"].includes(String(status || "").toUpperCase());
+};
+
+const filteredReservations = reservations.filter((item) => {
+  const keyword = reservationSearchTerm.trim().toLowerCase();
+
+  if (!keyword) return true;
+
+  return [
+    item.reservationCode,
+    item.licensePlate,
+    item.zoneCode,
+    item.zoneName,
+    item.floorName,
+    item.status,
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(keyword));
+});
 
   return (
     <div ref={containerRef} className="driver-mobile-shell min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-900 flex font-sans">
@@ -588,6 +716,17 @@ const emergencyInterval = setInterval(() => {
           >
             <span className="flex-shrink-0"><IconSession /></span>
             {!collapsed && <span className="whitespace-nowrap">Phiên gửi xe</span>}
+          </button>
+
+          <button
+            onClick={() => setActiveTab("reservations")}
+            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "reservations"
+              ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+              : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              }`}
+          >
+            <span className="flex-shrink-0"><IconSession /></span>
+            {!collapsed && <span className="whitespace-nowrap">Đặt chỗ của tôi</span>}
           </button>
 
           <button
@@ -1140,6 +1279,134 @@ const emergencyInterval = setInterval(() => {
             </div>
           )}
 
+          {activeTab === "reservations" && (
+  <div className="space-y-8 animate-fadeIn">
+    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h3 className="text-2xl font-black text-slate-950 tracking-tight">
+          Đặt chỗ của tôi
+        </h3>
+        <p className="text-xs text-slate-500 mt-1">
+          Xem thông tin đặt chỗ, mã QR và hủy các đặt chỗ còn hiệu lực.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={() => navigate("/driver/map")}
+          className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-black text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700"
+        >
+           Tạo đặt chỗ mới
+        </button>
+
+        <button
+          onClick={() => setActiveTab("dashboard")}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+        >
+          ← Bảng điều khiển chính
+        </button>
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h4 className="mt-1 text-lg font-black text-slate-950">
+            Danh sách đặt chỗ
+          </h4>
+        </div>
+
+        <input
+          value={reservationSearchTerm}
+          onChange={(e) => setReservationSearchTerm(e.target.value)}
+          placeholder="Tìm theo mã đặt chỗ, biển số, khu vực hoặc trạng thái..."
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 md:max-w-sm"
+        />
+      </div>
+
+      {filteredReservations.length === 0 ? (
+        <div className="py-14 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-[10px] font-black tracking-widest text-slate-400">
+            RES
+          </div>
+          <h4 className="text-sm font-black text-slate-900">
+            Chưa có đặt chỗ phù hợp
+          </h4>
+          <p className="mt-1 text-xs font-semibold text-slate-400">
+            Bạn có thể tạo đặt chỗ mới từ Sơ đồ bãi xe.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {filteredReservations.map((reservation) => {
+  const canCancel = isReservationCancelable(reservation.status);
+
+  return (
+              <div
+                key={reservation.id}
+                className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5 text-xs shadow-sm transition hover:border-indigo-100 hover:bg-white"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Mã đặt chỗ
+                    </p>
+                    <p className="mt-1 font-mono text-lg font-black text-slate-950">
+                      {reservation.reservationCode}
+                    </p>
+                    <p className="mt-1 font-semibold text-slate-500">
+                      {reservation.buildingName} · {reservation.floorName}-{reservation.zoneCode}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${getReservationStatusStyle(reservation.status)}`}
+                  >
+                    {reservation.status}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
+                  <InfoRow label="Biển số" value={reservation.licensePlate} mono />
+                  <InfoRow label="Loại phương tiện" value={reservation.vehicleTypeName} />
+                  <InfoRow label="Thời gian bắt đầu" value={formatDateTime(reservation.reservedFrom)} />
+                  <InfoRow label="Thời gian kết thúc" value={formatDateTime(reservation.reservedTo)} />
+                  <InfoRow label="Thời gian tạo" value={formatDateTime(reservation.createdAt)} />
+                  <InfoRow label="Khu vực" value={`${reservation.floorName}-${reservation.zoneCode}`} mono />
+                </div>
+
+                <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setQrModalData({ type: "RESERVATION", reservation })}
+                    className="rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-slate-800"
+                  >
+Xem mã QR / mã đặt chỗ
+                  </button>
+
+                  {canCancel ? (
+  <button
+    type="button"
+    onClick={() => handleCancelReservation(reservation)}
+    className="rounded-xl border border-rose-200 bg-white px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-rose-600 transition hover:bg-rose-50"
+  >
+    Hủy đặt chỗ
+  </button>
+) : (
+  <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">
+    Không thể hủy
+  </div>
+)}  
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
           {activeTab === "history" && (
             <div className="space-y-8 animate-fadeIn">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1243,6 +1510,109 @@ const emergencyInterval = setInterval(() => {
         navigate={navigate}
         onLogout={onLogout}
       />
+
+      {qrModalData && (
+        <DriverQrModal
+          data={qrModalData}
+          userName={user.name}
+          onClose={() => setQrModalData(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function InfoRow({ label, value, mono = false }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white px-3 py-2.5">
+      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+        {label}
+      </p>
+      <p className={`mt-1 text-xs font-black text-slate-800 ${mono ? "font-mono" : ""}`}>
+        {value || "--"}
+      </p>
+    </div>
+  );
+}
+
+function DriverQrModal({ data, userName, onClose }) {
+  const isSession = data.type === "SESSION";
+  const item = isSession ? data.session : data.reservation;
+  const code = isSession ? item.sessionCode : item.reservationCode || item.bookingCode;
+
+  const payload = JSON.stringify(
+    isSession
+      ? {
+          type: "SESSION",
+          sessionCode: item.sessionCode,
+          licensePlate: item.licensePlate,
+          vehicleType: item.vehicle,
+          zoneCode: item.zoneCode,
+          floor: item.floor,
+        }
+      : {
+          type: "RESERVATION",
+          reservationCode: item.reservationCode || item.bookingCode,
+          licensePlate: item.licensePlate,
+          vehicleTypeId: item.vehicleTypeId,
+          vehicleType: item.vehicleTypeName || item.vehicleType,
+          zoneCode: item.zoneCode,
+          floor: item.floorName || item.floor,
+          status: item.status,
+        }
+  );
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between bg-slate-950 px-6 py-5 text-white">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200">
+              {isSession ? "Mã QR phiên gửi xe" : "Mã QR đặt chỗ"}
+            </p>
+            <h3 className="mt-2 text-xl font-black">
+              {isSession ? "Mã phiên gửi xe" : "Mã đặt chỗ"}
+            </h3>
+            <p className="mt-1 font-mono text-xs font-bold text-slate-300">
+              {code || "--"}
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-xl bg-white/10 px-3 py-1.5 text-xs font-black transition hover:bg-white/20"
+          >
+            Đóng
+          </button>
+        </div>
+
+        <div className="p-7 text-center">
+          <div className="mx-auto flex h-64 w-64 items-center justify-center rounded-3xl border border-slate-200 bg-white p-4 shadow-inner">
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(payload)}`}
+              alt="Driver QR Code"
+              className="h-full w-full object-contain"
+            />
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-3 text-left sm:grid-cols-2">
+            <InfoRow label="Tài xế" value={userName} />
+            <InfoRow label="Biển số" value={item.licensePlate} mono />
+            <InfoRow label="Khu vực" value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`} mono />
+            <InfoRow label="Trạng thái" value={getReservationStatusLabel(item.status)} />
+            <InfoRow
+              label="Zone"
+              value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`}
+              mono
+            />
+            <InfoRow label="Trạng thái" value={item.status} />
+          </div>
+
+          <p className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs font-semibold leading-5 text-indigo-700">
+            Xuất trình mã QR hoặc mã đặt chỗ cho nhân viên tại cổng để hỗ trợ check-in.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

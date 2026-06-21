@@ -62,10 +62,19 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
   const [regPlate, setRegPlate] = useState("");
   const [plateInputMode, setPlateInputMode] = useState("MANAGED");
   const [showPassModal, setShowPassModal] = useState(false);
+  const [showAddPlateModal, setShowAddPlateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
+
+  const handleAddPlateFromPopup = async (event) => {
+  const ok = await handleAddPlate(event);
+
+  if (ok) {
+    setShowAddPlateModal(false);
+  }
+};
 
   const getPlateValue = (plate) => {
     if (typeof plate === "string") return plate;
@@ -791,16 +800,95 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
             )}
           </div>
           <div className="pt-6 border-t border-slate-100">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3">Đăng ký thêm phương tiện mới</span>
-            <form onSubmit={handleAddPlate} className="flex gap-3 max-w-md">
-              <input type="text" value={newPlateInput} onChange={(e) => setNewPlateInput(normalizeLicensePlate(e.target.value))} placeholder="Nhập biển số xe" required className="flex-1 rounded-xl border border-slate-200 px-4 py-3 font-mono font-bold text-xs tracking-wider outline-none focus:border-indigo-500 transition-all shadow-inner bg-slate-50 text-slate-800" />
-              <button type="submit" className="rounded-xl bg-indigo-600 text-white px-5 py-3 font-extrabold hover:bg-indigo-700 transition-colors text-xs shadow-md shadow-indigo-600/15 whitespace-nowrap cursor-pointer">
-                + Thêm xe
-              </button>
-            </form>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3">Thêm biển số xe</span>
+            <div className="flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+  <div>
+    <p className="text-sm font-black text-slate-900">
+  Thêm biển số xe
+</p>
+<p className="mt-1 text-xs font-semibold text-slate-500">
+  Biển số được dùng khi đặt chỗ, check-in và tra cứu phiên gửi xe.
+</p>
+  </div>
+
+  <button
+    type="button"
+    onClick={() => setShowAddPlateModal(true)}
+    className="rounded-xl bg-indigo-600 px-5 py-3 text-xs font-extrabold text-white shadow-md shadow-indigo-600/15 transition-colors hover:bg-indigo-700 cursor-pointer"
+  >
+    + Thêm biển số
+  </button>
+</div>
           </div>
         </div>
       </div>
+
+      {showAddPlateModal && (
+  <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
+    <div className="w-full max-w-md overflow-hidden rounded-[2rem] border border-indigo-100 bg-white shadow-2xl shadow-slate-950/30">
+      <div className="flex items-start justify-between bg-slate-950 px-6 py-5 text-white">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-200">
+            Thêm biển số xe
+          </p>
+          <h4 className="mt-2 text-xl font-black">
+            Thêm biển số xe
+          </h4>
+          <p className="mt-1 text-xs font-semibold text-slate-400">
+            Biển số sẽ được kiểm tra và chuẩn hóa trước khi lưu vào tài khoản.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowAddPlateModal(false)}
+          className="rounded-xl bg-white/10 px-3 py-1.5 text-xs font-black text-white transition hover:bg-white/20"
+        >
+          Đóng
+        </button>
+      </div>
+
+      <form onSubmit={handleAddPlateFromPopup} className="space-y-4 p-6">
+        <label className="block">
+          <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
+            Biển số xe
+          </span>
+
+          <input
+            type="text"
+            value={newPlateInput}
+            onChange={(e) => setNewPlateInput(normalizeLicensePlate(e.target.value))}
+            placeholder="Ví dụ: 51F-123.45 hoặc 51F12345"
+            required
+            autoFocus
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm font-black uppercase tracking-wider text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50"
+          />
+        </label>
+
+        <p className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-[11px] font-semibold leading-5 text-slate-500">
+          Hệ thống sẽ chặn biển số trống, sai định dạng hoặc trùng với biển số đã có trong hồ sơ.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setShowAddPlateModal(false)}
+            className="rounded-xl border border-slate-200 px-4 py-3 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+          >
+            Hủy
+          </button>
+
+          <button
+            type="submit"
+            className="rounded-xl bg-indigo-600 px-4 py-3 text-xs font-black text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700"
+          >
+            Lưu biển số
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
     </div>
   );
 }

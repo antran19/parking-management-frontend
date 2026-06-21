@@ -156,6 +156,12 @@ function toSpringLocalDateTime(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+function toDateTimeLocalInputValue(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function getStatusLabel(status) {
   if (status === "closed") return "Đã tạm đóng";
   if (status === "available") return "Còn sức chứa";
@@ -421,7 +427,7 @@ export default function DriverMapping({ onLogout }) {
     return matchSearch && matchStatus && matchType;
   };
 
-  const handleReserveZone = async (zoneId, licensePlate) => {
+  const handleReserveZone = async (zoneId, licensePlate, reservedFromInput, reservedToInput) => {
     const zone = allZones.find((item) => item.id === zoneId);
     if (!zone) return;
 
@@ -476,8 +482,18 @@ export default function DriverMapping({ onLogout }) {
       // Sau khi chắc chắn biển số đã thuộc Driver,
       // mới tạo reservation để tránh lỗi 400:
       // "Biển số chưa được đăng ký bởi driver này".
-      const reservedFrom = new Date();
-      const reservedTo = new Date(Date.now() + 30 * 60 * 1000);
+      const reservedFrom = reservedFromInput ? new Date(reservedFromInput) : new Date();
+      const reservedTo = reservedToInput ? new Date(reservedToInput) : new Date(Date.now() + 30 * 60 * 1000);
+
+      if (Number.isNaN(reservedFrom.getTime()) || Number.isNaN(reservedTo.getTime())) {
+        alert("Thời gian giữ chỗ không hợp lệ.");
+        return;
+      }
+
+      if (reservedTo <= reservedFrom) {
+        alert("Thời gian kết thúc phải sau thời gian bắt đầu.");
+        return;
+      }
 
       // NOTE:
       // Spring LocalDateTime không đọc tốt chuỗi ISO có chữ Z từ toISOString().
@@ -491,7 +507,7 @@ export default function DriverMapping({ onLogout }) {
       });
 
       setSelectedZone(null);
-      alert(`Đã giữ chỗ thật tại ${zone.zoneCode} cho xe ${plate}`);
+      alert(`Đã giữ chỗ thật tại ${zone.zoneCode} cho xe ${plate} từ ${reservedFrom.toLocaleString("vi-VN")} đến ${reservedTo.toLocaleString("vi-VN")}`);
 
       // NOTE:
       // Điều hướng về dashboard tab phiên gửi xe để FE hiển thị QR reservation.
@@ -547,6 +563,7 @@ export default function DriverMapping({ onLogout }) {
             label="Mô phỏng 3D"
           />
           <SideLink collapsed={collapsed} to="/driver/dashboard#current-session" icon={<IconSession />} label="Phiên gửi xe" />
+          <SideLink collapsed={collapsed} to="/driver/dashboard#my-reservations" icon={<IconSession />} label="Đặt chỗ của tôi" />
           <SideLink collapsed={collapsed} to="/driver/dashboard#history-table" icon={<IconHistory />} label="Lịch sử đỗ xe" />
           <SideLink collapsed={collapsed} to="/driver/dashboard#profile-vip" icon={<IconProfile />} label="Hồ sơ & hội viên" />
         </nav>
@@ -801,7 +818,7 @@ export default function DriverMapping({ onLogout }) {
               <div className="rounded-3xl border border-indigo-100 bg-indigo-50/50 p-6 shadow-sm space-y-3">
                 <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-600">💡 Chỉ dẫn điều hướng Smart</h4>
                 <p className="text-xs text-indigo-900/80 leading-relaxed font-medium">
-                  Hãy nhấn nút <strong>"Giữ chỗ trong zone"</strong> để giữ trước vị trí mong muốn trong vòng 30 phút. QR code đặt chỗ sẽ tự động kích hoạt giúp mở cửa Barrier tự động tại Cổng chính mà không cần quét thẻ từ truyền thống.
+                  Chọn khu vực còn chỗ để tạo đặt chỗ. Sau khi đặt chỗ thành công, hệ thống sẽ tạo mã QR để hỗ trợ check-in.
                 </p>
               </div>
             </div>
@@ -815,9 +832,11 @@ export default function DriverMapping({ onLogout }) {
           zone={selectedZone}
           isCurrent={selectedZone.id === currentZoneId}
           onClose={() => setSelectedZone(null)}
-          onReserve={(plate) => handleReserveZone(selectedZone.id, plate)}
+          onReserve={(plate, reservedFrom, reservedTo) =>
+            handleReserveZone(selectedZone.id, plate, reservedFrom, reservedTo)
+          }
           plates={plates}
-        />
+/>
       )}
 
       <MobileMapNav onLogout={onLogout} />
@@ -1002,8 +1021,14 @@ function ZoneModal({ zone, isCurrent, onClose, onReserve, plates = [] }) {
   const available = getZoneAvailability(zone);
   const status = getZoneStatus(zone);
   const canReserve = available > 0 && !isCurrent && zone.status === "ACTIVE";
+  const defaultReservedFrom = toDateTimeLocalInputValue(new Date());
+  const defaultReservedTo = toDateTimeLocalInputValue(new Date(Date.now() + 30 * 60 * 1000));
+
   const [selectedPlate, setSelectedPlate] = useState(plates[0] || "");
   const [newPlate, setNewPlate] = useState("");
+  const [reservedFromInput, setReservedFromInput] = useState(defaultReservedFrom);
+  const [reservedToInput, setReservedToInput] = useState(defaultReservedTo);
+
   const finalPlate = (newPlate || selectedPlate).trim().toUpperCase();
 
   return (
@@ -1059,6 +1084,34 @@ function ZoneModal({ zone, isCurrent, onClose, onReserve, plates = [] }) {
                 placeholder="Hoặc nhập biển số mới"
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
               />
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+  <label className="block">
+    <span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
+      Bắt đầu giữ chỗ
+    </span>
+    <input
+      type="datetime-local"
+      value={reservedFromInput}
+      onChange={(event) => setReservedFromInput(event.target.value)}
+      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+    />
+  </label>
+
+  <label className="block">
+    <span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
+      Kết thúc giữ chỗ
+    </span>
+    <input
+      type="datetime-local"
+      value={reservedToInput}
+      onChange={(event) => setReservedToInput(event.target.value)}
+      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+    />
+  </label>
+</div>
+
+
             </div>
           )}
         </div>
@@ -1073,10 +1126,10 @@ function ZoneModal({ zone, isCurrent, onClose, onReserve, plates = [] }) {
 
           {canReserve && (
             <button
-              onClick={() => onReserve(finalPlate)}
+              onClick={() => onReserve(finalPlate, reservedFromInput, reservedToInput)}
               className="flex-1 rounded-xl bg-slate-900 py-3 font-bold text-white hover:bg-slate-800 text-sm transition-colors"
             >
-              Giữ chỗ trong zone
+              Tạo đặt chỗ 
             </button>
           )}
         </div>
