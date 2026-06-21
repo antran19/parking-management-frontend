@@ -227,3 +227,79 @@ export const staffApi = {
     return axiosClient.delete(`/security/blacklist/${id}`, { data });
   },
 };
+
+// === API DÀNH RIÊNG CHO MANAGER ===
+export const managerApi = {
+  // Tổng quan
+  getDashboard() {
+    return axiosClient.get("/manager/dashboard");
+  },
+
+  // Doanh thu
+  getRevenue(params) {
+    // params: { type, from, to }
+    return axiosClient.get("/manager/dashboard/revenue", { params });
+  },
+
+  // Lượt gửi xe
+  getVisits(params) {
+    // params: { type, from, to }
+    return axiosClient.get("/manager/dashboard/visits", { params });
+  },
+
+  // Công suất
+  getBuildingOccupancy(buildingId) {
+    return axiosClient.get(`/manager/dashboard/buildings/${buildingId}/occupancy`);
+  },
+  getFloorOccupancy(floorId) {
+    return axiosClient.get(`/manager/dashboard/floors/${floorId}/occupancy`);
+  },
+
+  // Thanh toán
+  getPayments() {
+    return axiosClient.get("/manager/dashboard/payments");
+  },
+  getPaymentDetail(id) {
+    return axiosClient.get(`/manager/dashboard/payments/${id}`);
+  },
+
+  // An ninh
+  getSecuritySummary(params) {
+    // params: { from, to }
+    return axiosClient.get("/manager/security/summary", { params });
+  },
+
+  // === CRUD TÀI NGUYÊN (Zone, PricingRule, Gate) ===
+  // Zone
+  createZone(data) {
+    return axiosClient.post("/manager/zones", data);
+  },
+  updateZone(id, data) {
+    return axiosClient.put(`/manager/zones/${id}`, data);
+  },
+  deleteZone(id) {
+    return axiosClient.delete(`/manager/zones/${id}`);
+  },
+
+  // PricingRule
+  createPricingRule(data) {
+    return axiosClient.post("/manager/pricing-rules", data);
+  },
+  updatePricingRule(id, data) {
+    return axiosClient.put(`/manager/pricing-rules/${id}`, data);
+  },
+  deletePricingRule(id) {
+    return axiosClient.delete(`/manager/pricing-rules/${id}`);
+  },
+
+  // Gate
+  createGate(data) {
+    return axiosClient.post("/manager/gate", data);
+  },
+  updateGate(id, data) {
+    return axiosClient.put(`/manager/gate/${id}`, data);
+  },
+  deleteGate(id) {
+    return axiosClient.delete(`/manager/gate/${id}`);
+  }
+};
