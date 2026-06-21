@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { staffApi } from "../../api/parkingApi";
+import { formatLicensePlate, isValidVietnamLicensePlate } from "../../utils/licensePlate";
 
 // ==============================================================
 // CONSTANTS — Nhãn hiển thị cho từng loại sự cố an ninh
@@ -68,6 +69,14 @@ export default function ExceptionLogsPage({ showToast, user }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // State lưu danh sách file ảnh đang chờ upload
+  const [selectedFiles, setSelectedFiles] = useState([]);
+
+  // State và Ref cho tính năng Webcam
+  const [showWebcam, setShowWebcam] = useState(false);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
   // State filter để lọc danh sách sự cố
   const [filterType, setFilterType] = useState("all");
   const [searchText, setSearchText] = useState("");
@@ -78,7 +87,26 @@ export default function ExceptionLogsPage({ showToast, user }) {
     description: "",
     sessionId: "",
     licensePlate: "",
+    vehicleType: "MOTORBIKE", // Mặc định xe máy
   });
+
+  const handleLicensePlateBlur = () => {
+    const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleType);
+
+    // Kiểm tra ngay khi rời chuột (blur)
+    if (form.vehicleType !== "BICYCLE" && formattedPlate.trim()) {
+      if (!isValidVietnamLicensePlate(formattedPlate)) {
+        showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
+        setForm(prev => ({ ...prev, licensePlate: "" }));
+        return;
+      }
+    }
+
+    setForm(prev => ({
+      ...prev,
+      licensePlate: formattedPlate
+    }));
+  };
 
   // Lấy danh sách sự cố từ backend
   const fetchLogs = async () => {
@@ -98,6 +126,95 @@ export default function ExceptionLogsPage({ showToast, user }) {
     fetchLogs();
   }, []);
 
+  // Cleanup ObjectURLs khi unmount để tránh rò rỉ bộ nhớ
+  useEffect(() => {
+    return () => {
+      selectedFiles.forEach(file => URL.revokeObjectURL(file.preview));
+    };
+  }, [selectedFiles]);
+
+  // Hàm thêm file vào danh sách chờ
+  const handleAddFiles = (files) => {
+    if (!files || !files.length) return;
+    const newFiles = files.map(file => Object.assign(file, {
+      preview: URL.createObjectURL(file)
+    }));
+    setSelectedFiles(prev => [...prev, ...newFiles]);
+  };
+
+  // Xử lý upload khi chọn ảnh từ máy tính
+  const handleImageUpload = (e) => {
+    const files = Array.from(e.target.files);
+    handleAddFiles(files);
+    // Reset input file
+    e.target.value = null;
+  };
+
+  // --- LOGIC WEBCAM ---
+  const startWebcam = async () => {
+    setShowWebcam(true);
+    try {
+      // Yêu cầu quyền camera (ưu tiên camera sau nếu có trên di động)
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      streamRef.current = stream;
+    } catch (err) {
+      console.error("Error accessing webcam:", err);
+      showToast("Không thể truy cập camera. Vui lòng kiểm tra quyền trình duyệt.", "error");
+      setShowWebcam(false);
+    }
+  };
+
+  const stopWebcam = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setShowWebcam(false);
+  };
+
+  const captureImage = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext("2d");
+      // Vẽ frame hiện tại của video lên canvas
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      
+      // Chuyển canvas thành file ảnh (Blob) và thêm vào danh sách chờ
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `webcam_${Date.now()}.jpg`, { type: "image/jpeg" });
+          handleAddFiles([file]);
+          stopWebcam(); // Chụp xong tự tắt cam
+        }
+      }, "image/jpeg", 0.9); // Chất lượng 90%
+    }
+  };
+
+  // Dọn dẹp stream camera khi người dùng rời khỏi trang
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+  // --------------------
+
+  // Xóa ảnh đã chọn (theo index)
+  const handleRemoveImage = (indexToRemove) => {
+    setSelectedFiles((prev) => {
+      const newFiles = [...prev];
+      URL.revokeObjectURL(newFiles[indexToRemove].preview);
+      newFiles.splice(indexToRemove, 1);
+      return newFiles;
+    });
+  };
+
   // Ghi nhận sự cố mới vào DB
   const submitException = async (e) => {
     e.preventDefault();
@@ -105,29 +222,64 @@ export default function ExceptionLogsPage({ showToast, user }) {
       showToast("Vui lòng nhập mô tả sự cố", "error");
       return;
     }
+    if (form.vehicleType !== "BICYCLE" && form.licensePlate.trim()) {
+      const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleType);
+      if (!isValidVietnamLicensePlate(formattedPlate)) {
+        showToast("Biển số xe không đúng định dạng. Vui lòng nhập lại!", "error");
+        setForm(prev => ({ ...prev, licensePlate: "" }));
+        return;
+      }
+    }
     if (!user?.id) {
       showToast("Thiếu thông tin người dùng, vui lòng đăng nhập lại.", "error");
       return;
     }
 
     setSubmitting(true);
+    let uploadedUrls = [];
+
     try {
+      // 1. Nếu có ảnh, upload lên Cloudinary TRƯỚC
+      if (selectedFiles.length > 0) {
+        showToast("Đang tải ảnh lên Cloudinary...", "warning");
+        for (const file of selectedFiles) {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_PRESET_EXCEPTIONS);
+
+          const res = await fetch(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME_EXCEPTIONS}/image/upload`,
+            { method: "POST", body: formData }
+          );
+          const data = await res.json();
+          if (data.secure_url) {
+            uploadedUrls.push(data.secure_url);
+          } else {
+            throw new Error(data.error?.message || "Lỗi khi upload ảnh lên Cloudinary");
+          }
+        }
+      }
+
+      // 2. Gửi data xuống BE
       await staffApi.logSecurityException({
         exceptionType: form.exceptionType,
         description: form.description.trim(),
-        // Chỉ gửi sessionId nếu người dùng có nhập (không bắt buộc)
-        ...(form.sessionId.trim() && { sessionId: form.sessionId.trim() }),
-        // Chỉ gửi licensePlate nếu có nhập
-        ...(form.licensePlate.trim() && { licensePlate: form.licensePlate.trim().toUpperCase() }),
+        sessionId: form.sessionId || null,
+        // Gửi biển số đã được format
+        ...(form.licensePlate.trim() && { licensePlate: formatLicensePlate(form.licensePlate.trim(), form.vehicleType) }),
         handledByUserId: user.id,
+        // Gửi kèm danh sách URL ảnh minh chứng lên BE
+        ...(uploadedUrls.length > 0 && { imageUrls: uploadedUrls }),
       });
       // Reset form sau khi ghi nhận thành công
-      setForm({ exceptionType: "LOST_TICKET", description: "", sessionId: "", licensePlate: "" });
+      setForm({ exceptionType: "LOST_TICKET", description: "", sessionId: "", licensePlate: "", vehicleType: "MOTORBIKE" });
+      selectedFiles.forEach(f => URL.revokeObjectURL(f.preview));
+      setSelectedFiles([]); // Xóa danh sách ảnh chờ
       showToast("✅ Đã ghi nhận sự cố an ninh", "success");
       fetchLogs();
     } catch (err) {
-      console.error("Log exception failed:", err);
-      showToast(err.response?.data?.message || "Ghi nhận sự cố thất bại", "error");
+      console.error(err);
+      showToast(err.message || "Ghi nhận sự cố thất bại", "error");
     } finally {
       setSubmitting(false);
     }
@@ -148,6 +300,41 @@ export default function ExceptionLogsPage({ showToast, user }) {
       {/* ── Form ghi nhận sự cố mới ── */}
       <Panel title="📝 Ghi nhận sự cố mới">
         <form onSubmit={submitException} className="space-y-4">
+          {/* Biển số xe & Loại phương tiện */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Loại phương tiện">
+              <select
+                value={form.vehicleType}
+                onChange={(e) => {
+                  const newType = e.target.value;
+                  setForm({ 
+                    ...form, 
+                    vehicleType: newType, 
+                    licensePlate: newType === "BICYCLE" ? "" : formatLicensePlate(form.licensePlate, newType) 
+                  });
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-500/10 transition-all outline-none"
+              >
+                <option value="MOTORBIKE">🏍️ Xe Máy</option>
+                <option value="CAR">🚗 Xe Ô tô</option>
+                <option value="ELECTRIC_BIKE">🚲 Xe Điện</option>
+                <option value="BICYCLE">🚲 Xe Đạp</option>
+              </select>
+            </Field>
+
+            <Field label="Biển số xe (tự động format)">
+              <input
+                type="text"
+                placeholder="VD: 59A1-123.45"
+                value={form.licensePlate}
+                onChange={(e) => setForm({ ...form, licensePlate: e.target.value })}
+                onBlur={handleLicensePlateBlur}
+                disabled={form.vehicleType === "BICYCLE"}
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-500/10 transition-all outline-none uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </Field>
+          </div>
+          {/* Loại sự cố */}
           <Field label="Loại sự cố">
             <select
               value={form.exceptionType}
@@ -160,6 +347,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
             </select>
           </Field>
 
+          {/* Mô tả — full width */}
           <Field label="Mô tả chi tiết sự cố">
             <textarea
               value={form.description}
@@ -170,22 +358,90 @@ export default function ExceptionLogsPage({ showToast, user }) {
             />
           </Field>
 
-          <Field label="Biển số xe (tuỳ chọn)">
-            <input
-              value={form.licensePlate}
-              onChange={(e) => setForm({ ...form, licensePlate: e.target.value.toUpperCase() })}
-              placeholder="VD: 29A-666.66"
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono text-sm font-bold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-            />
-          </Field>
-
+          {/* Session ID: full-width */}
           <Field label="ID Phiên gửi xe (tuỳ chọn)">
             <input
               value={form.sessionId}
               onChange={(e) => setForm({ ...form, sessionId: e.target.value })}
-              placeholder="Nhập session ID nếu có (để truy vết camera)"
+              placeholder="Nhập session ID nếu có"
               className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-mono font-medium text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
             />
+          </Field>
+
+          {/* Khu vực đính kèm ảnh sự cố */}
+          <Field label="Đính kèm ảnh minh chứng (tuỳ chọn)">
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-3">
+                {/* Cách 1: Chụp trực tiếp bằng Webcam trên máy tính/laptop */}
+                <button 
+                  type="button" 
+                  onClick={startWebcam} 
+                  disabled={submitting || showWebcam}
+                  className="flex-1 cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-center transition-colors hover:bg-slate-100 hover:border-slate-400 disabled:opacity-50"
+                >
+                  <span className="text-sm font-semibold text-slate-600">📸 Mở Camera</span>
+                </button>
+
+                {/* Cách 2: Chọn ảnh từ thư viện thiết bị */}
+                <label className="flex-1 cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-center transition-colors hover:bg-slate-100 hover:border-slate-400 disabled:opacity-50">
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={submitting} multiple />
+                  <span className="text-sm font-semibold text-slate-600">🖼️ Chọn nhiều ảnh</span>
+                </label>
+              </div>
+
+              {/* Giao diện Webcam (chỉ hiện khi nhấn Mở Camera) */}
+              {showWebcam && (
+                <div className="mt-2 flex flex-col gap-3">
+                  <div className="relative rounded-xl overflow-hidden border-2 border-slate-800 bg-black aspect-video flex flex-col shadow-lg">
+                    <video 
+                      ref={videoRef} 
+                      autoPlay 
+                      playsInline 
+                      className="w-full h-full object-cover"
+                    ></video>
+                  </div>
+                  {/* Hai nút điều khiển nằm bên ngoài để dễ bấm */}
+                  <div className="flex justify-center gap-3 md:gap-4">
+                    <button 
+                      type="button" 
+                      onClick={stopWebcam}
+                      className="rounded-xl bg-slate-200 text-slate-700 px-6 py-3.5 text-sm font-bold shadow-sm hover:bg-slate-300 transition-all flex-1"
+                    >
+                      Hủy thao tác
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={captureImage}
+                      className="rounded-xl bg-red-600 text-white px-6 py-3.5 text-sm font-bold shadow-md hover:bg-red-700 transition-all flex-1"
+                    >
+                      📸 Chụp ảnh
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Hiển thị danh sách preview ảnh chờ upload */}
+              {selectedFiles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {selectedFiles.map((file, idx) => (
+                    <div key={idx} className="relative inline-block rounded-lg overflow-hidden border border-slate-200 shadow-sm">
+                      <img src={file.preview} alt={`Preview ${idx+1}`} className="h-24 w-auto object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveImage(idx)}
+                        disabled={submitting}
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors disabled:opacity-50"
+                        title="Xóa ảnh này"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </Field>
 
           <button
@@ -241,39 +497,89 @@ export default function ExceptionLogsPage({ showToast, user }) {
         ) : !filteredLogs.length ? (
           <Empty text={searchText || filterType !== "all" ? "Không tìm thấy sự cố phù hợp." : "Chưa có sự cố nào được ghi nhận."} />
         ) : (
-          <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
-            {filteredLogs.map((log, idx) => (
-              <div
-                key={log.id || idx}
-                className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    {/* Loại sự cố với badge màu */}
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border mb-2 ${EXCEPTION_BADGE_COLOR[log.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
+          <>
+            {/* Desktop-only: table layout (ẩn trên mobile) */}
+            <div className="hidden md:block space-y-3 max-h-[560px] overflow-y-auto pr-1">
+              {filteredLogs.map((log, idx) => (
+                <div
+                  key={log.id || idx}
+                  className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      {/* Loại sự cố với badge màu */}
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border mb-2 ${EXCEPTION_BADGE_COLOR[log.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                        {EXCEPTION_LABELS[log.exceptionType] || log.exceptionType}
+                      </span>
+                      <p className="text-sm font-medium leading-relaxed text-slate-700">
+                        {log.description || "—"}
+                      </p>
+                      {/* Thumbnail nhiều ảnh minh chứng — Desktop */}
+                      {log.imageUrls && log.imageUrls.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {log.imageUrls.map((url, idx) => (
+                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="inline-block">
+                              <img src={url} alt={`Minh chứng ${idx+1}`} className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {/* Biển số xe nếu có liên kết session hoặc trường riêng */}
+                    {(log.session?.licensePlate || log.licensePlate) && (
+                      <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs font-black tracking-widest text-slate-900 shadow-sm flex-shrink-0">
+                        <span className="mr-1 h-2 w-2 rounded-full bg-blue-600" />
+                        {log.session?.licensePlate || log.licensePlate}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Footer: người xử lý + thời gian */}
+                  <div className="mt-3 flex items-center justify-between text-[11px] font-semibold text-slate-400">
+                    <span>Xử lý bởi: {log.handledBy?.fullName || "—"}</span>
+                    <span>{formatTime(log.resolvedAt || log.createdAt)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Mobile-only: card list dạng cuộn dọc */}
+            <div className="md:hidden space-y-3 max-h-[480px] overflow-y-auto pr-1">
+              {filteredLogs.map((log, idx) => (
+                <div
+                  key={log.id || idx}
+                  className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${EXCEPTION_BADGE_COLOR[log.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
                       {EXCEPTION_LABELS[log.exceptionType] || log.exceptionType}
                     </span>
-                    <p className="text-sm font-medium leading-relaxed text-slate-700">
-                      {log.description || "—"}
-                    </p>
+                    {(log.session?.licensePlate || log.licensePlate) && (
+                      <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs font-black tracking-widest text-slate-900 shadow-sm flex-shrink-0">
+                        <span className="mr-1 h-2 w-2 rounded-full bg-blue-600" />
+                        {log.session?.licensePlate || log.licensePlate}
+                      </span>
+                    )}
                   </div>
-                  {/* Biển số xe nếu có liên kết session hoặc trường riêng */}
-                  {(log.session?.licensePlate || log.licensePlate) && (
-                    <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs font-black tracking-widest text-slate-900 shadow-sm flex-shrink-0">
-                      <span className="mr-1 h-2 w-2 rounded-full bg-blue-600" />
-                      {log.session?.licensePlate || log.licensePlate}
-                    </span>
-                  )}
+                  <p className="text-sm font-medium leading-relaxed text-slate-700">{log.description || "—"}</p>
+                  {/* Thumbnail nhiều ảnh minh chứng — Mobile */}
+                  {log.imageUrls && log.imageUrls.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {log.imageUrls.map((url, idx) => (
+                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="inline-block">
+                              <img src={url} alt={`Minh chứng ${idx+1}`} className="h-14 w-14 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                  <div className="mt-2 flex items-center justify-between text-[11px] font-semibold text-slate-400">
+                    <span>Bởi: {log.handledBy?.fullName || "—"}</span>
+                    <span>{formatTime(log.resolvedAt || log.createdAt)}</span>
+                  </div>
                 </div>
-
-                {/* Footer: người xử lý + thời gian */}
-                <div className="mt-3 flex items-center justify-between text-[11px] font-semibold text-slate-400">
-                  <span>Xử lý bởi: {log.handledBy?.fullName || "—"}</span>
-                  <span>{formatTime(log.resolvedAt || log.createdAt)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
       </Panel>
     </div>

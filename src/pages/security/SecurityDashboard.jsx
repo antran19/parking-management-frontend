@@ -4,6 +4,8 @@ import SockJS from "sockjs-client";
 import gsap from "gsap";
 import { staffApi } from "../../api/parkingApi";
 import BlacklistPage from "./BlacklistPage";
+
+gsap.config({ nullTargetWarn: false });
 import EmergencyPage from "./EmergencyPage";
 import ExceptionLogsPage from "./ExceptionLogsPage";
 
@@ -25,7 +27,7 @@ const DEFAULT_GATES = [
   { id: "gate-2", gateName: "Tầng A2", gateCode: "BASEMENT_A2", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
   { id: "gate-3", gateName: "Tầng B1", gateCode: "BASEMENT_B1", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
   { id: "gate-4", gateName: "Tầng B2", gateCode: "BASEMENT_B2", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
-  { id: "gate-5", gateName: "Tầng C",  gateCode: "BASEMENT_C",  gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
+  { id: "gate-5", gateName: "Tầng C", gateCode: "BASEMENT_C", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
 ];
 
 // ==============================================================
@@ -104,7 +106,7 @@ export default function SecurityDashboard({ onLogout }) {
   const stompClientRef = useRef(null);
 
   // State giao diện chính
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
   const [activeTab, setActiveTab] = useState("overview");
   const [liveTime, setLiveTime] = useState("");
   const [liveDate, setLiveDate] = useState("");
@@ -299,7 +301,7 @@ export default function SecurityDashboard({ onLogout }) {
   ];
 
   return (
-    <div ref={containerRef} className={`min-h-screen bg-[#f8fafc] text-slate-900 flex font-sans ${emergencyStatus.active ? "animate-pulse" : ""}`}>
+    <div ref={containerRef} className={`min-h-screen w-full overflow-x-hidden bg-[#f8fafc] text-slate-900 flex font-sans ${emergencyStatus.active ? "animate-pulse" : ""}`}>
 
       {/* Toast notification — góc trên phải */}
       {toast && (
@@ -310,7 +312,7 @@ export default function SecurityDashboard({ onLogout }) {
 
       {/* Banner SOS khẩn cấp — cố định trên cùng khi active */}
       {emergencyStatus.active && (
-        <div className="fixed inset-x-0 top-0 z-[70] border-b-4 border-red-300 bg-red-700 px-6 py-3 shadow-2xl flex flex-col md:flex-row items-center justify-between">
+        <div className="fixed inset-x-0 top-0 z-[70] border-b-4 border-red-300 bg-red-700 px-4 md:px-6 py-3 shadow-2xl flex flex-col md:flex-row items-center justify-between">
           <div className="text-white text-left">
             <p className="text-xl md:text-2xl font-black tracking-wide">🚨 {emergencyStatus.message || "KHẨN CẤP — TOÀN BỘ BARRIER ĐÃ MỞ — SƠ TÁN NGAY"}</p>
             <p className="mt-1 text-xs font-bold uppercase tracking-[0.35em] text-red-100">
@@ -333,9 +335,9 @@ export default function SecurityDashboard({ onLogout }) {
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-red-950/90 p-6 backdrop-blur-md">
           <div className="relative w-full max-w-2xl overflow-hidden rounded-[2rem] border-4 border-red-300 bg-red-700 p-8 text-white shadow-[0_0_80px_rgba(239,68,68,0.85)]">
             <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-white/20 blur-3xl" />
-            <p className="text-sm font-black uppercase tracking-[0.45em] text-red-100">Blacklist Alert</p>
-            <h2 className="mt-3 text-5xl font-black">🚫 XE BLACKLIST</h2>
-            <div className="mt-6 grid gap-4 rounded-2xl bg-black/20 p-5 text-left">
+            <p className="text-xs md:text-sm font-black uppercase tracking-[0.45em] text-red-100">Blacklist Alert</p>
+            <h2 className="mt-2 md:mt-3 text-3xl md:text-5xl font-black">🚫 XE BLACKLIST</h2>
+            <div className="mt-4 md:mt-6 grid gap-3 md:gap-4 rounded-2xl bg-black/20 p-4 md:p-5 text-left text-sm md:text-base">
               <p><span className="text-red-100">Biển số:</span> <span className="font-mono text-3xl font-black">{blacklistAlert.licensePlate}</span></p>
               <p><span className="text-red-100">Lý do:</span> <span className="font-bold">{blacklistAlert.reason}</span></p>
               <p><span className="text-red-100">Cổng:</span> <span className="font-bold">{blacklistAlert.gateName || blacklistAlert.gateCode || "Không rõ cổng"}</span></p>
@@ -349,9 +351,9 @@ export default function SecurityDashboard({ onLogout }) {
       )}
 
       {/* ============================================================
-          SIDEBAR
+          SIDEBAR (CHỈ HIỂN THỊ TRÊN DESKTOP)
       ============================================================ */}
-      <aside className={`aside-panel fixed bottom-0 left-0 top-0 z-50 flex h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 ${collapsed ? "w-20" : "w-72"}`}>
+      <aside className={`aside-panel hidden md:flex fixed bottom-0 left-0 top-0 z-50 h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 ${collapsed ? "w-20 overflow-hidden" : "w-72"}`}>
         {/* Logo + tên hệ thống */}
         <div className="flex items-center gap-3.5 px-6 py-6 border-b border-slate-800 overflow-hidden">
           <button
@@ -409,44 +411,55 @@ export default function SecurityDashboard({ onLogout }) {
       {/* ============================================================
           NỘI DUNG CHÍNH
       ============================================================ */}
-      <main className={`main-content-area min-h-screen flex-1 flex flex-col transition-all duration-300 ${collapsed ? "ml-20" : "ml-72"} ${emergencyStatus.active ? "pt-24" : ""}`}>
+      <main className={`main-content-area min-h-screen min-w-0 flex-1 flex flex-col transition-all duration-300 ${collapsed ? "ml-0 md:ml-20" : "ml-0 md:ml-72"} ${emergencyStatus.active ? "pt-28 md:pt-24" : ""} pb-20 md:pb-0`}>
         {/* Header sticky */}
-        <header className="sticky top-0 z-40 flex h-20 items-center justify-between border-b border-slate-200/80 bg-white/80 px-8 backdrop-blur-md">
-          <div className="flex flex-col">
-            <h2 className="text-xl font-bold text-slate-900">Chốt An Ninh Trung Tâm</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{liveDate}</p>
+        <header className="sticky top-0 z-40 flex h-16 md:h-20 items-center justify-between border-b border-slate-200/80 bg-white/80 px-4 md:px-8 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            {/* Tên màn hình */}
+            <div className="flex flex-col">
+              <h2 className="text-lg md:text-xl font-bold text-slate-900">Chốt An Ninh</h2>
+              <p className="hidden md:block text-xs text-slate-500 mt-0.5">{liveDate}</p>
+            </div>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 md:gap-6">
             {/* Đồng hồ realtime */}
             <div className="hidden md:flex flex-col items-end border-r border-slate-200 pr-6">
               <span className="font-mono text-lg font-bold text-red-600 bg-red-50/50 px-3 py-1 rounded-lg border border-red-100">{liveTime}</span>
             </div>
             {/* Thông tin user */}
-            <div className="flex items-center gap-3.5 border-l border-slate-200 pl-6">
-              <div className="text-right">
+            <div className="flex items-center gap-3 md:gap-3.5 md:border-l md:border-slate-200 md:pl-6">
+              <div className="text-right hidden sm:block">
                 <p className="font-semibold text-sm text-slate-900">{fullName}</p>
                 <p className="text-xs text-slate-400 font-medium">{userRole === "SECURITY" ? "Nhân viên an ninh" : userRole}</p>
               </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-red-500 to-rose-600 font-bold text-white shadow-md shadow-red-500/20">
+              <div className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-red-500 to-rose-600 font-bold text-white shadow-md shadow-red-500/20">
                 {fullName.charAt(0).toUpperCase()}
               </div>
+              {/* Nút Đăng xuất trên Mobile (do Sidebar bị ẩn) */}
+              <button 
+                onClick={onLogout} 
+                className="md:hidden flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-rose-500 hover:bg-rose-50 transition-colors"
+                title="Đăng xuất"
+              >
+                <IconLogout />
+              </button>
             </div>
           </div>
         </header>
 
         {/* Nội dung theo tab */}
-        <section className="space-y-8 p-8 flex-1">
+        <section className="space-y-6 md:space-y-8 p-4 md:p-8 flex-1">
 
           {/* ──────────── TAB: GIÁM SÁT ──────────── */}
           {activeTab === "overview" && (
             <div className="space-y-8">
               {/* Welcome banner */}
-              <div className="welcome-banner relative overflow-hidden rounded-3xl bg-slate-950 p-8 shadow-xl">
+              <div className="welcome-banner relative overflow-hidden rounded-3xl bg-slate-950 p-6 md:p-8 shadow-xl">
                 <div className="absolute right-0 bottom-0 top-0 w-1/3 bg-gradient-to-l from-red-600/20 to-transparent pointer-events-none" />
                 <div className="relative z-10">
-                  <p className="text-xs font-black uppercase tracking-[0.45em] text-red-400">Security Dashboard</p>
-                  <h1 className="mt-3 text-4xl font-black text-white">Trung tâm An Ninh</h1>
-                  <p className="mt-2 max-w-2xl text-sm font-medium leading-relaxed text-slate-300">
+                  <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.45em] text-red-400">Security Dashboard</p>
+                  <h1 className="mt-2 md:mt-3 text-3xl md:text-4xl font-black text-white">Trung tâm An Ninh</h1>
+                  <p className="mt-2 max-w-2xl text-xs md:text-sm font-medium leading-relaxed text-slate-300">
                     Giám sát toàn bộ cổng ra vào, quản lý danh sách đen và điều hành tình huống khẩn cấp SOS. Trạng thái:{" "}
                     <span className={`font-bold ${emergencyStatus.active ? "text-red-400" : "text-emerald-400"}`}>
                       {emergencyStatus.active ? "⚠️ SOS ACTIVE" : "✅ Bình thường"}
@@ -456,7 +469,7 @@ export default function SecurityDashboard({ onLogout }) {
               </div>
 
               {/* Stat cards — 4 chỉ số quan trọng */}
-              <div className="grid gap-5 md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 md:gap-5 md:grid-cols-4">
                 <Stat title="Cổng hoạt động" value={loadingOverview ? "..." : `${openGates}/${overviewStats.gates.length}`} tone="red" />
                 <Stat title="Zone giám sát" value={loadingOverview ? "..." : overviewStats.zones.length} tone="blue" />
                 <Stat title="Blacklist active" value={loadingOverview ? "..." : overviewStats.blacklistCount} tone="amber" />
@@ -502,10 +515,10 @@ export default function SecurityDashboard({ onLogout }) {
                 </Panel>
 
                 {/* Trạng thái SOS realtime */}
-                <Panel title="📡 Trạng thái SOS realtime">
-                  <div className={`rounded-2xl border p-6 ${emergencyStatus.active ? "border-red-300 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
-                    <p className="text-xs font-black uppercase tracking-[0.35em] text-slate-400">Current State</p>
-                    <h3 className={`mt-3 text-3xl font-black ${emergencyStatus.active ? "text-red-700" : "text-emerald-700"}`}>
+                <Panel title="📡 Trạng thái SOS">
+                  <div className={`rounded-2xl border p-5 md:p-6 ${emergencyStatus.active ? "border-red-300 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
+                    <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.35em] text-slate-400">Current State</p>
+                    <h3 className={`mt-2 md:mt-3 text-2xl md:text-3xl font-black ${emergencyStatus.active ? "text-red-700" : "text-emerald-700"}`}>
                       {emergencyStatus.active ? "🚨 SOS ACTIVE" : "✅ BÌNH THƯỜNG"}
                     </h3>
                     <p className="mt-2 text-sm font-semibold text-slate-600">
@@ -551,6 +564,34 @@ export default function SecurityDashboard({ onLogout }) {
 
         </section>
       </main>
+
+      {/* ============================================================
+          BOTTOM NAVIGATION (CHỈ HIỂN THỊ TRÊN MOBILE)
+      ============================================================ */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around bg-white border-t border-slate-200 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+        {NAV_TABS.map(({ key, label, Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`flex flex-col items-center justify-center w-full py-3 gap-1 relative transition-colors ${
+              activeTab === key ? "text-red-600" : "text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            <span className="relative">
+              <Icon />
+              {key === "emergency" && emergencyStatus.active && (
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-red-500 animate-pulse" />
+              )}
+            </span>
+            <span className={`text-[10px] font-bold ${activeTab === key ? "text-red-600" : "font-semibold"}`}>
+              {key === "overview" ? "Giám sát" : key === "exception" ? "Sự cố" : key === "emergency" ? "SOS" : "Blacklist"}
+            </span>
+            {activeTab === key && (
+              <span className="absolute top-0 inset-x-0 mx-auto h-[3px] w-8 bg-red-600 rounded-b-md" />
+            )}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
