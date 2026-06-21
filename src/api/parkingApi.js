@@ -13,6 +13,11 @@ export const staffApi = {
     return axiosClient.get("/parking/config");
   },
 
+  // Lấy dữ liệu thống kê cho Staff Dashboard
+  getStaffDashboardStats() {
+    return axiosClient.get("/staff/dashboard");
+  },
+
   // === Tác vụ của Nhân viên (Staff) ===
   // Check-in xe vào bãi (UC-04)
   checkIn(data) {
@@ -22,6 +27,11 @@ export const staffApi = {
   // Check-out xe ra bãi (UC-05)
   checkOut(data) {
     return axiosClient.post("/staff/sessions/checkout", data);
+  },
+
+  // Check-in xe vào Zone (Check-in lần 2)
+  zoneEntry(data) {
+    return axiosClient.post("/staff/sessions/zone-entry", data);
   },
 
   // === Tác vụ của Tài xế (Driver) / Tra cứu session ===

@@ -1,59 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { Html5Qrcode } from "html5-qrcode";
 import { staffApi } from "../../api/parkingApi";
-import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT } from "../../utils/licensePlate";
-import gsap from "gsap";
-
-// Icons tùy chỉnh dạng SVG cao cấp phục vụ thiết kế giao diện Glassmorphism
-const IconDashboard = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-  </svg>
-);
-
-const IconMap = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-  </svg>
-);
-
-const IconCheckIn = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-  </svg>
-);
-
-const IconCheckOut = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const IconHistory = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const IconLogout = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-  </svg>
-);
-
-const IconBell = () => (
-  <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-  </svg>
-);
-
-const IconSettings = () => (
-  <svg className="w-6 h-6 text-slate-500 hover:rotate-45 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0a3 3 0 01-6 0z" />
-  </svg>
-);
+import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate } from "../../utils/licensePlate";
 
 const IconPrinter = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
@@ -64,31 +11,38 @@ const IconPrinter = () => (
 /**
  * StaffCheckIn — Trang tác vụ Check-in xe vào bãi của Nhân viên.
  */
-export default function StaffCheckIn({ onLogout }) {
-  // Lấy thông tin user hiện tại từ localStorage
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const fullName = user.fullName || "Nguyễn Văn A";
-  const userRole = user.role || "STAFF";
-  const roleLabel = userRole === "STAFF" ? "Nhân viên bãi xe" : (userRole === "ADMIN" ? "Quản trị viên" : (userRole === "MANAGER" ? "Quản lý" : "Tài xế"));
-  const avatarChar = fullName.charAt(0).toUpperCase();
-
+export default function StaffCheckIn() {
   // Các state quản lý trạng thái
   const [isSuccess, setIsSuccess] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanMessage, setScanMessage] = useState("ĐANG CHỜ QUÉT...");
-  const [collapsed, setCollapsed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [apiError, setApiError] = useState("");
   const [checkInResult, setCheckInResult] = useState(null);
   const [ticketCode, setTicketCode] = useState("");
-  const scannerRef = useRef(null);
+
+  // States for face camera
+  const [isFaceCameraOn, setIsFaceCameraOn] = useState(false);
+  const [faceStream, setFaceStream] = useState(null);
+  const [previewFaceUrl, setPreviewFaceUrl] = useState("");
+  const [uploadedFaceUrl, setUploadedFaceUrl] = useState("");
+  const [faceUploading, setFaceUploading] = useState(false);
+  const faceVideoRef = useRef(null);
+
+  // States for plate camera
+  const [isPlateCameraOn, setIsPlateCameraOn] = useState(false);
+  const [plateStream, setPlateStream] = useState(null);
+  const [previewPlateUrl, setPreviewPlateUrl] = useState("");
+  const [uploadedPlateUrl, setUploadedPlateUrl] = useState("");
+  const [plateScanning, setPlateScanning] = useState(false);
+  const [ocrResult, setOcrResult] = useState("Camera biển số sẵn sàng");
+  const plateVideoRef = useRef(null);
+  const canvasRef = useRef(null);
 
   // Config bãi xe tải từ Backend
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [gates, setGates] = useState([]);
   const [configLoaded, setConfigLoaded] = useState(false);
 
-  // Widget thời gian realtime
+  // Widget thời gian realtime phục vụ in vé
   const [liveTime, setLiveTime] = useState(new Date().toLocaleTimeString("vi-VN", { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   const [liveDate, setLiveDate] = useState("");
 
@@ -111,280 +65,517 @@ export default function StaffCheckIn({ onLogout }) {
     }
   }, [formData.plateNumber]);
 
-  // Reference phục vụ GSAP Animations
-  const containerRef = useRef(null);
-
-  // Hiệu ứng GSAP mượt mà lúc tải trang
+  // Tự động tìm loại vé để xác định vé lượt hoặc đặt trước dựa trên biển số xe
   useEffect(() => {
-    const ctx = gsap.context(() => {
-      // 1. Sidebar slide-in
-      gsap.fromTo(".aside-panel",
-        { x: -120, opacity: 0 },
-        { x: 0, opacity: 1, duration: 0.9, ease: "power4.out" }
-      );
+    const checkPlateType = () => {
+      const plate = formData.plateNumber;
+      if (!plate) {
+        setFormData(prev => ({ ...prev, driverType: "WALK_IN", reservationCode: "" }));
+        return;
+      }
 
-      // 2. Main content area fade-in
-      gsap.fromTo(".main-content-area",
-        { opacity: 0 },
-        { opacity: 1, duration: 0.6 }
-      );
+      const cleanPlate = plate.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 
-      // 3. Stagger animate các link menu điều hướng
-      gsap.fromTo(".nav-link-item",
-        { x: -40, opacity: 0 },
-        { x: 0, opacity: 1, duration: 0.5, stagger: 0.08, ease: "power2.out", delay: 0.25 }
-      );
+      // Kiểm tra đặt chỗ trước (reservation) từ LocalStorage làm giả lập demo
+      const storedBooking = JSON.parse(localStorage.getItem("driver_booking") || "null");
+      if (storedBooking) {
+        const bookingPlate = (storedBooking.licensePlate || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+        if (bookingPlate === cleanPlate && (storedBooking.status === "CONFIRMED" || storedBooking.status === "PENDING" || !storedBooking.status)) {
+          setFormData(prev => ({
+            ...prev,
+            driverType: "PRE_BOOKED",
+            reservationCode: storedBooking.reservationCode || storedBooking.bookingCode || "BK-DEMO123"
+          }));
+          return;
+        }
+      }
 
-      // 4. Welcome banner trồi lên kèm bounce nhẹ
-      gsap.fromTo(".welcome-banner",
-        { scale: 0.96, opacity: 0, y: 15 },
-        { scale: 1, opacity: 1, y: 0, duration: 0.8, ease: "back.out(1.15)", delay: 0.3 }
-      );
+      // Default fallback
+      setFormData(prev => ({ ...prev, driverType: "WALK_IN", reservationCode: "" }));
+    };
 
-      // 5. Stat cards hiệu ứng trồi
-      gsap.fromTo(".stat-card-item",
-        { y: 35, opacity: 0, scale: 0.98 },
-        { y: 0, opacity: 1, scale: 1, duration: 0.65, stagger: 0.07, ease: "power3.out", delay: 0.45 }
-      );
+    checkPlateType();
+  }, [formData.plateNumber]);
 
-      // 6. Action panels
-      gsap.fromTo(".action-panel-item",
-        { y: 40, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.75, stagger: 0.1, ease: "power3.out", delay: 0.65 }
-      );
-    }, containerRef);
-
-    return () => ctx.revert();
-  }, []);
-
-  // Truy vấn thông tin đặt chỗ trước
-  const handleFetchBookingInfo = () => {
-    if (!formData.reservationCode || !formData.reservationCode.trim()) {
-      alert("Vui lòng nhập mã đặt chỗ trước!");
-      return;
-    }
-    setFormData(prev => ({ ...prev, driverType: "PRE_BOOKED" }));
-    alert("Ghi nhận mã Reservation thành công. Hệ thống sẽ tự khớp thông tin biển số và loại xe khi bạn check-in.");
-  };
-
-  // --- Nhận diện biển số xe AI OCR thông qua webcam và Tesseract.js ---
-  const [activeTab, setActiveTab] = useState("qr");
-  const [ocrScanning, setOcrScanning] = useState(false);
-  const [ocrResult, setOcrResult] = useState("");
-  const [ocrStream, setOcrStream] = useState(null);
-  const [isOcrCameraOn, setIsOcrCameraOn] = useState(false);
-
-  const ocrVideoRef = useRef(null);
-  const ocrCanvasRef = useRef(null);
-
-  // Tải thư viện Tesseract.js động từ CDN
-  useEffect(() => {
-    if (!window.Tesseract) {
-      const script = document.createElement("script");
-      script.src = "https://unpkg.com/tesseract.js@v4.0.1/dist/tesseract.min.js";
-      script.async = true;
-      script.onload = () => {
-        console.log("Tesseract.js loaded successfully from CDN");
-      };
-      document.body.appendChild(script);
-    }
-  }, []);
-
-  // Cleanup camera stream khi thoát trang
+  // Cleanup camera streams on unmount
   useEffect(() => {
     return () => {
-      if (ocrStream) {
-        ocrStream.getTracks().forEach(track => track.stop());
+      if (faceStream) {
+        faceStream.getTracks().forEach(track => track.stop());
+      }
+      if (plateStream) {
+        plateStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [ocrStream]);
+  }, [faceStream, plateStream]);
 
-  // Bật camera cho tác vụ OCR
-  const startOcrCamera = async () => {
+  // --- CAMERA CHÂN DUNG (FACE CAMERA) ---
+  const startFaceCamera = async () => {
     try {
-      setIsOcrCameraOn(true);
-      setOcrResult("Đang kết nối camera...");
+      setIsFaceCameraOn(true);
+      setPreviewFaceUrl("");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" }
+      });
+      setFaceStream(stream);
+      if (faceVideoRef.current) {
+        faceVideoRef.current.srcObject = stream;
+        faceVideoRef.current.play();
+      }
+    } catch (err) {
+      console.error("Lỗi bật camera mặt:", err);
+      alert("Không thể truy cập camera chân dung.");
+      setIsFaceCameraOn(false);
+    }
+  };
+
+  const stopFaceCamera = () => {
+    if (faceStream) {
+      faceStream.getTracks().forEach(track => track.stop());
+      setFaceStream(null);
+    }
+    setIsFaceCameraOn(false);
+  };
+
+  const captureFace = () => {
+    if (!faceVideoRef.current) {
+      alert("Camera chân dung chưa sẵn sàng!");
+      return;
+    }
+    const video = faceVideoRef.current;
+    const canvas = canvasRef.current || document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        alert("Lỗi trích xuất ảnh!");
+        return;
+      }
+      const localUrl = URL.createObjectURL(blob);
+      setPreviewFaceUrl(localUrl);
+      stopFaceCamera();
+      uploadFaceToCloudinary(blob);
+    }, "image/jpeg", 0.6);
+  };
+
+  const uploadFaceToCloudinary = async (blob) => {
+    try {
+      setFaceUploading(true);
+      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+
+      const hasCloudinary = cloudName && uploadPreset &&
+        cloudName !== "tên_cloud_name_của_bạn" &&
+        uploadPreset !== "tên_unsigned_preset_của_bạn";
+
+      if (!hasCloudinary) {
+        console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
+        setUploadedFaceUrl(URL.createObjectURL(blob));
+        return;
+      }
+
+      const uploadData = new FormData();
+      uploadData.append("file", blob, "captured_face.jpg");
+      uploadData.append("upload_preset", uploadPreset.trim());
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
+        { method: "POST", body: uploadData }
+      );
+
+      if (!response.ok) {
+        throw new Error("Lỗi tải ảnh lên Cloudinary!");
+      }
+
+      const resData = await response.json();
+      setUploadedFaceUrl(resData.secure_url || resData.url);
+    } catch (err) {
+      console.error("Lỗi upload face:", err);
+    } finally {
+      setFaceUploading(false);
+    }
+  };
+
+  const handleDoubleUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setApiError("");
+
+    const isFaceFile = (filename) => {
+      const name = filename.toLowerCase();
+      const cleanName = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      return cleanName.includes("an") ||
+        cleanName.includes("thien") ||
+        cleanName.includes("toan") ||
+        cleanName.includes("mat") ||
+        cleanName.includes("face") ||
+        cleanName.includes("avatar") ||
+        cleanName.includes("driver") ||
+        cleanName.includes("portrait") ||
+        cleanName.includes("nhan_dang") ||
+        cleanName.includes("person");
+    };
+
+    let faceFile = null;
+    let plateFile = null;
+
+    if (files.length === 1) {
+      if (isFaceFile(files[0].name)) {
+        faceFile = files[0];
+      } else {
+        plateFile = files[0];
+      }
+    } else {
+      const sortedFaces = files.filter(f => isFaceFile(f.name));
+      const sortedPlates = files.filter(f => !isFaceFile(f.name));
+
+      if (sortedFaces.length > 0) faceFile = sortedFaces[0];
+      if (sortedPlates.length > 0) plateFile = sortedPlates[0];
+
+      if (!faceFile && !plateFile) {
+        faceFile = files[0];
+        plateFile = files[1];
+      } else if (faceFile && !plateFile) {
+        plateFile = files.find(f => f !== faceFile);
+      } else if (!faceFile && plateFile) {
+        faceFile = files.find(f => f !== plateFile);
+      }
+    }
+
+    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+    const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
+
+    const hasCloudinary = cloudName && uploadPreset &&
+      cloudName !== "tên_cloud_name_của_bạn" &&
+      uploadPreset !== "tên_unsigned_preset_của_bạn";
+
+    // 1. Process Face File
+    if (faceFile) {
+      setFaceUploading(true);
+      const localUrl = URL.createObjectURL(faceFile);
+      setPreviewFaceUrl(localUrl);
+
+      if (!hasCloudinary) {
+        console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
+        setUploadedFaceUrl(localUrl);
+        setFaceUploading(false);
+      } else {
+        try {
+          const uploadData = new FormData();
+          uploadData.append("file", faceFile);
+          uploadData.append("upload_preset", uploadPreset.trim());
+
+          const response = await fetch(
+            `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
+            { method: "POST", body: uploadData }
+          );
+
+          if (response.ok) {
+            const resData = await response.json();
+            setUploadedFaceUrl(resData.secure_url || resData.url);
+          } else {
+            throw new Error("Lỗi upload Cloudinary cho ảnh mặt");
+          }
+        } catch (err) {
+          console.error("Lỗi upload face:", err);
+          setApiError(prev => prev ? prev + " | Lỗi upload ảnh mặt" : "Lỗi upload ảnh mặt");
+        } finally {
+          setFaceUploading(false);
+        }
+      }
+    }
+
+    // 2. Process Plate File
+    if (plateFile) {
+      setPlateScanning(true);
+      setOcrResult("Đang xử lý ảnh biển số xe...");
+      const localUrl = URL.createObjectURL(plateFile);
+      setPreviewPlateUrl(localUrl);
+
+      let detectedPlate = "";
+      try {
+        const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
+        if (!hasOcr) {
+          console.warn("Chưa cấu hình Token OCR. Bỏ qua OCR.");
+          setOcrResult("⚠️ Chưa cấu hình Token OCR.");
+        } else {
+          const ocrData = new FormData();
+          ocrData.append("upload", plateFile);
+          ocrData.append("regions", "vn");
+
+          const ocrResponse = await fetch("https://api.platerecognizer.com/v1/plate-reader/", {
+            method: "POST",
+            headers: {
+              "Authorization": `Token ${ocrToken.trim()}`,
+            },
+            body: ocrData,
+          });
+
+          if (ocrResponse.ok) {
+            const ocrRes = await ocrResponse.json();
+            if (ocrRes.results && ocrRes.results.length > 0) {
+              detectedPlate = ocrRes.results[0].plate.toUpperCase();
+              const cleanPlate = normalizeLicensePlate(detectedPlate);
+
+              let targetType = "ô tô";
+              if (cleanPlate.includes("A1") || cleanPlate.includes("B1") || cleanPlate.includes("E1") || cleanPlate.includes("F1")) {
+                targetType = "máy";
+              }
+              const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetType));
+              const formattedPlate = formatLicensePlate(detectedPlate, targetType);
+
+              setFormData(prev => ({
+                ...prev,
+                plateNumber: formattedPlate,
+                vehicleTypeId: vt?.id || prev.vehicleTypeId,
+                driverType: "WALK_IN",
+                reservationCode: ""
+              }));
+              setOcrResult(`✅ Nhận dạng: ${formattedPlate}`);
+            } else {
+              setOcrResult("⚠️ Không tìm thấy biển số trong ảnh.");
+            }
+          } else {
+            console.error("Plate Recognizer OCR error:", await ocrResponse.text());
+            setOcrResult("❌ Lỗi dịch vụ nhận diện.");
+          }
+        }
+      } catch (err) {
+        console.error("Lỗi khi nhận diện biển số:", err);
+        setOcrResult("❌ Lỗi kết nối dịch vụ OCR.");
+      }
+
+      if (!hasCloudinary) {
+        setUploadedPlateUrl(localUrl);
+        setOcrResult(prev => prev + " - Hoàn tất (Demo Cloud)");
+        setPlateScanning(false);
+      } else {
+        try {
+          const uploadData = new FormData();
+          uploadData.append("file", plateFile);
+          uploadData.append("upload_preset", uploadPreset.trim());
+
+          const response = await fetch(
+            `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
+            { method: "POST", body: uploadData }
+          );
+
+          if (response.ok) {
+            const resData = await response.json();
+            setUploadedPlateUrl(resData.secure_url || resData.url);
+            setOcrResult(prev => prev + " - Tải ảnh thành công.");
+          } else {
+            throw new Error("Lỗi upload Cloudinary cho ảnh biển số");
+          }
+        } catch (err) {
+          console.error("Lỗi upload plate:", err);
+          setOcrResult(prev => prev + " ❌ Lỗi lưu ảnh.");
+        } finally {
+          setPlateScanning(false);
+        }
+      }
+    }
+
+    e.target.value = "";
+  };
+
+  // --- CAMERA BIỂN SỐ XE (PLATE CAMERA) ---
+  const startPlateCamera = async () => {
+    try {
+      setIsPlateCameraOn(true);
+      setPreviewPlateUrl("");
+      setOcrResult("Camera hoạt động! Đưa biển số trước cam.");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" }
       });
-      setOcrStream(stream);
-      if (ocrVideoRef.current) {
-        ocrVideoRef.current.srcObject = stream;
-        ocrVideoRef.current.play();
+      setPlateStream(stream);
+      if (plateVideoRef.current) {
+        plateVideoRef.current.srcObject = stream;
+        plateVideoRef.current.play();
       }
-      setOcrResult("Camera hoạt động! Đưa biển số trước cam.");
     } catch (err) {
-      console.error("Lỗi bật camera OCR:", err);
+      console.error("Lỗi bật camera biển số:", err);
       setOcrResult("❌ Lỗi truy cập Camera.");
-      setIsOcrCameraOn(false);
+      setIsPlateCameraOn(false);
     }
   };
 
-  // Tắt camera OCR
-  const stopOcrCamera = () => {
-    if (ocrStream) {
-      ocrStream.getTracks().forEach(track => track.stop());
-      setOcrStream(null);
+  const stopPlateCamera = () => {
+    if (plateStream) {
+      plateStream.getTracks().forEach(track => track.stop());
+      setPlateStream(null);
     }
-    setIsOcrCameraOn(false);
-    setOcrResult("Camera đã tắt.");
+    setIsPlateCameraOn(false);
   };
 
-  // Chụp ảnh webcam và thực hiện giải thuật nhận diện OCR kèm binarization nâng cao
-  const captureAndOcr = async () => {
-    if (!ocrVideoRef.current || !window.Tesseract) {
+  const capturePlateAndOcr = () => {
+    if (!plateVideoRef.current) {
       setOcrResult("⚠️ Thiết bị chưa sẵn sàng!");
       return;
     }
-
-    setOcrScanning(true);
+    setPlateScanning(true);
     setOcrResult("AI đang phân tích biển số...");
 
-    try {
-      const video = ocrVideoRef.current;
-      const canvas = ocrCanvasRef.current || document.createElement("canvas");
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      // --- Tiền xử lý ảnh (Computer Vision Binarization) ---
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imgData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        const grayscale = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        const binary = grayscale < 125 ? 0 : 255;
-        data[i] = binary;     // R
-        data[i + 1] = binary; // G
-        data[i + 2] = binary; // B
+    const video = plateVideoRef.current;
+    const canvas = canvasRef.current || document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        setOcrResult("❌ Lỗi trích xuất ảnh.");
+        setPlateScanning(false);
+        return;
       }
-      ctx.putImageData(imgData, 0, 0);
+      const localUrl = URL.createObjectURL(blob);
+      setPreviewPlateUrl(localUrl);
+      stopPlateCamera();
 
-      // Gửi ảnh đã nhị phân hóa cho Tesseract OCR Engine
-      const { data: { text } } = await window.Tesseract.recognize(
-        canvas,
-        'eng',
-        { logger: m => console.log(m) }
-      );
+      // 1. Gửi Plate Recognizer OCR trước
+      let detectedPlate = "";
+      try {
+        const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
+        const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
 
-      console.log("OCR Raw Text:", text);
-
-      // Dọn dẹp ký tự rác
-      let cleanedText = text.replace(/[^a-zA-Z0-9-\n\s]/g, "").toUpperCase();
-      let lines = cleanedText.split("\n").map(l => l.trim()).filter(l => l.length >= 2);
-
-      let matchedPlate = "";
-
-      if (lines.length > 0) {
-        let rawCandidate = lines.join("").replace(/\s/g, "").replace(/-/g, "");
-
-        // Giải thuật tự động sửa lỗi nhận diện sai chữ-số phổ biến
-        let chars = rawCandidate.split("");
-        for (let i = 0; i < chars.length; i++) {
-          if (i < 2 || i >= 4) { // Phần số
-            if (chars[i] === 'O' || chars[i] === 'D' || chars[i] === 'Q') chars[i] = '0';
-            else if (chars[i] === 'I' || chars[i] === 'L') chars[i] = '1';
-            else if (chars[i] === 'Z') chars[i] = '2';
-            else if (chars[i] === 'S') chars[i] = '5';
-            else if (chars[i] === 'G') chars[i] = '6';
-            else if (chars[i] === 'B') chars[i] = '8';
-          } else if (i === 2) { // Ký tự sê-ri thứ 3 phải là CHỮ CÁI
-            if (chars[i] === '0') chars[i] = 'D';
-            else if (chars[i] === '1') chars[i] = 'I';
-            else if (chars[i] === '5') chars[i] = 'S';
-            else if (chars[i] === '8') chars[i] = 'B';
-            else if (chars[i] === '2') chars[i] = 'Z';
-          }
-        }
-
-        const normalizedCandidate = chars.join("");
-        console.log("Normalized Candidate:", normalizedCandidate);
-
-        // Áp dụng biểu thức chính quy (Regex) khớp chuẩn cấu trúc biển số Việt Nam
-        const bikeRegex = /([0-9]{2})([A-Z])([0-9A-Z])([0-9]{4,5})/;
-        const matchBike = normalizedCandidate.match(bikeRegex);
-
-        const carRegex = /([0-9]{2})([A-Z])([0-9]{4,5})/;
-        const matchCar = normalizedCandidate.match(carRegex);
-
-        if (matchBike) {
-          const [fullMatch, tinh, series1, series2, stt] = matchBike;
-          const formattedStt = stt.length === 5 ? `${stt.slice(0, 3)}.${stt.slice(3)}` : stt;
-          matchedPlate = `${tinh}${series1}${series2}-${formattedStt}`;
-        } else if (matchCar) {
-          const [fullMatch, tinh, series, stt] = matchCar;
-          const formattedStt = stt.length === 5 ? `${stt.slice(0, 3)}.${stt.slice(3)}` : stt;
-          matchedPlate = `${tinh}${series}-${formattedStt}`;
+        if (!hasOcr) {
+          console.warn("Chưa cấu hình Plate Recognizer Token. Bỏ qua OCR.");
+          setOcrResult("⚠️ Chưa cấu hình Token OCR.");
         } else {
-          matchedPlate = normalizedCandidate.slice(0, 9);
-        }
-      }
+          const ocrData = new FormData();
+          ocrData.append("upload", blob, "captured_plate.jpg");
+          ocrData.append("regions", "vn");
 
-      if (matchedPlate) {
-        matchedPlate = matchedPlate.slice(0, 11);
+          const ocrResponse = await fetch("https://api.platerecognizer.com/v1/plate-reader/", {
+            method: "POST",
+            headers: {
+              "Authorization": `Token ${ocrToken.trim()}`,
+            },
+            body: ocrData,
+          });
 
-        // Tự động thêm dấu gạch ngang phân tách
-        if (matchedPlate.length >= 4 && !matchedPlate.includes("-")) {
-          const letterMatch = matchedPlate.match(/[A-Z]/);
-          if (letterMatch) {
-            const idx = matchedPlate.indexOf(letterMatch[0]) + 1;
-            matchedPlate = matchedPlate.slice(0, idx) + "-" + matchedPlate.slice(idx);
+          if (ocrResponse.ok) {
+            const ocrRes = await ocrResponse.json();
+            if (ocrRes.results && ocrRes.results.length > 0) {
+              detectedPlate = ocrRes.results[0].plate.toUpperCase();
+
+              const cleanPlate = normalizeLicensePlate(detectedPlate);
+
+              // Tự động gợi ý loại xe dựa trên chuỗi trơn
+              let targetType = "ô tô";
+              if (cleanPlate.includes("A1") || cleanPlate.includes("B1") || cleanPlate.includes("E1") || cleanPlate.includes("F1")) {
+                targetType = "máy";
+              }
+              const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetType));
+
+              // Định dạng biển số xe theo loại xe
+              const formattedPlate = formatLicensePlate(detectedPlate, targetType);
+
+              setFormData(prev => ({
+                ...prev,
+                plateNumber: formattedPlate,
+                vehicleTypeId: vt?.id || prev.vehicleTypeId,
+                driverType: "WALK_IN",
+                reservationCode: ""
+              }));
+              setOcrResult(`✅ Nhận dạng: ${formattedPlate}`);
+            } else {
+              setOcrResult("⚠️ Không tìm thấy biển số xe.");
+            }
+          } else {
+            const errText = await ocrResponse.text();
+            console.error("Plate Recognizer OCR error:", errText);
+            setOcrResult("❌ Lỗi dịch vụ nhận diện.");
           }
         }
-
-        // Tự động chọn loại xe tương ứng với biển số nhận diện được
-        let targetType = "ô tô";
-        if (matchedPlate.includes("A1") || matchedPlate.includes("B1") || matchedPlate.includes("E1") || matchedPlate.includes("F1")) {
-          targetType = "máy";
-        }
-        const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetType));
-
-        setFormData(prev => ({
-          ...prev,
-          plateNumber: matchedPlate,
-          vehicleTypeId: vt?.id || prev.vehicleTypeId,
-          driverType: "WALK_IN",
-          reservationCode: ""
-        }));
-
-        setOcrResult(`✅ Nhận dạng: ${matchedPlate}`);
-      } else {
-        setOcrResult(`❌ Không tìm thấy biển số.`);
+      } catch (err) {
+        console.error("Lỗi khi nhận diện biển số:", err);
+        setOcrResult("❌ Lỗi kết nối dịch vụ OCR.");
       }
-    } catch (err) {
-      console.error("Lỗi phân tích OCR:", err);
-      setOcrResult("❌ Lỗi xử lý ảnh.");
-    } finally {
-      setOcrScanning(false);
-    }
+
+      // 2. Upload lên Cloudinary
+      try {
+        setOcrResult(prev => prev + " (Đang tải ảnh lên Cloudinary...)");
+        const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+        const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+
+        const hasCloudinary = cloudName && uploadPreset &&
+          cloudName !== "tên_cloud_name_của_bạn" &&
+          uploadPreset !== "tên_unsigned_preset_của_bạn";
+
+        if (!hasCloudinary) {
+          console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
+          setUploadedPlateUrl(URL.createObjectURL(blob));
+          setOcrResult(prev => prev + " - Hoàn tất (Demo Cloud)");
+          return;
+        }
+
+        const uploadData = new FormData();
+        uploadData.append("file", blob, "captured_plate.jpg");
+        uploadData.append("upload_preset", uploadPreset.trim());
+
+        const response = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
+          { method: "POST", body: uploadData }
+        );
+
+        if (response.ok) {
+          const resData = await response.json();
+          setUploadedPlateUrl(resData.secure_url || resData.url);
+          setOcrResult(prev => prev + " - Tải ảnh thành công.");
+        } else {
+          throw new Error("Lỗi upload.");
+        }
+      } catch (err) {
+        console.error("Lỗi upload plate:", err);
+        setOcrResult(prev => prev + " ❌ Lỗi lưu ảnh.");
+      } finally {
+        setPlateScanning(false);
+      }
+    }, "image/jpeg", 0.6);
   };
 
   // Hàm mô phỏng quét biển số dùng cho Demo nhanh không cần webcam
   const handleOcrScan = (vehicleTypeChoice) => {
-    setOcrScanning(true);
+    setPlateScanning(true);
     setOcrResult("Đang phân tích giả lập...");
+    setPreviewPlateUrl("");
+    stopPlateCamera();
 
     setTimeout(() => {
       let plate = "30G-888.88";
       let targetType = "ô tô";
+      let mockImageUrl = "https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?auto=format&fit=crop&q=80&w=400";
 
       if (vehicleTypeChoice === "motorbike") {
         plate = "59A1-999.99";
         targetType = "máy";
+        mockImageUrl = "https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=400";
       }
 
       const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetType));
 
       setFormData(prev => ({
         ...prev,
-        plateNumber: plate,
+        plateNumber: formatLicensePlate(plate, targetType),
         vehicleTypeId: vt?.id || prev.vehicleTypeId,
         driverType: "WALK_IN",
         reservationCode: ""
       }));
 
-      setOcrScanning(false);
+      setPreviewPlateUrl(mockImageUrl);
+      setUploadedPlateUrl(mockImageUrl);
+
+      if (!previewFaceUrl) {
+        setPreviewFaceUrl("https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400");
+        setUploadedFaceUrl("https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400");
+      }
+
+      setPlateScanning(false);
       setOcrResult(`✅ Nhận diện giả lập: ${plate}`);
     }, 1000);
   };
@@ -428,111 +619,8 @@ export default function StaffCheckIn({ onLogout }) {
 
     return () => {
       clearInterval(timer);
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => { });
-      }
     };
   }, []);
-
-  // Xử lý thông tin giải mã từ QR
-  const parseQrData = (qrText) => {
-    if (!qrText) return;
-
-    let targetPlate = "";
-    let targetReservation = "";
-    let matchedVehicleTypeId = formData.vehicleTypeId || (vehicleTypes[0]?.id || "");
-    let matchedGateId = formData.gateEntryId || (gates[0]?.id || "");
-
-    try {
-      // Phân tích nếu QR có dạng JSON
-      const data = JSON.parse(qrText);
-      targetPlate = data.plateNumber || data.licensePlate || "";
-      targetReservation = data.reservationCode || data.bookingCode || "";
-
-      if (data.vehicleTypeId) {
-        matchedVehicleTypeId = data.vehicleTypeId;
-      } else {
-        const vDesc = (data.vehicleType || "car").toLowerCase();
-        const matchVehicle = vehicleTypes.find(v => {
-          const vName = v.name.toLowerCase();
-          return vName.includes(vDesc) || vDesc.includes(vName) ||
-            (vDesc === "car" && vName.includes("t")) ||
-            (vDesc === "motorbike" && vName.includes("my"));
-        });
-        if (matchVehicle) {
-          matchedVehicleTypeId = matchVehicle.id;
-        }
-      }
-
-      setFormData(prev => ({
-        ...prev,
-        plateNumber: targetPlate,
-        reservationCode: targetReservation,
-        vehicleTypeId: matchedVehicleTypeId,
-        gateEntryId: matchedGateId,
-        driverType: targetReservation ? "PRE_BOOKED" : prev.driverType
-      }));
-
-      setScanMessage("ĐỒNG BỘ QR THÀNH CÔNG");
-    } catch (e) {
-      // Phân tích nếu QR là chuỗi thô
-      setFormData((prev) => ({
-        ...prev,
-        plateNumber: qrText.length < 15 ? qrText : prev.plateNumber,
-        reservationCode: qrText.startsWith("RS") ? qrText : prev.reservationCode,
-        vehicleTypeId: matchedVehicleTypeId,
-        gateEntryId: matchedGateId
-      }));
-
-      setScanMessage("ĐÃ NHẬN QR DẠNG CHUỖI");
-    }
-  };
-
-  // Khởi động Camera quét QR
-  const startScanner = async () => {
-    try {
-      setIsScanning(true);
-      setScanMessage("ĐANG KHỞI ĐỘNG CAMERA...");
-
-      const scanner = new Html5Qrcode("qr-reader");
-      scannerRef.current = scanner;
-
-      await scanner.start(
-        { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: { width: 220, height: 260 },
-        },
-        async (decodedText) => {
-          parseQrData(decodedText);
-          if (scannerRef.current) {
-            await scannerRef.current.stop();
-            scannerRef.current.clear();
-            scannerRef.current = null;
-          }
-          setIsScanning(false);
-        },
-        () => { }
-      );
-
-      setScanMessage("VUI LÒNG ĐƯA MÃ QR VÀO KHUNG HÌNH");
-    } catch (error) {
-      console.error(error);
-      setScanMessage("LỖI KHỞI ĐỘNG CAMERA");
-      setIsScanning(false);
-    }
-  };
-
-  // Tắt camera quét QR
-  const stopScanner = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop();
-      scannerRef.current.clear();
-      scannerRef.current = null;
-    }
-    setIsScanning(false);
-    setScanMessage("CAMERA ĐÃ TẮT");
-  };
 
   // Xử lý gửi API Check-in lên Java Spring Boot Backend
   const handleCheckIn = async () => {
@@ -541,10 +629,17 @@ export default function StaffCheckIn({ onLogout }) {
       setApiError('Vui lòng cung cấp biển số xe');
       return;
     }
-    if (!isValidVietnamLicensePlate(normalizedPlate)) {
+
+    const currentVehicleType = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+
+    if (!isValidVietnamLicensePlate(normalizedPlate, currentVehicleType)) {
       setApiError(LICENSE_PLATE_HINT);
       return;
     }
+
+    // Tự động định dạng lại hiển thị trong ô nhập liệu
+    setFormData(prev => ({ ...prev, plateNumber: formatLicensePlate(formData.plateNumber, currentVehicleType) }));
+
     if (!formData.vehicleTypeId || !formData.gateEntryId) {
       setApiError('Vui lòng chọn loại xe và cổng vào tương ứng');
       return;
@@ -561,6 +656,8 @@ export default function StaffCheckIn({ onLogout }) {
         reservationCode: formData.reservationCode || null,
         driverType: formData.driverType,
         notes: formData.notes || null,
+        entryPlateImageUrl: uploadedPlateUrl || null,
+        entryFaceImageUrl: uploadedFaceUrl || null,
       });
 
       const backendSession = res.data.data;
@@ -624,12 +721,6 @@ export default function StaffCheckIn({ onLogout }) {
     }
 
     const activeGateName = gates.find(g => g.id === formData.gateEntryId)?.gateName || "Cổng vào";
-    const staffRow = `
-            <div class="info-row">
-              <span>Nhân viên trực:</span>
-              <span class="info-value">${fullName}</span>
-            </div>
-    `;
 
     const ticketHtml = `
       <html>
@@ -694,30 +785,43 @@ export default function StaffCheckIn({ onLogout }) {
               <span class="info-value">${ticketCode}</span>
             </div>
             <div class="info-row">
-              <span>Biển số:</span>
-              <span class="info-value">${formData.plateNumber}</span>
+              <span>Biển số xe:</span>
+              <span class="info-value">${formatLicensePlate(checkInResult?.licensePlate || formData.plateNumber, checkInResult?.vehicleType || getVehicleLabel(formData.vehicleTypeId)) || "---"}</span>
             </div>
             <div class="info-row">
-              <span>Loại xe:</span>
-              <span class="info-value">${getVehicleLabel(formData.vehicleTypeId)}</span>
+              <span>Loại phương tiện:</span>
+              <span class="info-value">${checkInResult?.vehicleType || getVehicleLabel(formData.vehicleTypeId)}</span>
             </div>
             <div class="info-row">
-              <span>Thời gian:</span>
+              <span>Hình thức gửi:</span>
+              <span class="info-value">${checkInResult
+        ? (checkInResult.driverType === "SUBSCRIBER"
+          ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
+          : checkInResult.driverType === "PRE_BOOKED"
+            ? "Đặt trước online"
+            : "Vé lượt")
+        : (formData.driverType === "SUBSCRIBER"
+          ? "Vé tháng (Premium)"
+          : formData.driverType === "PRE_BOOKED"
+            ? "Đặt trước online"
+            : "Vé lượt")
+      }</span>
+            </div>
+            <div class="info-row">
+              <span>Vị trí gợi ý:</span>
+              <span class="info-value">${checkInResult ? `${checkInResult.zoneName} (${checkInResult.floorName})` : "(Sẽ phân bổ sau)"}</span>
+            </div>
+            <div class="info-row">
+              <span>Thời gian vào:</span>
               <span class="info-value">${new Date(checkInResult?.entryTime || Date.now()).toLocaleString("vi-VN")}</span>
             </div>
             <div class="info-row">
-              <span>Cổng vào:</span>
-              <span class="info-value">${activeGateName}</span>
+              <span>Khách hàng:</span>
+              <span class="info-value">${checkInResult?.customerName || "--"}</span>
             </div>
-            ${checkInResult?.zoneName ? `
-            <div class="info-row">
-              <span>Vị trí đỗ:</span>
-              <span class="info-value">${checkInResult.floorName} - ${checkInResult.zoneName}</span>
-            </div>
-            ` : ""}
-            ${staffRow}
             <div class="footer">
-              Chúc quý khách thượng lộ bình an!<br/>
+              Cảm ơn quý khách đã sử dụng dịch vụ!<br/>
+              Hotline hỗ trợ: 1900 8888<br/>
               Vui lòng bảo quản vé cẩn thận.
             </div>
           </div>
@@ -735,585 +839,425 @@ export default function StaffCheckIn({ onLogout }) {
   };
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-[#f8fafc] text-slate-900 flex font-sans">
-      {/* Sidebar - Chủ đề Sleek Dark Glassmorphism */}
-      <aside
-        className={`aside-panel fixed left-0 top-0 bottom-0 z-50 flex h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 ${collapsed ? "w-20" : "w-72"}`}
-      >
-        <div className="flex items-center gap-3.5 px-6 py-6 border-b border-slate-800 overflow-hidden">
+    <section className="flex-1 space-y-6 p-1">
+      {/* Thông báo lỗi hiển thị đầu trang nội dung */}
+      {apiError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 border border-rose-200 px-4 py-3 text-xs font-bold text-rose-700 shadow-sm w-full animate-pulse">
+          <span className="flex items-center gap-2">⚠️ {apiError}</span>
           <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/20 font-black text-lg flex-shrink-0 cursor-pointer"
+            onClick={() => setApiError("")}
+            className="text-rose-400 hover:text-rose-600 transition-colors font-bold text-base leading-none cursor-pointer"
           >
-            P
+            &times;
           </button>
-          {!collapsed && (
-            <div className="animate-fade-in-fast">
-              <h1 className="text-md font-extrabold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent whitespace-nowrap">
-                Smart Parking
-              </h1>
-              <p className="text-xs text-blue-400 font-semibold tracking-wider uppercase whitespace-nowrap">
-                Cổng nhân viên
-              </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Cột trái (Máy quét camera và thông tin đầu vào) */}
+        <div className="space-y-4 lg:col-span-9 flex flex-col">
+
+          {/* Bảng Camera Điều khiển & Đối soát CCTV 2 Cột */}
+          <div className="rounded-2xl shadow-sm overflow-hidden flex flex-col shrink-0 max-w-[1045px] w-full">
+
+            {/* Lưới 2 Cột dính liền khép kín */}
+            <div className="grid grid-cols-2 gap-[2px] p-[2px]">
+
+              {/* CỘT 1: CHỤP CHÂN DUNG */}
+              <div className="flex flex-col gap-[2px] h-full justify-between">
+                {/* Vùng Camera / Ảnh Preview */}
+                <div className="relative bg-slate-50 aspect-[4/3] flex items-center justify-center overflow-hidden shrink-0">
+                  {previewFaceUrl ? (
+                    <img src={previewFaceUrl} alt="Chân dung lúc vào" className="w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      <video
+                        ref={faceVideoRef}
+                        className="w-full h-full object-cover"
+                        playsInline
+                        muted
+                        style={{ display: isFaceCameraOn ? "block" : "none" }}
+                      />
+                      {!isFaceCameraOn && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
+                          <svg className="text-slate-500 w-7 h-7 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            <circle cx="12" cy="13" r="3" />
+                          </svg>
+                          <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM CHÂN DUNG TẮT</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {faceUploading && (
+                    <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center text-center p-4 z-10">
+                      <p className="font-mono font-bold text-indigo-400 tracking-wider text-xs animate-pulse">[ ĐANG LƯU ẢNH... ]</p>
+                    </div>
+                  )}
+
+                  <span className="absolute top-2 left-2 text-white font-black text-[9px] px-1.5 py-0.5 rounded  tracking-wider">
+                    CAM 1: CHÂN DUNG
+                  </span>
+                </div>
+
+                {/* Điều khiển Cột 1 */}
+                <div className="bg-slate-50 p-5 flex flex-col gap-2 mt-auto min-h-[110px] justify-center">
+                  <div className="flex gap-1 justify-center">
+                    <button
+                      type="button"
+                      onClick={isFaceCameraOn ? stopFaceCamera : startFaceCamera}
+                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isFaceCameraOn ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                    >
+                      {isFaceCameraOn ? 'Tắt' : 'Bật'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={captureFace}
+                      disabled={!isFaceCameraOn || faceUploading}
+                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                    >
+                      Chụp ảnh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => { stopFaceCamera(); setPreviewFaceUrl(""); setUploadedFaceUrl(""); await startFaceCamera(); }}
+                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                    >
+                      Bỏ qua
+                    </button>
+                  </div>
+                  <div className="flex flex-col items-center justify-center gap-1.5 mt-0.5">
+
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 rounded border border-indigo-200 transition-all text-[8px] font-black uppercase active:scale-[0.98] shadow-sm">
+                      <svg className="w-3.5 h-3.5 text-indigo-650" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      </svg>
+                      Tải ảnh (Face & Plate)
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleDoubleUpload}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* CỘT 2: CHỤP BIỂN SỐ XE */}
+              <div className="flex flex-col gap-[2px] h-full justify-between">
+                {/* Vùng Camera / Ảnh Preview */}
+                <div className="relative bg-slate-50 aspect-[4/3] flex items-center justify-center overflow-hidden shrink-0">
+                  {previewPlateUrl ? (
+                    <img src={previewPlateUrl} alt="Xe lúc vào" className="w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      <video
+                        ref={plateVideoRef}
+                        className="w-full h-full object-cover"
+                        playsInline
+                        muted
+                        style={{ display: isPlateCameraOn ? "block" : "none" }}
+                      />
+                      {!isPlateCameraOn && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
+                          <svg className="text-slate-500 w-7 h-7 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7V5a2 2 0 012-2h2m10 0h2a2 2 0 012 2v2m0 10v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M5 12h14" />
+                          </svg>
+                          <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM BIỂN SỐ TẮT</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {plateScanning && (
+                    <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center text-center p-4 z-10 animate-fade-in">
+                      <p className="font-mono font-bold text-indigo-400 tracking-wider text-xs animate-pulse">[ ĐANG NHẬN DIỆN & LƯU... ]</p>
+                    </div>
+                  )}
+
+                  <span className="absolute top-2 left-2 text-white font-black text-[9px] px-1.5 py-0.5 rounded  tracking-wider">
+                    CAM 2: BIỂN SỐ XE
+                  </span>
+                </div>
+
+                {/* Điều khiển Cột 2 */}
+                <div className="bg-slate-50 p-5 flex flex-col gap-2 mt-auto min-h-[110px] justify-center">
+                  <div className="flex gap-1 justify-center">
+                    <button
+                      type="button"
+                      onClick={isPlateCameraOn ? stopPlateCamera : startPlateCamera}
+                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isPlateCameraOn ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                    >
+                      {isPlateCameraOn ? 'Tắt' : 'Bật'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={capturePlateAndOcr}
+                      disabled={!isPlateCameraOn || plateScanning}
+                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                    >
+                      Chụp & Quét
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => { stopPlateCamera(); setPreviewPlateUrl(""); setOcrResult("Camera sẵn sàng"); setFormData(prev => ({ ...prev, plateNumber: "" })); await startPlateCamera(); }}
+                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                    >
+                      Bỏ qua
+                    </button>
+                  </div>
+
+                  {/* Cụm nhập nhanh hoặc giả lập */}
+                  <div className="flex gap-1 items-center mt-0.5 h-[22px]">
+                    <input
+                      placeholder="Nhập biển số..."
+                      value={formData.plateNumber}
+                      onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })}
+                      onBlur={(e) => {
+                        const currentVehicleType = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+                        setFormData({ ...formData, plateNumber: formatLicensePlate(e.target.value, currentVehicleType) });
+                      }}
+                      className="flex-1 rounded border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleOcrScan("motorbike")}
+                      className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded text-[8px] font-bold border border-indigo-200 transition-colors cursor-pointer shrink-0"
+                    >
+                      Giả lập Xe máy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOcrScan("car")}
+                      className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-650 rounded text-[8px] font-bold border border-emerald-200 transition-colors cursor-pointer shrink-0"
+                    >
+                      Giả lập Ô tô
+                    </button>
+                  </div>
+                </div>
+              </div>
+
             </div>
-          )}
-        </div>
-
-        <nav className="flex-1 space-y-1.5 px-4 py-6 overflow-x-hidden">
-          <SideLink collapsed={collapsed} to="/staff/dashboard" icon={<IconDashboard />} label="Bảng điều khiển" />
-          <SideLink collapsed={collapsed} to="/staff/map" icon={<IconMap />} label="Sơ đồ bãi xe" />
-          <SideLink collapsed={collapsed} to="/staff/check-in" icon={<IconCheckIn />} label="Check-in xe vào" active />
-          <SideLink collapsed={collapsed} to="/staff/check-out" icon={<IconCheckOut />} label="Check-out xe ra" />
-          <SideLink collapsed={collapsed} to="/staff/history" icon={<IconHistory />} label="Lịch sử phiên gửi" />
-          <SideLink collapsed={collapsed} to="/staff/3d-map" icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 16V8a2 2 0 00-1-1.732l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.732l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /><path strokeLinecap="round" strokeLinejoin="round" d="M3.3 7L12 12l8.7-5M12 22V12" /></svg>} label="Mô phỏng 3D" />
-        </nav>
-
-        <div className="border-t border-slate-800 p-4 overflow-hidden">
-          <button
-            onClick={onLogout}
-            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 font-semibold text-rose-400 hover:bg-rose-950/30 hover:text-rose-300 transition-all duration-200 cursor-pointer"
-          >
-            <IconLogout />
-            {!collapsed && <span className="whitespace-nowrap">Đăng xuất</span>}
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Panel */}
-      <main
-        className={`main-content-area flex-1 min-h-screen flex flex-col transition-all duration-300 ${collapsed ? "ml-20" : "ml-72"}`}
-      >
-        {/* Header bar */}
-        <header className="sticky top-0 z-40 flex h-20 items-center justify-between border-b border-slate-200/80 bg-white/80 px-8 backdrop-blur-md relative">
-          {/* Cột bên trái: Tiêu đề và Ngày tháng */}
-          <div className="flex flex-col">
-            <h2 className="text-xl font-bold text-slate-900">Check-in xe vào bãi</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{liveDate}</p>
           </div>
 
-          {/* Phần lỗi: Nằm chính giữa Header, ngang hàng và không làm xê dịch bố cục hai bên */}
-          {apiError && (
-            <div className="absolute left-3/7 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 flex items-center gap-0 rounded-xl bg-rose-50 border border-rose-200 px-2 py-2.5 text-xs font-bold text-rose-700 shadow-sm max-w-[200px] sm:max-w-sm md:max-w-md lg:max-w-lg truncate animate-pulse">
-              <span className="shrink-0">⚠️</span>
-              <span className="truncate">{apiError}</span>
-              <button
-                onClick={() => setApiError("")}
-                className="ml-2 text-rose-400 hover:text-rose-600 transition-colors font-bold text-base leading-none shrink-0 cursor-pointer"
-              >
-                &times;
-              </button>
+          {/* Form chọn loại xe & cổng vào bên dưới camera */}
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Loại xe</label>
+                <select
+                  value={formData.vehicleTypeId}
+                  onChange={(e) => setFormData({ ...formData, vehicleTypeId: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
+                >
+                  {vehicleTypes.map(vt => (
+                    <option key={vt.id} value={vt.id}>{vt.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Cổng vào</label>
+                <select
+                  value={formData.gateEntryId}
+                  onChange={(e) => setFormData({ ...formData, gateEntryId: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
+                >
+                  {gates.map(g => (
+                    <option key={g.id} value={g.id}>{g.gateName}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-          )}
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Ghi chú</label>
+              <input
+                value={formData.notes || ""}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                placeholder="Ghi chú thêm (nếu có)..."
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white shadow-sm font-sans"
+              />
+            </div>
+          </div>
 
-          {/* Cột bên phải: Thời gian và Thông tin User */}
-          <div className="flex items-center gap-6">
-            <div className="hidden md:flex flex-col items-end border-r border-slate-200 pr-6">
-              <span className="font-mono text-lg font-bold text-indigo-600 bg-indigo-50/50 px-3 py-1 rounded-lg border border-indigo-100">
-                {liveTime}
+        </div>
+
+        {/* Cột phải (Vé thanh toán) - chiếm 3 cột (25%) */}
+        <div className="space-y-3 lg:col-span-3 flex flex-col">
+
+          {/* Vị trí đỗ gợi ý luôn hiển thị */}
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-2.5 shadow-xs flex-shrink-0">
+            <p className="font-bold text-emerald-900 flex items-center justify-between text-xs">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Vị trí đỗ đề xuất:
+              </span>
+              <span className="font-black text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                {checkInResult ? `${checkInResult.floorName} - ${checkInResult.zoneName}` : "Chờ Check-in..."}
+              </span>
+            </p>
+          </div>
+
+          {/* VÉ ĐIỆN TỬ CHECK-IN */}
+          <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm overflow-hidden flex flex-col gap-2 border-t-4 border-t-indigo-600">
+            {/* Punch hole trang trí */}
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-2.5 w-5 h-5 rounded-full bg-[#f8fafc] border-r border-slate-200/80 z-10"></div>
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 -mr-2.5 w-5 h-5 rounded-full bg-[#f8fafc] border-l border-slate-200/80 z-10"></div>
+
+            {/* Header vé */}
+            <div className="text-center border-b border-dashed border-slate-200 pb-2.5">
+              <h4 className="font-extrabold text-xs text-slate-800 tracking-wider">SMART PARKING TICKET</h4>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                CỔNG VÀO: {gates.find(g => g.id === formData.gateEntryId)?.gateName.toUpperCase() || "CHƯA CHỌN CỔNG"}
+              </p>
+            </div>
+
+            {/* QR Code hiển thị */}
+            <div className="flex flex-col items-center justify-center py-1">
+              <div className="p-1.5 bg-white rounded-xl shadow-inner border border-slate-100 flex items-center justify-center">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${ticketCode || "PENDING_TICKET"}`}
+                  alt="QR Ticket"
+                  className="w-[85px] h-[85px] object-contain"
+                />
+              </div>
+              <span className="font-mono text-[9px] text-slate-500 font-extrabold tracking-wider mt-1.5">
+                {ticketCode || "CHỜ CẤP MÃ VÉ..."}
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <button className="relative rounded-full p-2.5 hover:bg-slate-100/80 transition-colors cursor-pointer">
-                <IconBell />
-                <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white animate-pulse" />
-              </button>
-
-              <button className="rounded-full p-2.5 hover:bg-slate-100/80 transition-colors cursor-pointer">
-                <IconSettings />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-3 border-l border-slate-200 pl-6">
-              <div className="text-right">
-                <p className="font-semibold text-sm text-slate-900">{fullName}</p>
-                <p className="text-xs text-slate-400 font-medium">{roleLabel}</p>
+            {/* Chi tiết thông tin vé */}
+            <div className="space-y-1.5 text-[11px] font-semibold text-slate-500 border-t border-dashed border-slate-200 pt-2.5">
+              <div className="flex justify-between items-center">
+                <span>Biển số xe:</span>
+                <span className="text-slate-600 text-xs font-black tracking-wide uppercase px-2 py-0.5 bg-slate-100 rounded border border-slate-200 font-mono">
+                  {formatLicensePlate(checkInResult ? checkInResult.licensePlate : formData.plateNumber, checkInResult ? checkInResult.vehicleType : getVehicleLabel(formData.vehicleTypeId)) || "---"}
+                </span>
               </div>
 
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 font-bold text-white shadow-md shadow-indigo-500/20">
-                {avatarChar}
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Content Section */}
-        <section className="flex-1 space-y-6 p-1">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-            {/* Cột trái (Máy quét camera và thông tin đầu vào) */}
-            <div className="action-panel-item rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-3 flex flex-col overflow-hidden">
-              <div className="border-b border-slate-100 bg-slate-50 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    onClick={() => { stopOcrCamera(); setActiveTab("qr"); }}
-                    className={`font-bold text-sm tracking-wide uppercase pb-1 border-b-2 transition-all cursor-pointer ${activeTab === "qr" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-                  >
-                    ▣ Quét mã QR
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { stopScanner(); setActiveTab("ocr"); }}
-                    className={`font-bold text-sm tracking-wide uppercase pb-1 border-b-2 transition-all cursor-pointer ${activeTab === "ocr" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-                  >
-                    Quét Biển số AI
-                  </button>
-                </div>
-
-                {/* Đưa Trạng Thái Lên Trên Đầu */}
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-sm max-w-[240px] sm:max-w-xs md:max-w-md truncate">
-                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${activeTab === "qr"
-                    ? (isScanning ? 'bg-indigo-500 animate-pulse' : 'bg-slate-400')
-                    : (ocrScanning ? 'bg-indigo-500 animate-pulse' : 'bg-emerald-500')
-                    }`} />
-                  <span className="text-slate-400 font-medium shrink-0">Trạng thái:</span>
-                  <span className={`truncate ${activeTab === "qr" ? "text-indigo-600 font-extrabold" : "text-emerald-600 font-extrabold"}`}>
-                    {activeTab === "qr" ? scanMessage : (ocrResult || "Camera sẵn sàng")}
-                  </span>
-                </div>
+              <div className="flex justify-between">
+                <span>Loại phương tiện:</span>
+                <span className="text-slate-600 font-extrabold">
+                  {checkInResult ? checkInResult.vehicleType : (formData.vehicleTypeId ? getVehicleLabel(formData.vehicleTypeId) : "---")}
+                </span>
               </div>
 
-              <div className="p-5 space-y-4 flex-1">
-                {activeTab === "qr" ? (
-                  <div className="flex flex-row items-stretch gap-4">
-                    {/* Các nút điều khiển hàng dọc bên trái quét */}
-                    <div className={`flex flex-col gap-2.5 justify-center shrink-0 ${collapsed ? "w-44" : "w-32 sm:w-36"} transition-all duration-350`}>
-                      <button
-                        onClick={startScanner}
-                        disabled={isScanning}
-                        className={`rounded-xl bg-indigo-600 font-bold text-white shadow-md shadow-indigo-500/10 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none transition-all cursor-pointer text-center flex items-center justify-center ${collapsed ? "py-3 px-4 text-sm" : "py-2 px-2 text-xs"
-                          }`}
-                      >
-                        Bật Máy Quét
-                      </button>
-
-                      <button
-                        onClick={stopScanner}
-                        disabled={!isScanning}
-                        className={`rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-all cursor-pointer text-center flex items-center justify-center ${collapsed ? "py-3 px-4 text-sm" : "py-2 px-2 text-xs"
-                          }`}
-                      >
-                        Tắt Camera
-                      </button>
-                    </div>
-
-                    {/* Khung quét QR nhỏ gọn bên phải */}
-                    <div className="flex-1 max-w-[470px] relative overflow-hidden rounded-2xl bg-slate-950 p-0 shadow-inner border border-slate-800 h-[280px]">
-                      <div id="qr-reader" className="h-full w-full overflow-hidden rounded-xl bg-slate-900" />
-
-                      {!isScanning && (
-                        <div className="absolute inset-2 flex flex-col items-center justify-center rounded-xl bg-slate-950/95 text-center p-4">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-950 text-indigo-400 border border-indigo-500/30 text-2xl mb-2">
-                            ▣
-                          </div>
-                          <p className="font-bold text-white text-xs">CAMERA ĐANG TẮT</p>
-                          <p className="text-slate-400 text-[10px] mt-1 max-w-[200px] leading-tight">
-                            Nhấn "Bật Máy Quét" ở bên trái để bắt đầu
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="pointer-events-none absolute inset-4 border border-white/5">
-                        <span className="absolute -left-1 -top-1 h-4 w-4 border-l-2 border-t-2 border-indigo-400" />
-                        <span className="absolute -right-1 -top-1 h-4 w-4 border-r-2 border-t-2 border-indigo-400" />
-                        <span className="absolute -bottom-1 -left-1 h-4 w-4 border-b-2 border-l-2 border-indigo-400" />
-                        <span className="absolute -bottom-1 -right-1 h-4 w-4 border-b-2 border-r-2 border-indigo-400" />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-row items-stretch gap-4">
-                    {/* Các nút điều khiển hàng dọc bên trái quét OCR */}
-                    <div className={`flex flex-col gap-2 justify-center shrink-0 ${collapsed ? "w-44" : "w-32 sm:w-36"} transition-all duration-350`}>
-                      {!isOcrCameraOn ? (
-                        <button
-                          type="button"
-                          onClick={startOcrCamera}
-                          className={`rounded-xl bg-emerald-600 font-bold text-white shadow-md shadow-emerald-500/10 hover:bg-emerald-700 transition-all cursor-pointer text-center flex items-center justify-center ${collapsed ? "py-3 px-4 text-sm" : "py-2 px-2 text-xs"
-                            }`}
-                        >
-                          Bật Camera OCR
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={stopOcrCamera}
-                          className={`rounded-xl border border-slate-200 font-bold text-slate-650 hover:bg-slate-55 transition-all cursor-pointer text-center flex items-center justify-center ${collapsed ? "py-3 px-4 text-sm" : "py-2 px-2 text-xs"
-                            }`}
-                        >
-                          Tắt Camera
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={captureAndOcr}
-                        disabled={!isOcrCameraOn || ocrScanning}
-                        className={`rounded-xl bg-indigo-600 font-bold text-white shadow-md shadow-indigo-500/10 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none transition-all cursor-pointer text-center flex items-center justify-center gap-1 ${collapsed ? "py-3 px-4 text-sm" : "py-2 px-2 text-xs"
-                          }`}
-                      >
-                        Chụp & Nhận Diện
-                      </button>
-
-                      {/* Tích hợp các nút Mô phỏng vào chung cột dọc */}
-                      <div className="flex flex-col gap-1 pt-1.5 border-t border-slate-100">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Giả lập:</span>
-                        <button
-                          type="button"
-                          onClick={() => handleOcrScan("motorbike")}
-                          disabled={ocrScanning}
-                          className="rounded-lg border border-indigo-100 bg-indigo-50/50 py-1 text-[9px] font-bold text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 transition-all cursor-pointer"
-                        >
-                          🏍️ Xe máy (59A1)
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOcrScan("car")}
-                          disabled={ocrScanning}
-                          className="rounded-lg border border-emerald-100 bg-emerald-50/50 py-1 text-[9px] font-bold text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 transition-all cursor-pointer"
-                        >
-                          🚗 Ô tô (30G)
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Khung quét OCR nhỏ gọn bên phải */}
-                    <div className="flex-1 max-w-[470px] relative overflow-hidden rounded-2xl bg-slate-950 p-0 shadow-inner border border-slate-800 h-[280px]">
-                      <div className="h-full w-full overflow-hidden rounded-xl bg-slate-900 flex flex-col items-center justify-center text-center relative">
-                        {isOcrCameraOn ? (
-                          <video
-                            ref={ocrVideoRef}
-                            className="w-full h-full object-cover rounded-lg"
-                            playsInline
-                            muted
-                          />
-                        ) : (
-                          <div className="p-4 flex flex-col items-center justify-center">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500/30 text-2xl mb-2 animate-pulse">
-                              📷
-                            </div>
-                            <p className="font-bold text-white text-xs">AI OCR ACTIVE</p>
-                            <p className="text-slate-400 text-[10px] max-w-[200px] mt-1 leading-tight">
-                              Sử dụng camera của bạn chụp lại biển số xe để AI tự động phân tích chữ
-                            </p>
-                          </div>
-                        )}
-
-                        {ocrScanning && (
-                          <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center text-center p-4 z-10">
-                            <div className="space-y-2">
-                              <div className="relative w-36 h-20 bg-indigo-950/40 border border-indigo-500/30 rounded-lg overflow-hidden flex items-center justify-center mx-auto">
-                                <span className="font-mono font-bold text-white tracking-wider text-xs animate-pulse">
-                                  [ QUÉT BKS ]
-                                </span>
-                                <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-400 shadow-md shadow-indigo-500 animate-bounce" style={{ animationDuration: '1.2s' }} />
-                              </div>
-                              <p className="text-[10px] text-indigo-400 font-bold animate-pulse">AI đang phân tích...</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <canvas ref={ocrCanvasRef} className="hidden" />
-
-                      <div className="pointer-events-none absolute inset-4 border border-white/5">
-                        <span className="absolute -left-1 -top-1 h-4 w-4 border-l-2 border-t-2 border-emerald-400" />
-                        <span className="absolute -right-1 -top-1 h-4 w-4 border-r-2 border-t-2 border-emerald-400" />
-                        <span className="absolute -bottom-1 -left-1 h-4 w-4 border-b-2 border-l-2 border-emerald-400" />
-                        <span className="absolute -bottom-1 -right-1 h-4 w-4 border-b-2 border-r-2 border-emerald-400" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Form nhập liệu thủ công xuất hiện ngay dưới mà không phải cuộn trang */}
-                <div className="space-y-4 pt-4 border-t border-slate-100">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Biển số xe</label>
-                    <input
-                      value={formData.plateNumber}
-                      onChange={(e) =>
-                        setFormData({ ...formData, plateNumber: normalizeLicensePlate(e.target.value) })
-                      }
-                      placeholder="Nhập biển số xe, Ví dụ: 30A-123.45"
-                      className="w-full rounded-xl border border-slate-200 px-4 py-3.5 text-md font-bold text-slate-800 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all"
-                    />
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Loại xe</label>
-                      <select
-                        value={formData.vehicleTypeId}
-                        onChange={(e) =>
-                          setFormData({ ...formData, vehicleTypeId: e.target.value })
-                        }
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3.5 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-500 transition-all cursor-pointer bg-white"
-                      >
-                        {vehicleTypes.map(vt => (
-                          <option key={vt.id} value={vt.id}>{vt.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Cổng vào</label>
-                      <select
-                        value={formData.gateEntryId}
-                        onChange={(e) =>
-                          setFormData({ ...formData, gateEntryId: e.target.value })
-                        }
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3.5 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-500 transition-all cursor-pointer bg-white"
-                      >
-                        {gates.map(g => (
-                          <option key={g.id} value={g.id}>{g.gateName}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Loại vé / Hình thức</label>
-                      <select
-                        value={formData.driverType}
-                        onChange={(e) =>
-                          setFormData({ ...formData, driverType: e.target.value })
-                        }
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3.5 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-500 transition-all cursor-pointer bg-white"
-                      >
-                        <option value="WALK_IN">Khách vãng lai (Vé lượt)</option>
-                        <option value="PRE_BOOKED">Đăng ký đặt trước (Online)</option>
-                        <option value="SUBSCRIBER">Vé tháng/quý/năm (Subscriber)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Mã đặt chỗ trước (nếu có)</label>
-                      <div className="flex gap-2">
-                        <input
-                          value={formData.reservationCode}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setFormData(prev => ({
-                              ...prev,
-                              reservationCode: val,
-                              driverType: val.trim() ? "PRE_BOOKED" : prev.driverType
-                            }));
-                          }}
-                          placeholder="Mã reservation (nếu có)"
-                          className="flex-1 rounded-xl border border-slate-200 px-4 py-3.5 text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 transition-all bg-white"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleFetchBookingInfo}
-                          className="px-4 py-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold rounded-xl text-xs whitespace-nowrap transition-colors border border-indigo-200 cursor-pointer"
-                        >
-                          Tìm Vé
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-
-                </div>
-              </div>
-            </div>
-
-            {/* Cột phải (Thông tin Vé & Nút Xác nhận) */}
-            <div className="space-y-3 lg:col-span-2 flex flex-col">
-              {/* Vị trí đỗ gợi ý luôn hiển thị */}
-              <div className="rounded-xl border border-emerald-150 bg-emerald-50/60 p-2.5 shadow-xs flex-shrink-0">
-                <p className="font-bold text-emerald-900 flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Vị trí đỗ đề xuất:
-                  </span>
-                  <span className="font-black text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
-                    {checkInResult ? `${checkInResult.floorName} - ${checkInResult.zoneName}` : "Chờ Check-in..."}
-                  </span>
-                </p>
+              <div className="flex justify-between">
+                <span>Hình thức gửi:</span>
+                <span className="text-slate-600 font-extrabold">
+                  {checkInResult
+                    ? (checkInResult.driverType === "SUBSCRIBER"
+                      ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
+                      : checkInResult.driverType === "PRE_BOOKED"
+                        ? "Đặt trước online"
+                        : "Vé lượt")
+                    : (formData.driverType === "SUBSCRIBER"
+                      ? "Vé tháng (Premium)"
+                      : formData.driverType === "PRE_BOOKED"
+                        ? "Đặt trước online"
+                        : "Vé lượt")}
+                </span>
               </div>
 
-              {!formData.plateNumber ? (
-                // Nếu chưa có biển số xe
-                <div className="action-panel-item rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col items-center justify-center text-center min-h-[300px]">
-                  <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center mb-3 text-slate-400">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 19.164l-.21-.21-3.414-3.414a2.25 2.25 0 00-3.182 0l-.21.21a2.25 2.25 0 000 3.182l3.414 3.414a2.25 2.25 0 003.183 0l.21-.21a2.25 2.25 0 000-3.182zM10.5 11.25a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-3.75 3.75M19.5 8.25L15 3.75M19.5 8.25h-6.75A2.25 2.25 0 0010.5 10.5v10.5" />
-                    </svg>
-                  </div>
-                  <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">Chưa có vé xe</h4>
-                  <p className="text-xs text-slate-500 mt-1 max-w-[220px] leading-relaxed">
-                    Vui lòng nhập hoặc nhận diện biển số xe ở bên trái để xuất vé gửi xe tự động.
-                  </p>
-                </div>
-              ) : (
-                // Khi đã có biển số xe
-                <div className="action-panel-item flex flex-col gap-3">
-                  {/* Vé điện tử phong cách Realistic Ticket */}
-                  <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm overflow-hidden flex flex-col gap-2 border-t-4 border-t-indigo-600 mx-[20px]">
-                    {/* Punch hole trang trí hai bên hông vé */}
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-2.5 w-5 h-5 rounded-full bg-[#f8fafc] border-r border-slate-200 z-10"></div>
-                    <div className="absolute right-0 top-1/2 -translate-y-1/2 -mr-2.5 w-5 h-5 rounded-full bg-[#f8fafc] border-l border-slate-200 z-10"></div>
-
-                    {/* Header vé */}
-                    <div className="text-center border-b border-dashed border-slate-200 pb-2.5">
-                      <h4 className="font-extrabold text-base text-slate-900 tracking-wider">SMART PARKING TICKET</h4>
-                      <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">
-                        CỔNG: {gates.find(g => g.id === formData.gateEntryId)?.gateName || "CHƯA CHỌN CỔNG"}
-                      </p>
-                    </div>
-
-                    {/* QR Code */}
-                    <div className="flex flex-col items-center justify-center py-1">
-                      <div className="p-1.5 bg-white rounded-xl shadow-inner border border-slate-100 flex items-center justify-center">
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${ticketCode}`}
-                          alt="QR Ticket"
-                          className="w-[85px] h-[85px] object-contain"
-                        />
-                      </div>
-                      <span className="font-mono text-[10px] text-slate-500 font-extrabold tracking-wider mt-1.5">
-                        {ticketCode || "PENDING_CODE"}
-                      </span>
-                    </div>
-
-                    {/* Chi tiết thông tin vé */}
-                    <div className="space-y-1.5 text-[11px] font-semibold text-slate-500 border-t border-dashed border-slate-200 pt-2.5">
-                      <div className="flex justify-between items-center">
-                        <span>Biển số xe:</span>
-                        <span className="text-slate-900 text-xs font-black tracking-wide uppercase px-2 py-0.5 bg-slate-100 rounded border border-slate-200">
-                          {formData.plateNumber}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span>Loại phương tiện:</span>
-                        <span className="text-slate-900 font-extrabold">
-                          {getVehicleLabel(formData.vehicleTypeId)}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span>Hình thức gửi:</span>
-                        <span className="text-slate-900 font-extrabold">
-                          {formData.driverType === "SUBSCRIBER"
-                            ? "Vé tháng (Premium)"
-                            : formData.driverType === "PRE_BOOKED"
-                              ? "Đặt trước online"
-                              : "Khách vãng lai (Vé lượt)"}
-                        </span>
-                      </div>
-
-                      {formData.reservationCode && (
-                        <div className="flex justify-between text-indigo-600 font-extrabold">
-                          <span>Mã đặt chỗ:</span>
-                          <span>{formData.reservationCode}</span>
-                        </div>
-                      )}
-
-                      <div className="flex justify-between">
-                        <span>Vị trí gợi ý:</span>
-                        <span className="text-emerald-600 font-extrabold">
-                          {checkInResult
-                            ? `${checkInResult.zoneName} (${checkInResult.floorName})`
-                            : "(Sẽ được phân bổ khi check-in)"}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span>Thời gian vào:</span>
-                        <span className="text-slate-900 font-mono font-extrabold">
-                          {checkInResult
-                            ? new Date(checkInResult.entryTime).toLocaleString("vi-VN")
-                            : `${liveDate} - ${liveTime}`}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span>Nhân viên trực:</span>
-                        <span className="text-slate-950 font-extrabold">
-                          {fullName}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Phần nút điều khiển (Xác nhận Check-in / Kết quả) */}
-                  <div className="mx-[20px]">
-                    {isSuccess && checkInResult ? (
-                      <div className="rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 p-3.5 text-white shadow-md border border-emerald-500/20 animate-scale-in">
-                        <div className="flex items-center gap-3.5 mb-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white font-bold text-base flex-shrink-0">
-                            ✓
-                          </div>
-                          <div>
-                            <h4 className="font-extrabold text-sm">Check-in thành công!</h4>
-                            <p className="text-[11px] text-emerald-100 mt-0.5 leading-snug">{checkInResult.guideMessage}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex gap-2">
-                          <button
-                            onClick={handlePrintTicket}
-                            className="flex-1 bg-white text-emerald-700 border border-transparent font-bold text-xs py-2.5 rounded-lg cursor-pointer hover:bg-emerald-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm"
-                          >
-                            <IconPrinter /> In Vé
-                          </button>
-                          <button
-                            onClick={() => {
-                              setIsSuccess(false);
-                              setCheckInResult(null);
-                              setFormData(prev => ({ ...prev, plateNumber: '', reservationCode: '', notes: '' }));
-                              setTicketCode("");
-                            }}
-                            className="flex-1 bg-emerald-700/80 hover:bg-emerald-800 text-white font-bold text-xs py-2.5 rounded-lg cursor-pointer active:scale-[0.98] transition-all"
-                          >
-                            Xe tiếp theo ➕
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={handleCheckIn}
-                        disabled={isSubmitting || !configLoaded}
-                        className="w-full rounded-xl bg-slate-900 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:not-allowed flex items-center justify-center gap-2"
-                      >
-                        {isSubmitting ? (
-                          <>Đang gửi lệnh check-in...</>
-                        ) : (
-                          <>
-                            <IconPrinter /> XÁC NHẬN & CHECK-IN
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
+              {formData.reservationCode && !checkInResult && (
+                <div className="flex justify-between text-indigo-600 font-extrabold">
+                  <span>Mã đặt chỗ:</span>
+                  <span>{formData.reservationCode}</span>
                 </div>
               )}
+
+              <div className="flex justify-between">
+                <span>Vị trí gợi ý:</span>
+                <span className="text-slate-600 font-extrabold">
+                  {checkInResult
+                    ? `${checkInResult.zoneName} (${checkInResult.floorName})`
+                    : "(Sẽ phân bổ sau)"}
+                </span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Thời gian vào:</span>
+                <span className="text-slate-600 font-mono text-[10px] font-bold">
+                  {checkInResult
+                    ? new Date(checkInResult.entryTime).toLocaleString("vi-VN")
+                    : `${liveDate} - ${liveTime}`}
+                </span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Khách hàng:</span>
+                <span className="text-slate-600 font-extrabold">{checkInResult?.customerName || "--"}</span>
+              </div>
+              <div className="border-t border-dashed border-slate-200 pt-2.5 text-center text-[9px] text-slate-400 font-medium leading-normal mt-1">
+                Cảm ơn quý khách đã sử dụng dịch vụ!
+                <br />
+                Hotline hỗ trợ: 1900 8888
+              </div>
             </div>
           </div>
-        </section>
-      </main>
-    </div>
-  );
-}
 
-// Sidebar link helper component
-function SideLink({ to, icon, label, active, collapsed }) {
-  return (
-    <Link
-      to={to}
-      className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${active
-        ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-        : "text-slate-400 hover:bg-slate-800 hover:text-white"
-        }`}
-    >
-      <span className="flex-shrink-0">{icon}</span>
-      {!collapsed && <span className="whitespace-nowrap">{label}</span>}
-    </Link>
+          {/* Nút hành động */}
+          <div className="w-full">
+            {isSuccess && checkInResult ? (
+              <div className="rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 p-3.5 text-white shadow-md border border-emerald-500/20">
+                <div className="flex items-center gap-3 mb-3 text-emerald-600">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-600 font-bold text-[30px] flex-shrink-0">
+                    ✓
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-md text-white">Check-in thành công!</h4>
+                    <p className="text-[13px] text-emerald-100 mt-0.5 leading-snug">{checkInResult.guideMessage}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintTicket}
+                    className="flex-1 bg-white text-emerald-700 border border-transparent font-bold text-xs py-2 rounded-lg cursor-pointer hover:bg-emerald-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm font-sans"
+                  >
+                    <IconPrinter /> In Vé
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSuccess(false);
+                      setCheckInResult(null);
+                      setFormData(prev => ({ ...prev, plateNumber: '', reservationCode: '', notes: '' }));
+                      setTicketCode("");
+                      setPreviewPlateUrl("");
+                      setPreviewFaceUrl("");
+                      setUploadedPlateUrl("");
+                      setUploadedFaceUrl("");
+                    }}
+                    className="flex-1 bg-emerald-700/80 hover:bg-emerald-800 text-white font-bold text-xs py-2 rounded-lg cursor-pointer active:scale-[0.98] transition-all font-sans"
+                  >
+                    Xe tiếp theo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleCheckIn}
+                disabled={isSubmitting || !configLoaded}
+                className="w-full rounded-xl bg-slate-900 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:not-allowed flex items-center justify-center gap-2 font-sans"
+              >
+                {isSubmitting ? (
+                  <>Đang check-in...</>
+                ) : (
+                  <>
+                    <IconPrinter /> XÁC NHẬN & CHECK-IN
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </section>
   );
 }
