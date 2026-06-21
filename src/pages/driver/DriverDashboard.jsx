@@ -92,6 +92,18 @@ const LicensePlate = ({ plate }) => (
   </span>
 );
 
+const getReservationStatusLabel = (status) => {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  if (normalizedStatus === "PENDING") return "Pending";
+  if (normalizedStatus === "CONFIRMED") return "Confirmed";
+  if (normalizedStatus === "CANCELLED") return "Cancelled";
+  if (normalizedStatus === "EXPIRED") return "Expired";
+  if (normalizedStatus === "COMPLETED") return "Completed";
+
+  return normalizedStatus || "--";
+};
+
 export default function DriverDashboard({ onLogout }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -633,17 +645,7 @@ const getReservationStatusStyle = (status) => {
   return "bg-slate-100 text-slate-600 border-slate-200";
 };
 
-const getReservationStatusLabel = (status) => {
-  const normalizedStatus = String(status || "").toUpperCase();
 
-  if (normalizedStatus === "PENDING") return "Pending";
-  if (normalizedStatus === "CONFIRMED") return "Confirmed";
-  if (normalizedStatus === "CANCELLED") return "Cancelled";
-  if (normalizedStatus === "EXPIRED") return "Expired";
-  if (normalizedStatus === "COMPLETED") return "Completed";
-
-  return normalizedStatus || "--";
-};
 
 const isReservationCancelable = (status) => {
   return ["PENDING", "CONFIRMED"].includes(String(status || "").toUpperCase());
