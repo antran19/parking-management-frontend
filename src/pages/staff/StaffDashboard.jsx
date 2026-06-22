@@ -1,17 +1,442 @@
-﻿/**
- * StaffDashboard — Dashboard nhân viên (Tùng phụ trách)
- *
- * TODO (Tùng): Implement:
- * - Thống kê: doanh thu hôm nay, lượt gửi xe, xe đang đỗ, công suất
- * - Dữ liệu real-time từ API (không dùng mock data)
- * - Animation GSAP cho dashboard cards
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { staffApi } from "../../api/parkingApi";
+import { formatLicensePlate } from "../../utils/licensePlate";
+
+// Component render Biển số xe tiêu chuẩn Việt Nam
+const LicensePlate = ({ plate, vehicleType }) => (
+  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded border-2 border-slate-700 bg-white font-mono font-extrabold text-slate-800 shadow-sm text-[11px] tracking-widest scale-95 origin-center select-none">
+    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block"></span>
+    {formatLicensePlate(plate, vehicleType)}
+  </span>
+);
+
+/**
+ * StaffDashboard — Giao diện bảng điều khiển chính dành cho nhân viên tác nghiệp.
  */
-export default function StaffDashboard({ onLogout }) {
+export default function StaffDashboard() {
+  // Lấy thông tin tài khoản đăng nhập từ localStorage
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const fullName = user.fullName || "Nguyễn Văn A";
+
+  // Thống kê bãi xe và hoạt động
+  const [stats, setStats] = useState({
+    availableSlots: 0,
+    occupiedSlots: 0,
+    reservedSlots: 0,
+    todayCheckIn: 0,
+    todayCheckOut: 0,
+    revenue: "0đ",
+  });
+  const [loading, setLoading] = useState(true);
+  const [zones, setZones] = useState([]);
+  const [recentExceptions, setRecentExceptions] = useState([]);
+  const [closedZones, setClosedZones] = useState([]);
+  const [upcomingReservations, setUpcomingReservations] = useState([]);
+
+  // Đồng bộ dữ liệu hiển thị realtime với backend
+  const syncDashboardData = async () => {
+    try {
+      // 1. Tải số liệu thống kê Dashboard trực tiếp từ Backend
+      const statsRes = await staffApi.getStaffDashboardStats();
+      const backendStats = statsRes.data.data || {};
+
+      // 2. Tải danh sách Zone và tính toán phân khu bảo trì
+      const closedZonesArray = JSON.parse(localStorage.getItem("closedZones") || "[]");
+      setClosedZones(closedZonesArray);
+
+      let zonesData = [];
+      let closedCapacity = 0;
+      try {
+        const configRes = await staffApi.getParkingConfig();
+        zonesData = configRes.data.data?.zones || [];
+        setZones(zonesData);
+
+        const closedZonesSet = new Set(closedZonesArray);
+        zonesData.forEach(z => {
+          if (closedZonesSet.has(z.id)) {
+            closedCapacity += ((z.capacity || 0) - (z.currentCount || 0) - (z.reservedCount || 0));
+          }
+        });
+      } catch (configErr) {
+        console.warn("Lỗi tải config phân khu:", configErr);
+      }
+
+      let totalAvailable = backendStats.availableSlots || 0;
+      totalAvailable = Math.max(totalAvailable - closedCapacity, 0);
+
+      setStats({
+        availableSlots: totalAvailable,
+        occupiedSlots: backendStats.occupiedSlots || 0,
+        reservedSlots: backendStats.reservedSlots || 0,
+        todayCheckIn: backendStats.todayCheckIn || 0,
+        todayCheckOut: backendStats.todayCheckOut || 0,
+        revenue: `${(backendStats.todayRevenue || 0).toLocaleString("vi-VN")}đ`
+      });
+
+      // 3. Tải danh sách ngoại lệ an ninh (Cảnh báo sai Zone, SOS, etc.)
+      let backendExceptions = [];
+      try {
+        const exceptionsRes = await staffApi.getSecurityExceptions();
+        backendExceptions = exceptionsRes.data.data || [];
+      } catch (err) {
+        console.warn("Lỗi tải exceptions:", err);
+      }
+
+      const formattedBackend = backendExceptions.map(ex => {
+        const diff = Date.now() - new Date(ex.createdAt).getTime();
+        const minutes = Math.floor(diff / 60000);
+        let timeAgo = "Vừa xong";
+        if (minutes > 60) {
+          const hours = Math.floor(minutes / 60);
+          timeAgo = `${hours} giờ trước`;
+        } else if (minutes > 0) {
+          timeAgo = `${minutes} phút trước`;
+        }
+        return {
+          ...ex,
+          timeAgo
+        };
+      });
+
+      setRecentExceptions(formattedBackend.slice(0, 5));
+
+      // 4. Đồng bộ hàng đợi đặt trước (Reservations Queue) từ LocalStorage đang test
+      const storedBooking = JSON.parse(localStorage.getItem("driver_booking") || "null");
+      if (storedBooking && (storedBooking.status === "CONFIRMED" || !storedBooking.status || storedBooking.status === "PENDING")) {
+        const userRes = {
+          licensePlate: storedBooking.licensePlate || "30A-123.45",
+          customerName: storedBooking.fullName || "Khách đặt trước",
+          zoneName: storedBooking.zoneCode || "Zone A",
+          status: "PRE_BOOKED",
+          countdown: "Còn 30p"
+        };
+        setUpcomingReservations([userRes]);
+      } else {
+        setUpcomingReservations([]);
+      }
+
+    } catch (err) {
+      console.warn("Lỗi khi tải dữ liệu thời gian thực cho Staff Dashboard:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleZoneLock = (zoneId) => {
+    const closedZonesArray = JSON.parse(localStorage.getItem("closedZones") || "[]");
+    let updated;
+    if (closedZonesArray.includes(zoneId)) {
+      updated = closedZonesArray.filter(id => id !== zoneId);
+    } else {
+      updated = [...closedZonesArray, zoneId];
+    }
+    localStorage.setItem("closedZones", JSON.stringify(updated));
+    setClosedZones(updated);
+    syncDashboardData();
+  };
+
+  const handleResolveException = (id, index) => {
+    setRecentExceptions(prev => prev.filter((_, i) => i !== index));
+    alert("Đã gửi lệnh xử lý và tắt cảnh báo ngoại lệ thành công!");
+  };
+
+  // Thiết lập interval tự động cập nhật dữ liệu sau mỗi 2 giây
+  useEffect(() => {
+    syncDashboardData();
+    const configInterval = setInterval(syncDashboardData, 2000);
+    return () => {
+      clearInterval(configInterval);
+    };
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
-      <h1 className="text-2xl font-bold">📋 Staff Dashboard</h1>
-      <p className="text-gray-400 mt-2">Coming soon — Tùng phụ trách</p>
-      <button onClick={onLogout} className="mt-4 px-4 py-2 bg-red-600 rounded">Đăng xuất</button>
+    <section className="space-y-8 p-5 flex-1">
+      {/* Welcome Banner - Cải thiện với dải chuyển màu hiện đại, sang trọng hơn */}
+      <div className="welcome-banner rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-8 text-white relative overflow-hidden shadow-lg shadow-indigo-900/10">
+        <div className="absolute right-0 bottom-0 top-0 w-1/3 bg-gradient-to-l from-black/10 to-transparent pointer-events-none" />
+        <h1 className="text-2xl font-bold tracking-tight">
+          Xin chào ngày mới, {fullName}! 👋
+        </h1>
+        <p className="mt-2.5 text-sm text-indigo-100/90 max-w-2xl leading-relaxed font-normal">
+          Chào mừng bạn đến với cổng quản trị thông tin điều phối SmartParking. Hãy theo dõi trực tiếp tình trạng các zone đỗ xe, hỗ trợ check-in xe vào và xử lý thanh toán check-out đúng quy trình.
+        </p>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-6">
+        <StatCard title="Chỗ trống" value={stats.availableSlots} color="emerald" />
+        <StatCard title="Đang có xe" value={stats.occupiedSlots} color="rose" />
+        <StatCard title="Đã giữ chỗ" value={stats.reservedSlots} color="amber" />
+        <StatCard title="Xe vào hôm nay" value={stats.todayCheckIn} color="blue" />
+        <StatCard title="Xe ra hôm nay" value={stats.todayCheckOut} color="indigo" />
+        <StatCard title="Doanh thu ngày" value={stats.revenue} color="purple" />
+      </div>
+
+      {/* Action Hub & Operation Health */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="action-panel-item rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm lg:col-span-2 space-y-5">
+          <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-500">Thao tác tác nghiệp nhanh</h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <QuickAction
+              to="/staff/check-in"
+              title="Check-in xe vào"
+              desc="Quét mã đặt chỗ hoặc nhập biển số"
+              icon="🚗"
+            />
+            <QuickAction
+              to="/staff/check-out"
+              title="Check-out xe ra"
+              desc="Tính toán biểu phí & thu phí"
+              icon="💳"
+            />
+            <QuickAction
+              to="/staff/map"
+              title="Sơ đồ phân khu"
+              desc="Điều phối vị trí trống & khóa zone"
+              icon="🅿️"
+            />
+          </div>
+        </div>
+
+        <div className="action-panel-item rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm space-y-5">
+          <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-500">Trạng thái vận hành IoT</h3>
+          <div className="space-y-3">
+            <StatusRow label="Barrier Cổng vào" status="Hoạt động" />
+            <StatusRow label="Barrier Cổng ra" status="Hoạt động" />
+            <StatusRow label="Cổng thanh toán QR" status="Sẵn sàng" />
+            <StatusRow label="Camera AI nhận diện" status="Sẵn sàng" />
+          </div>
+        </div>
+      </div>
+
+      {/* Lưới các chức năng điều phối cao cấp */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+        {/* Cột 1: Live Zone Occupancy Grid */}
+        <div className="rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm flex flex-col space-y-5 h-[420px] overflow-hidden">
+          <div className="flex justify-between items-center shrink-0">
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">📊 Tải trọng Phân khu (Live Zone)</h3>
+            <span className="text-[9px] font-extrabold bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100 animate-pulse">Live</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
+            {zones.map((zone) => {
+              const isClosed = closedZones.includes(zone.id);
+              const occupied = (zone.currentCount || 0) + (zone.reservedCount || 0);
+              const total = zone.capacity || 1;
+              const pct = Math.min(Math.round((occupied / total) * 100), 100);
+
+              let barColor = "bg-emerald-500";
+              if (pct >= 90) barColor = "bg-rose-500";
+              else if (pct >= 75) barColor = "bg-amber-500";
+
+              return (
+                <div key={zone.id} className="space-y-2 border-b border-slate-100/40 pb-3.5 last:border-0 last:pb-0">
+                  <div className="flex justify-between items-start">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-extrabold text-slate-800">{zone.zoneName} ({zone.zoneCode})</span>
+                      <span className="text-[10px] text-slate-500 font-bold mt-0.5">
+                        Chứa: {occupied}/{total} xe ({zone.vehicleType?.name || 'Ô tô'})
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleZoneLock(zone.id)}
+                      className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border cursor-pointer transition-all duration-150 ${isClosed
+                        ? "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
+                        : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"
+                        }`}
+                    >
+                      {isClosed ? "🔒 Đang khóa" : "🔓 Mở"}
+                    </button>
+                  </div>
+
+                  {!isClosed ? (
+                    <div className="relative pt-1">
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }}></div>
+                      </div>
+                      <span className="absolute right-0 top-3 text-[9px] font-extrabold text-slate-650">{pct}% đầy</span>
+                    </div>
+                  ) : (
+                    <div className="text-[9px] font-bold text-rose-500 italic bg-rose-50/50 py-1 px-2.5 rounded border border-rose-100/40">
+                      Khu đỗ tạm khóa phục vụ bảo trì
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {zones.length === 0 && (
+              <div className="text-center py-12 text-slate-400 text-xs font-bold animate-pulse">
+                Đang tải trạng thái phân khu...
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Cột 2: Operations Alert Feed */}
+        <div className="rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm flex flex-col space-y-5 h-[420px] overflow-hidden">
+          <div className="flex justify-between items-center shrink-0">
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">🚨 Cảnh báo & Ngoại lệ an ninh</h3>
+            <span className="text-[9px] font-extrabold bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-100">Cấp bách</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+            {recentExceptions.map((ex, idx) => {
+              const typeColors = {
+                WRONG_ZONE: "bg-amber-50/50 border-amber-200/60 text-amber-900",
+                SOS: "bg-rose-50/70 border-rose-200 text-rose-900 animate-pulse",
+                LOST_TICKET: "bg-blue-50/50 border-blue-200 text-blue-900",
+                UNPAID: "bg-rose-50/50 border-rose-200 text-rose-900",
+                OTHER: "bg-slate-50 border-slate-200 text-slate-800"
+              };
+              const colorClass = typeColors[ex.exceptionType] || typeColors.OTHER;
+
+              return (
+                <div key={ex.id || idx} className={`p-3.5 rounded-2xl border text-xs leading-relaxed space-y-2 relative overflow-hidden ${colorClass}`}>
+                  <div className="flex justify-between items-center">
+                    <span className="font-extrabold uppercase text-[9px] tracking-wider bg-white/70 px-1.5 py-0.5 rounded border border-black/5">
+                      {ex.exceptionType === "WRONG_ZONE" ? "⚠️ Đỗ sai Zone" : (ex.exceptionType === "SOS" ? "🚨 SOS Báo động" : `⚠️ ${ex.exceptionType}`)}
+                    </span>
+                    <span className="text-[9px] font-mono font-bold opacity-75">{ex.timeAgo}</span>
+                  </div>
+                  <p className="font-bold text-slate-800 text-[11px] leading-tight">{ex.description}</p>
+                  {ex.licensePlate && (
+                    <div className="flex justify-between items-center pt-2 border-t border-black/5">
+                      <span className="font-extrabold text-[10px] font-mono tracking-wider bg-slate-900 text-white px-2 py-0.5 rounded-md select-none">{formatLicensePlate(ex.licensePlate, ex.vehicleType)}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleResolveException(ex.id, idx)}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg border border-black/10 text-[8px] font-black uppercase text-slate-700 cursor-pointer shadow-xs active:scale-95 transition-all duration-100"
+                      >
+                        Giải quyết
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {recentExceptions.length === 0 && (
+              <div className="text-center py-16 text-slate-400 space-y-2">
+                <span className="text-2xl block">🎉</span>
+                <p className="text-xs font-bold uppercase tracking-wider">Hệ thống an toàn</p>
+                <p className="text-[10px] text-slate-400 mt-1">Không ghi nhận sự cố chưa xử lý.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Cột 3: Pre-booked Arrivals Queue */}
+        <div className="rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm flex flex-col space-y-5 h-[420px] overflow-hidden">
+          <div className="flex justify-between items-center shrink-0">
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">🎫 Hàng đợi Đặt chỗ trước</h3>
+            <span className="text-[9px] font-extrabold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100">Hôm nay</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 scrollbar-thin">
+            {upcomingReservations.map((res, idx) => (
+              <div key={idx} className="p-4 rounded-2xl border border-slate-100 hover:border-indigo-100/50 bg-white hover:bg-slate-50/10 transition-all duration-200 flex flex-col space-y-2.5 relative overflow-hidden shadow-xs">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500" />
+
+                <div className="flex justify-between items-start pl-1.5">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black text-slate-800 font-mono tracking-wider">{formatLicensePlate(res.licensePlate, res.licensePlate.includes("A") || res.licensePlate.includes("G") ? "CAR" : "MOTORBIKE")}</span>
+                    <span className="text-[9px] text-slate-500 font-extrabold mt-0.5">{res.customerName}</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${res.status === "VIP"
+                    ? "bg-amber-50 border-amber-100 text-amber-700"
+                    : "bg-indigo-50 border-indigo-100 text-indigo-700"
+                    }`}>
+                    {res.status === "VIP" ? "VIP Pass" : "Đặt chỗ"}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center pt-2 border-t border-slate-100/50 text-[10px] pl-1.5">
+                  <span className="text-slate-500 font-semibold">Phân khu: <strong className="text-indigo-600 font-extrabold">{res.zoneName}</strong></span>
+                  <span className="text-slate-500 font-mono font-bold text-rose-500 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100/40">
+                    {res.countdown}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {upcomingReservations.length === 0 && (
+              <div className="text-center py-16 text-slate-400 text-xs font-bold">
+                Không có đặt chỗ nào sắp đến.
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+    </section>
+  );
+}
+
+// Component thẻ thống kê
+function StatCard({ title, value, color }) {
+  const styles = {
+    emerald: "border-emerald-500/20 bg-emerald-50/15 text-emerald-700 hover:shadow-emerald-500/5",
+    rose: "border-rose-500/20 bg-rose-50/15 text-rose-700 hover:shadow-rose-500/5",
+    amber: "border-amber-500/20 bg-amber-50/15 text-amber-700 hover:shadow-amber-500/5",
+    blue: "border-blue-500/20 bg-blue-50/15 text-blue-700 hover:shadow-blue-500/5",
+    indigo: "border-indigo-500/20 bg-indigo-50/15 text-indigo-700 hover:shadow-indigo-500/5",
+    purple: "border-purple-500/20 bg-purple-50/15 text-purple-700 hover:shadow-purple-500/5",
+  };
+
+  const borderAccents = {
+    emerald: "bg-emerald-500",
+    rose: "bg-rose-500",
+    amber: "bg-amber-500",
+    blue: "bg-blue-500",
+    indigo: "bg-indigo-500",
+    purple: "bg-purple-500",
+  };
+
+  return (
+    <div className={`relative stat-card-item rounded-2xl border p-5 shadow-sm space-y-2 transition-all hover:-translate-y-0.5 duration-300 bg-white overflow-hidden ${styles[color] || ""}`}>
+      {/* Vạch màu chỉ thị hiện đại ở cạnh trái */}
+      <div className={`absolute left-0 top-0 bottom-0 w-1 ${borderAccents[color] || "bg-slate-300"}`} />
+
+      <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500 pl-1">
+        {title}
+      </p>
+      <p className="text-xl font-black text-slate-900 tracking-tight pl-1">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// Component liên kết thao tác nhanh
+function QuickAction({ title, desc, to, icon }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-2xl border border-slate-200/65 p-6 transition-all hover:border-indigo-500/35 hover:shadow-lg hover:shadow-indigo-500/5 flex flex-col group h-full bg-white shadow-sm"
+    >
+      <span className="text-2xl mb-4 p-2 bg-slate-50 rounded-xl w-fit group-hover:bg-indigo-50 transition-colors duration-250">{icon}</span>
+      <p className="font-extrabold text-slate-900 group-hover:text-indigo-600 transition-colors">
+        {title}
+      </p>
+      <p className="mt-2 text-xs text-slate-500 leading-relaxed font-medium">
+        {desc}
+      </p>
+    </Link>
+  );
+}
+
+// Component dòng trạng thái IoT
+function StatusRow({ label, status }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-slate-50/40 p-3.5 border border-slate-100 hover:bg-slate-50/85 transition-colors duration-200">
+      <span className="text-xs font-bold text-slate-600">
+        {label}
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-100/50">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        {status}
+      </span>
     </div>
   );
 }

@@ -45,11 +45,11 @@ axiosClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Nếu token hết hạn hoặc không hợp lệ (401 Unauthorized) → Tự động logout và dọn dẹp bộ nhớ
+// Nếu token hết hạn hoặc không hợp lệ (401/403) → Tự động logout và dọn dẹp bộ nhớ
 axiosClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 || error.response?.status === 403) {
       const user = JSON.parse(localStorage.getItem("user") || "null");
       const role = user?.role?.toUpperCase();
       if (role) localStorage.removeItem(`accessToken_${role}`);

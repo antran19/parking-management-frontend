@@ -10,6 +10,7 @@ import StaffDashboard from "../pages/staff/StaffDashboard";
 import StaffCheckIn from "../pages/staff/StaffCheckIn";
 import StaffCheckOut from "../pages/staff/StaffCheckOut";
 import StaffMapping from "../pages/staff/StaffMapping";
+import StaffZoneEntry from "../pages/staff/StaffZoneEntry";
 
 import ManagerDashboard from "../pages/manager/ManagerDashboard";
 import AdminDashboard from "../pages/admin/AdminDashboard";
@@ -17,6 +18,7 @@ import SecurityDashboard from "../pages/security/SecurityDashboard";
 
 import StaffHistory from "../pages/staff/StaffHistory";
 import ParkingTwin3DPage from "../pages/shared/ParkingTwin3DPage";
+import StaffLayout from "../pages/staff/StaffLayout";
 
 function AppRoutes({ userRole, onLogin, onLogout }) {
   if (!userRole) {
@@ -49,26 +51,32 @@ function AppRoutes({ userRole, onLogin, onLogout }) {
   if (userRole === "staff") {
     return (
       <Routes>
-        <Route
-          path="/staff/dashboard"
-          element={<StaffDashboard onLogout={onLogout} />}
-        />
-        <Route
-          path="/staff/map"
-          element={<StaffMapping onLogout={onLogout} />}
-        />
-        <Route
-          path="/staff/check-in"
-          element={<StaffCheckIn onLogout={onLogout} />}
-        />
-        <Route
-          path="/staff/check-out"
-          element={<StaffCheckOut onLogout={onLogout} />}
-        />
-        <Route
-          path="/staff/history"
-          element={<StaffHistory onLogout={onLogout} />}
-        />
+        <Route element={<StaffLayout onLogout={onLogout} />}>
+          <Route
+            path="/staff/dashboard"
+            element={<StaffDashboard />}
+          />
+          <Route
+            path="/staff/map"
+            element={<StaffMapping />}
+          />
+          <Route
+            path="/staff/check-in"
+            element={<StaffCheckIn />}
+          />
+          <Route
+            path="/staff/zone-entry"
+            element={<StaffZoneEntry />}
+          />
+          <Route
+            path="/staff/check-out"
+            element={<StaffCheckOut />}
+          />
+          <Route
+            path="/staff/history"
+            element={<StaffHistory />}
+          />
+        </Route>
         <Route path="/staff/3d-map" element={<ParkingTwin3DPage />} />
         <Route path="*" element={<Navigate to="/staff/dashboard" replace />} />
       </Routes>
