@@ -123,19 +123,6 @@ export default function StaffDashboard() {
     }
   };
 
-  const toggleZoneLock = (zoneId) => {
-    const closedZonesArray = JSON.parse(localStorage.getItem("closedZones") || "[]");
-    let updated;
-    if (closedZonesArray.includes(zoneId)) {
-      updated = closedZonesArray.filter(id => id !== zoneId);
-    } else {
-      updated = [...closedZonesArray, zoneId];
-    }
-    localStorage.setItem("closedZones", JSON.stringify(updated));
-    setClosedZones(updated);
-    syncDashboardData();
-  };
-
   const handleResolveException = (id, index) => {
     setRecentExceptions(prev => prev.filter((_, i) => i !== index));
     alert("Đã gửi lệnh xử lý và tắt cảnh báo ngoại lệ thành công!");
@@ -193,7 +180,7 @@ export default function StaffDashboard() {
             <QuickAction
               to="/staff/map"
               title="Sơ đồ phân khu"
-              desc="Điều phối vị trí trống & khóa zone"
+              desc="Điều phối vị trí trống"
               icon="🅿️"
             />
           </div>
@@ -240,16 +227,6 @@ export default function StaffDashboard() {
                         Chứa: {occupied}/{total} xe ({zone.vehicleType?.name || 'Ô tô'})
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => toggleZoneLock(zone.id)}
-                      className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border cursor-pointer transition-all duration-150 ${isClosed
-                        ? "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
-                        : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"
-                        }`}
-                    >
-                      {isClosed ? "🔒 Đang khóa" : "🔓 Mở"}
-                    </button>
                   </div>
 
                   {!isClosed ? (

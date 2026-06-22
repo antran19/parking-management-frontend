@@ -60,8 +60,8 @@ export const staffApi = {
     return axiosClient.get("/driver/plates");
   },
 
-  addDriverPlate(licensePlate) {
-    return axiosClient.post("/driver/plates", { licensePlate });
+  addDriverPlate(licensePlate, vehicleTypeId) {
+    return axiosClient.post("/driver/plates", { licensePlate, vehicleTypeId });
   },
 
   deleteDriverPlate(licensePlate) {

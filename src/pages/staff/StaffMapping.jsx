@@ -172,25 +172,6 @@ export default function StaffMapping() {
     return matchSearch && matchStatus && matchType;
   };
 
-  // Staff action: Lock/Unlock a zone instantly (synchronizes to Driver maps real-time!)
-  const handleToggleLockZone = (zoneId) => {
-    const newClosed = new Set(closedZones);
-    let locked = false;
-    if (newClosed.has(zoneId)) {
-      newClosed.delete(zoneId);
-      locked = false;
-    } else {
-      newClosed.add(zoneId);
-      locked = true;
-    }
-    setClosedZones(newClosed);
-    localStorage.setItem("closedZones", JSON.stringify(Array.from(newClosed)));
-    
-    // Alert staff
-    alert(`${locked ? "Khóa" : "Mở khóa"} thành công phân khu này! Trạng thái đã được đồng bộ hóa tức thì tới toàn bộ tài xế trong hệ thống.`);
-    setSelectedZone(null);
-  };
-
   const groups = floors[activeFloor] || [];
 
   // Calculate live badge counts
@@ -402,7 +383,7 @@ export default function StaffMapping() {
           <div className="rounded-3xl border border-indigo-100 bg-indigo-50/50 p-6 shadow-sm space-y-3">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-600">💡 Chỉ dẫn nghiệp vụ nhân viên</h4>
             <p className="text-xs text-indigo-900/80 leading-relaxed font-medium">
-              Nhấn trực tiếp vào phân khu (zone) bất kỳ để mở hộp thoại tác nghiệp. Nhân viên có thể thực hiện <strong>Khóa / Mở khóa phân khu</strong> để đồng bộ hóa trạng thái đỗ xe trực tiếp tới các tài xế trong thời gian thực.
+              Nhấn trực tiếp vào phân khu (zone) bất kỳ để xem chi tiết sức chứa và trạng thái hoạt động hiện tại của từng khu vực trong bãi đỗ.
             </p>
           </div>
         </div>
@@ -415,7 +396,6 @@ export default function StaffMapping() {
           zone={selectedZone}
           isClosed={closedZones.has(selectedZone.id)}
           onClose={() => setSelectedZone(null)}
-          onToggleLock={() => handleToggleLockZone(selectedZone.id)}
         />
       )}
     </section>
@@ -518,7 +498,7 @@ function ZoneCard({ zone, isClosed, onClick }) {
   );
 }
 
-function ZoneModal({ zone, isClosed, onClose, onToggleLock }) {
+function ZoneModal({ zone, isClosed, onClose }) {
   const available = getZoneAvailability(zone, isClosed);
   const usagePercent = getZoneUsagePercent(zone);
   const status = getZoneStatus(zone, isClosed);
@@ -566,20 +546,9 @@ function ZoneModal({ zone, isClosed, onClose, onToggleLock }) {
         <div className="flex gap-3 bg-slate-50 p-6 border-t border-slate-100">
           <button
             onClick={onClose}
-            className="flex-1 rounded-xl border border-slate-250 py-3 font-semibold text-slate-650 hover:bg-white text-sm transition-colors cursor-pointer"
+            className="w-full rounded-xl border border-slate-250 py-3 font-semibold text-slate-650 hover:bg-white text-sm transition-colors cursor-pointer"
           >
             Đóng
-          </button>
-
-          <button
-            onClick={onToggleLock}
-            className={`flex-1 rounded-xl py-3 font-bold text-white text-sm transition-colors cursor-pointer flex items-center justify-center gap-2 ${
-              isClosed
-                ? "bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/10"
-                : "bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/10"
-            }`}
-          >
-            {isClosed ? "🔓 Mở khóa Zone" : "🔒 Khóa Zone này"}
           </button>
         </div>
       </div>
