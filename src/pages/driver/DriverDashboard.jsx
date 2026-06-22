@@ -27,14 +27,29 @@ const isValidVietnamLicensePlate = (value) => {
   const plate = normalizeLicensePlate(value);
   const compactPlate = normalizePlateForApi(value);
 
-  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2})$/;
-  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{5}$/;
+  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2,3})$/;
+  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{4,6}$/;
 
   return displayPattern.test(plate) || backendPattern.test(compactPlate);
 };
 
 const LICENSE_PLATE_HINT =
-  "Biển số phải đúng định dạng, ví dụ: 51F-123.45, 30A-12345, 59X1-12345 hoặc dạng backend 51F12345";
+  "Biển số phải đúng định dạng, ví dụ: 49E72932, 51H12345, 30AB99988, 51AC12345, 59X1-12345 hoặc 51F-123.45";
+
+const getPlateValue = (plate) => {
+  if (typeof plate === "string") return plate;
+  return plate?.licensePlate || plate?.plateNumber || plate?.plate || "";
+};
+
+const getPlateVehicleTypeId = (plate) => {
+  if (typeof plate === "string") return null;
+  return plate?.vehicleTypeId || plate?.vehicleType?.id || null;
+};
+
+const getPlateVehicleTypeName = (plate) => {
+  if (typeof plate === "string") return "Chưa gán loại xe";
+  return plate?.vehicleTypeName || plate?.vehicleType?.name || "Chưa gán loại xe";
+};
 // Custom SVG Icons for Premium UI
 const IconDashboard = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
@@ -262,13 +277,23 @@ const loadEmergencyStatus = async () => {
       ["CONFIRMED", "PENDING"].includes(String(item.status || "").toUpperCase())
     ) || null;
 
-    if (activeReservation?.licensePlate && !plates.includes(activeReservation.licensePlate)) {
-      plates = [...plates, activeReservation.licensePlate];
+    if (
+      activeReservation?.licensePlate &&
+      !plates.some((plate) => normalizePlateForApi(getPlateValue(plate)) === normalizePlateForApi(activeReservation.licensePlate))
+    ) {
+      plates = [
+        ...plates,
+        {
+          licensePlate: activeReservation.licensePlate,
+          vehicleTypeId: activeReservation.vehicleTypeId,
+          vehicleTypeName: activeReservation.vehicleTypeName,
+        },
+      ];
     }
 
     if (plates.length > 0) {
       const sessionResults = await Promise.all(
-        plates.map((plate) => staffApi.getActiveSession(plate).then((res) => res.data?.data).catch(() => null))
+        plates.map((plate) => staffApi.getActiveSession(getPlateValue(plate)).then((res) => res.data?.data).catch(() => null))
       );
       const backendSession = sessionResults.find(Boolean);
 
@@ -294,7 +319,7 @@ const loadEmergencyStatus = async () => {
       }
 
       const historyResults = await Promise.all(
-        plates.map((plate) => staffApi.getSessionHistory(plate).then((res) => res.data?.data || []).catch(() => []))
+        plates.map((plate) => staffApi.getSessionHistory(getPlateValue(plate)).then((res) => res.data?.data || []).catch(() => []))
       );
 
       historyList = historyResults.flat().map((s, idx) => ({
@@ -384,7 +409,7 @@ const loadEmergencyStatus = async () => {
   };
 
   // Thm biển số xe ln Database
-  const handleAddPlate = async (e) => {
+  const handleAddPlate = async (e, vehicleTypeId) => {
     e.preventDefault();
 
     const normalizedPlate = normalizeLicensePlate(newPlateInput);
@@ -393,6 +418,11 @@ const loadEmergencyStatus = async () => {
       .toUpperCase();
 
     if (!compactPlate) return false;
+
+    if (!vehicleTypeId) {
+      alert("Vui lòng chọn loại xe cho biển số");
+      return false;
+    }
 
     if (!isValidVietnamLicensePlate(normalizedPlate)) {
       alert(LICENSE_PLATE_HINT);
@@ -411,7 +441,7 @@ const loadEmergencyStatus = async () => {
     * đều được xem là cùng một biển số.
     */
     const existedPlate = data?.user?.licensePlates?.some((plate) => {
-      const existedCompact = String(plate || "")
+      const existedCompact = String(getPlateValue(plate) || "")
         .replace(/[^a-zA-Z0-9]/g, "")
         .toUpperCase();
 
@@ -424,7 +454,7 @@ const loadEmergencyStatus = async () => {
     }
 
     try {
-      await staffApi.addDriverPlate(compactPlate);
+      await staffApi.addDriverPlate(compactPlate, vehicleTypeId);
       setNewPlateInput("");
       await loadUserData();
       alert("Đăng ký biển số xe thành công!");
@@ -435,17 +465,24 @@ const loadEmergencyStatus = async () => {
       return false;
     }
   };
+  
+// Xóa biển số xe khỏi Database
+const handleDeletePlate = async (plateToDelete) => {
+  const plateValue = getPlateValue(plateToDelete);
 
-  // Xa biển số xe khỏi Database
-  const handleDeletePlate = async (plateToDelete) => {
-  if (!confirm(`Bạn có chắc chắn muốn xóa biển số ${plateToDelete} khỏi tài khoản không?`)) {
+  if (!plateValue) {
+    alert("Không tìm thấy biển số xe để xóa.");
+    return;
+  }
+
+  if (!confirm(`Bạn có chắc chắn muốn xóa biển số ${plateValue} khỏi tài khoản không?`)) {
     return;
   }
 
   try {
-    await staffApi.deleteDriverPlate(plateToDelete);
+    await staffApi.deleteDriverPlate(plateValue);
     await loadUserData();
-    alert(`Đã xóa biển số xe ${plateToDelete} thành công khỏi Database!`);
+    alert(`Đã xóa biển số xe ${plateValue} thành công khỏi Database!`);
   } catch (err) {
     const errorMsg = err.response?.data?.message || err.message || "Lỗi xóa biển số xe";
     alert(`Xóa thất bại: ${errorMsg}`);

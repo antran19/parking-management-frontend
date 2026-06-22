@@ -33,14 +33,31 @@ const isValidVietnamLicensePlate = (value) => {
   const plate = normalizeLicensePlate(value);
   const compactPlate = normalizePlateForApi(value);
 
-  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2})$/;
-  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{5}$/;
+  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2,3})$/;
+  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{4,6}$/;
 
   return displayPattern.test(plate) || backendPattern.test(compactPlate);
 };
 
 const LICENSE_PLATE_HINT =
-  "Biển số phải đúng định dạng, ví dụ: 51F-123.45, 30A-12345, 59X1-12345 hoặc dạng backend 51F12345";
+  "Biển số phải đúng định dạng, ví dụ: 49E72932, 51H12345, 30AB99988, 51AC12345, 59X1-12345 hoặc 51F-123.45";
+
+const getPlateValue = (plate) => {
+  if (typeof plate === "string") return plate;
+  return plate?.licensePlate || plate?.plateNumber || plate?.plate || "";
+};
+
+const getPlateVehicleTypeId = (plate) => {
+  if (typeof plate === "string") return null;
+  return plate?.vehicleTypeId || plate?.vehicleType?.id || null;
+};
+
+const getPlateVehicleTypeName = (plate) => {
+  if (typeof plate === "string") return "Chưa gán loại xe";
+  return plate?.vehicleTypeName || plate?.vehicleType?.name || "Chưa gán loại xe";
+};
+
+const normalizeVehicleTypeId = (value) => String(value || "");
 // Sắp xếp các tầng theo thứ tự logic từ sâu nhất dưới hầm lên trên cao (B2, B1, G, 1, 2,...)
 export const getFloorWeight = (key) => {
   if (key === "B2") return -2;
@@ -200,7 +217,7 @@ export default function DriverMapping({ onLogout }) {
     name: userState.fullName || "Tài xế",
     role: "Tài xế",
     currentZoneId: userState.currentZoneId || null,
-    plate: plates[0] || "Chưa đăng ký",
+    plate: getPlateValue(plates[0]) || "Chưa đăng ký",
   }), [userState, plates]);
 
   useEffect(() => {
@@ -367,7 +384,7 @@ export default function DriverMapping({ onLogout }) {
 
       const results = await Promise.all(
         registeredPlates.map((plate) =>
-          staffApi.getActiveSession(plate)
+  staffApi.getActiveSession(getPlateValue(plate))
             .then((res) => res.data?.data)
             .catch(() => null)
         )
@@ -420,7 +437,12 @@ export default function DriverMapping({ onLogout }) {
   const filterZone = (zone) => {
     const keyword = search.toLowerCase();
     const zoneStatus = getZoneStatus(zone);
-    const matchSearch = zone.zoneCode.toLowerCase().includes(keyword) || zone.name.toLowerCase().includes(keyword) || currentDriver.plate.toLowerCase().includes(keyword);
+    const driverPlateText = String(currentDriver.plate || "").toLowerCase();
+
+const matchSearch =
+  zone.zoneCode.toLowerCase().includes(keyword) ||
+  zone.name.toLowerCase().includes(keyword) ||
+  driverPlateText.includes(keyword);
     const matchStatus = statusFilter === "all" || zoneStatus === statusFilter || (statusFilter === "mine" && zone.id === currentZoneId);
     const matchType = typeFilter === "all" || zone.type === typeFilter;
 
@@ -449,19 +471,22 @@ export default function DriverMapping({ onLogout }) {
       // Vì vậy nếu user nhập biển số mới ở modal giữ chỗ,
       // FE phải thêm biển số vào /driver/plates trước rồi mới gọi /driver/reservations.
       const plateAlreadyManaged = plates.some((item) => {
-        return normalizePlateForApi(item) === plate;
+        return normalizePlateForApi(getPlateValue(item)) === plate;
       });
 
       if (!plateAlreadyManaged) {
-        await staffApi.addDriverPlate(plate).catch((err) => {
-          const message = err.response?.data?.message || "";
+        await staffApi.addDriverPlate(plate, zone.vehicleTypeId).catch((err) => {
+          const message = err?.response?.data?.message || err?.message || "";
 
-          // NOTE:
-          // Nếu BE báo biển số đã tồn tại thì không xem là lỗi nặng.
-          // Trường hợp này có thể xảy ra khi DB đã có biển số nhưng FE chưa sync kịp.
-          if (!message.includes("tồn tại")) {
-            throw err;
+          if (
+            message.includes("đã tồn tại") ||
+            message.includes("đã được đăng ký") ||
+            message.includes("Biển số đã tồn tại")
+          ) {
+            return;
           }
+
+          throw err;
         });
 
         const res = await staffApi.getDriverPlates().catch(() => null);
@@ -639,7 +664,7 @@ export default function DriverMapping({ onLogout }) {
               <p className="text-xs font-bold uppercase tracking-wider text-indigo-500">Zone xe hiện tại</p>
               <h3 className="mt-2 text-2xl font-black text-indigo-900">{currentZone?.zoneCode || "--"}</h3>
               <div className="mt-3 flex flex-wrap gap-2">
-                <LicensePlate plate={currentDriver.plate} />
+                <LicensePlate plate={getPlateValue(currentDriver.plate)} />
                 <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-700 border border-indigo-100">
                   {currentZone ? getVehicleLabel(currentZone.type) : "Chưa có phiên"}
                 </span>
@@ -1021,15 +1046,79 @@ function ZoneModal({ zone, isCurrent, onClose, onReserve, plates = [] }) {
   const available = getZoneAvailability(zone);
   const status = getZoneStatus(zone);
   const canReserve = available > 0 && !isCurrent && zone.status === "ACTIVE";
-  const defaultReservedFrom = toDateTimeLocalInputValue(new Date());
-  const defaultReservedTo = toDateTimeLocalInputValue(new Date(Date.now() + 30 * 60 * 1000));
 
-  const [selectedPlate, setSelectedPlate] = useState(plates[0] || "");
+  const makeDateInput = (date) => toDateTimeLocalInputValue(date);
+
+  const [selectedPlate, setSelectedPlate] = useState("");
   const [newPlate, setNewPlate] = useState("");
-  const [reservedFromInput, setReservedFromInput] = useState(defaultReservedFrom);
-  const [reservedToInput, setReservedToInput] = useState(defaultReservedTo);
+  const [reservedFromInput, setReservedFromInput] = useState(makeDateInput(new Date()));
+  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const finalPlate = (newPlate || selectedPlate).trim().toUpperCase();
+  const reservedToInput = useMemo(() => {
+    const fromDate = new Date(reservedFromInput);
+
+    if (Number.isNaN(fromDate.getTime())) {
+      return makeDateInput(new Date(Date.now() + durationMinutes * 60 * 1000));
+    }
+
+    return makeDateInput(new Date(fromDate.getTime() + durationMinutes * 60 * 1000));
+  }, [reservedFromInput, durationMinutes]);
+
+  const formatReservationTimeLabel = (value) => {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "--";
+
+    return date.toLocaleString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+    });
+  };
+
+const setStartNow = () => {
+  setReservedFromInput(makeDateInput(new Date()));
+};
+  const plateOptions = (plates || [])
+    .map((plate) => ({
+      licensePlate: getPlateValue(plate),
+      vehicleTypeId: getPlateVehicleTypeId(plate),
+      vehicleTypeName: getPlateVehicleTypeName(plate),
+    }))
+    .filter((plate) => Boolean(plate.licensePlate))
+    .filter((plate) => normalizeVehicleTypeId(plate.vehicleTypeId) === normalizeVehicleTypeId(zone.vehicleTypeId));
+
+  useEffect(() => {
+    if (!selectedPlate && plateOptions.length > 0) {
+      setSelectedPlate(plateOptions[0].licensePlate);
+    }
+  }, [selectedPlate, plateOptions]);
+
+  const finalPlate = normalizePlateForApi(newPlate || selectedPlate);
+
+  const submitReservation = async () => {
+    if (isSubmitting) return;
+
+    if (!finalPlate) {
+      alert("Vui lòng chọn hoặc nhập biển số xe");
+      return;
+    }
+
+    if (!isValidVietnamLicensePlate(finalPlate)) {
+      alert(LICENSE_PLATE_HINT);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await onReserve(finalPlate, reservedFromInput, reservedToInput);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
@@ -1037,99 +1126,185 @@ function ZoneModal({ zone, isCurrent, onClose, onReserve, plates = [] }) {
         <div className="flex items-center justify-between bg-slate-900 p-6 text-white">
           <div>
             <h3 className="text-lg font-bold">Zone {zone.zoneCode}</h3>
-            <p className="text-xs uppercase tracking-widest text-slate-400 mt-0.5">
+            <p className="mt-0.5 text-xs uppercase tracking-widest text-slate-400">
               {zone.name} • {getVehicleLabel(zone.type)}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-full p-1.5 hover:bg-white/10 text-white transition-colors">
+
+          <button
+            onClick={onClose}
+            className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10"
+          >
             ✕
           </button>
         </div>
 
-        <div className="space-y-4 p-8 max-h-[60vh] overflow-y-auto">
-          <div className={`rounded-2xl border p-5 text-center flex flex-col items-center ${zone.status === "CLOSED" ? "bg-slate-100 border-slate-200 text-slate-600" : isCurrent ? "bg-indigo-50 border-indigo-100 text-indigo-800" : status === "available" ? "bg-emerald-50 border-emerald-100 text-emerald-800" : status === "nearFull" ? "bg-amber-50 border-amber-100 text-amber-800" : "bg-rose-50 border-rose-100 text-rose-800"}`}>
-            <div className="text-[11px] font-black tracking-widest">{zone.status === "CLOSED" ? "CLOSED" : isCurrent ? "ACTIVE" : available > 0 ? "OPEN" : "FULL"}</div>
+        <div className="max-h-[60vh] space-y-4 overflow-y-auto p-8">
+          <div
+            className={`rounded-2xl border p-5 text-center flex flex-col items-center ${
+              zone.status === "CLOSED"
+                ? "bg-slate-100 border-slate-200 text-slate-600"
+                : isCurrent
+                ? "bg-indigo-50 border-indigo-100 text-indigo-800"
+                : status === "available"
+                ? "bg-emerald-50 border-emerald-100 text-emerald-800"
+                : status === "nearFull"
+                ? "bg-amber-50 border-amber-100 text-amber-800"
+                : "bg-rose-50 border-rose-100 text-rose-800"
+            }`}
+          >
+            <div className="text-[11px] font-black tracking-widest">
+              {zone.status === "CLOSED" ? "CLOSED" : isCurrent ? "ACTIVE" : available > 0 ? "OPEN" : "FULL"}
+            </div>
+
             <h4 className="mt-2 text-sm font-bold uppercase tracking-wider">
-              {zone.status === "CLOSED" ? "Zone này đã tạm đóng bởi nhân viên" : isCurrent ? "Xe của bạn đang ở zone này" : getStatusLabel(status)}
+              {zone.status === "CLOSED"
+                ? "Zone này đã tạm đóng bởi nhân viên"
+                : isCurrent
+                ? "Xe của bạn đang ở zone này"
+                : getStatusLabel(status)}
             </h4>
           </div>
+
           <Info label="Tổng sức chứa" value={zone.capacity} />
           <Info label="Đang gửi" value={zone.currentCount} />
           <Info label="Đã giữ chỗ" value={zone.reservedCount} />
           <Info label="Còn nhận thêm" value={available} />
 
           {canReserve && (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left space-y-3">
-              <p className="text-xs font-black uppercase tracking-wider text-slate-600">Biển số giữ chỗ</p>
-              {plates.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {plates.map((plate) => (
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-slate-600">
+                  Biển số giữ chỗ
+                </p>
+
+                {plateOptions.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {plateOptions.map((plate) => (
+                      <button
+                        key={plate.licensePlate}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPlate(plate.licensePlate);
+                          setNewPlate("");
+                        }}
+                        className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${
+                          selectedPlate === plate.licensePlate && !newPlate
+                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        }`}
+                      >
+                        {plate.licensePlate}
+                        <span className="ml-1 text-[9px] font-black uppercase text-slate-400">
+                          {plate.vehicleTypeName}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
+                    Chưa có biển số {getVehicleLabel(zone.type)} trong hồ sơ. Bạn có thể nhập biển số mới, hệ thống sẽ lưu kèm loại xe của zone này.
+                  </p>
+                )}
+
+                <input
+                  value={newPlate}
+                  onChange={(event) => setNewPlate(normalizeLicensePlate(event.target.value))}
+                  placeholder="Hoặc nhập biển số mới"
+                  className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                />
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-700">
+                      Thời gian giữ chỗ
+                    </p>
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-400">
+                      Chọn thời điểm bắt đầu và thời lượng giữ chỗ
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={setStartNow}
+                    className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-700 transition hover:bg-indigo-100"
+                  >
+                    Bây giờ
+                  </button>
+                </div>
+
+                <label className="block">
+                  <span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Bắt đầu
+                  </span>
+
+                  <input
+                    type="datetime-local"
+                    value={reservedFromInput}
+                    min={makeDateInput(new Date())}
+                    onChange={(event) => setReservedFromInput(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-black text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50"
+                  />
+                </label>
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[30, 60, 120].map((minutes) => (
                     <button
-                      key={plate}
+                      key={minutes}
                       type="button"
-                      onClick={() => {
-                        setSelectedPlate(plate);
-                        setNewPlate("");
-                      }}
-                      className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${selectedPlate === plate && !newPlate ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
+                      onClick={() => setDurationMinutes(minutes)}
+                      className={`rounded-2xl border px-3 py-3 text-xs font-black transition active:scale-[0.98] ${
+                        durationMinutes === minutes
+                          ? "border-indigo-400 bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                          : "border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                      }`}
                     >
-                      {plate}
+                      {minutes === 30 ? "30 phút" : `${minutes / 60} giờ`}
                     </button>
                   ))}
                 </div>
-              )}
-              <input
-                value={newPlate}
-                onChange={(event) => setNewPlate(event.target.value.toUpperCase())}
-                placeholder="Hoặc nhập biển số mới"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
-              />
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-  <label className="block">
-    <span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
-      Bắt đầu giữ chỗ
-    </span>
-    <input
-      type="datetime-local"
-      value={reservedFromInput}
-      onChange={(event) => setReservedFromInput(event.target.value)}
-      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
-    />
-  </label>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                      Từ
+                    </p>
+                    <p className="mt-1 text-xs font-black text-slate-800">
+                      {formatReservationTimeLabel(reservedFromInput)}
+                    </p>
+                  </div>
 
-  <label className="block">
-    <span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
-      Kết thúc giữ chỗ
-    </span>
-    <input
-      type="datetime-local"
-      value={reservedToInput}
-      onChange={(event) => setReservedToInput(event.target.value)}
-      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
-    />
-  </label>
-</div>
-
-
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-3 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-indigo-400">
+                      Đến
+                    </p>
+                    <p className="mt-1 text-xs font-black text-indigo-800">
+                      {formatReservationTimeLabel(reservedToInput)}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        <div className="flex gap-3 bg-slate-50 p-6 border-t border-slate-100">
+        <div className="flex gap-3 border-t border-slate-100 bg-slate-50 p-6">
           <button
             onClick={onClose}
-            className="flex-1 rounded-xl border border-slate-200 py-3 font-semibold text-slate-600 hover:bg-white text-sm transition-colors"
+            className="flex-1 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-white"
           >
             Đóng
           </button>
 
           {canReserve && (
             <button
-              onClick={() => onReserve(finalPlate, reservedFromInput, reservedToInput)}
-              className="flex-1 rounded-xl bg-slate-900 py-3 font-bold text-white hover:bg-slate-800 text-sm transition-colors"
+              onClick={submitReservation}
+              disabled={isSubmitting}
+              className="flex-1 rounded-xl bg-slate-900 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Tạo đặt chỗ 
+              {isSubmitting ? "Đang tạo..." : "Tạo đặt chỗ"}
             </button>
           )}
         </div>

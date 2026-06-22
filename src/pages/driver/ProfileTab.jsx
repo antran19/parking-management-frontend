@@ -30,14 +30,14 @@ const isValidVietnamLicensePlate = (value) => {
   const plate = normalizeLicensePlate(value);
   const compactPlate = normalizePlateForApi(value);
 
-  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2})$/;
-  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{5}$/;
+  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2,3})$/;
+  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{4,6}$/;
 
   return displayPattern.test(plate) || backendPattern.test(compactPlate);
 };
 
 const LICENSE_PLATE_HINT =
-  "Biển số phải đúng định dạng, ví dụ: 51F-123.45, 30A-12345, 59X1-12345 hoặc dạng backend 51F12345";
+  "Biển số phải đúng định dạng, ví dụ: 49E72932, 51H12345, 30AB99988, 51AC12345, 59X1-12345 hoặc 51F-123.45";
 
 const PASS_TYPE_INFO = {
   MONTHLY: { label: "Gói tháng", months: 1, code: "M", color: "from-slate-800 to-slate-950", discount: null },
@@ -63,30 +63,71 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
   const [plateInputMode, setPlateInputMode] = useState("MANAGED");
   const [showPassModal, setShowPassModal] = useState(false);
   const [showAddPlateModal, setShowAddPlateModal] = useState(false);
+  const [addPlateVehicleTypeId, setAddPlateVehicleTypeId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
 
-  const handleAddPlateFromPopup = async (event) => {
-  const ok = await handleAddPlate(event);
+const handleAddPlateFromPopup = async (event) => {
+  event.preventDefault();
+
+  if (!addPlateVehicleTypeId) {
+    showToast("Vui lòng chọn loại xe cho biển số", "error");
+    return;
+  }
+
+  const ok = await handleAddPlate(event, addPlateVehicleTypeId);
 
   if (ok) {
     setShowAddPlateModal(false);
+    setAddPlateVehicleTypeId("");
   }
 };
 
   const getPlateValue = (plate) => {
-    if (typeof plate === "string") return plate;
-    return plate?.licensePlate || plate?.plateNumber || plate?.plate || "";
-  };
+  if (typeof plate === "string") return plate;
+  return plate?.licensePlate || plate?.plateNumber || plate?.plate || "";
+};
 
-  const managedPlateValues = (user.licensePlates || [])
-    .map(getPlateValue)
-    .filter(Boolean);
-  const addPlateToDriverProfile = async (plate) => {
+const getPlateVehicleTypeId = (plate) => {
+  if (typeof plate === "string") return null;
+  return plate?.vehicleTypeId || plate?.vehicleType?.id || null;
+};
+
+const getPlateVehicleTypeName = (plate) => {
+  if (typeof plate === "string") return "Chưa gán loại xe";
+  return plate?.vehicleTypeName || plate?.vehicleType?.name || "Chưa gán loại xe";
+};
+
+const normalizeVehicleTypeId = (value) => String(value || "");
+
+const managedPlates = (user.licensePlates || [])
+  .map((plate) => ({
+    raw: plate,
+    licensePlate: getPlateValue(plate),
+    vehicleTypeId: getPlateVehicleTypeId(plate),
+    vehicleTypeName: getPlateVehicleTypeName(plate),
+  }))
+  .filter((plate) => Boolean(plate.licensePlate));
+
+const managedPlateValues = managedPlates.map((plate) => plate.licensePlate);
+
+const getManagedPlatesByVehicleType = (vehicleTypeId) => {
+  const targetTypeId = normalizeVehicleTypeId(vehicleTypeId);
+
+  return managedPlates.filter((plate) => {
+    return normalizeVehicleTypeId(plate.vehicleTypeId) === targetTypeId;
+  });
+};
+
+const selectedPlanPlateOptions = selectedPlan
+  ? getManagedPlatesByVehicleType(selectedPlan.vehicleTypeId)
+  : managedPlates;
+
+  const addPlateToDriverProfile = async (plate, vehicleTypeId) => {
     try {
-      await staffApi.addDriverPlate(plate);
+      await staffApi.addDriverPlate(plate, vehicleTypeId);
     } catch (err) {
       const message = err.response?.data?.message || err.message || "";
 
@@ -164,8 +205,8 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
       return;
     }
 
-    const plateBelongsToDriver = managedPlateValues.some((plate) => {
-      return normalizePlateForApi(plate) === normalizePlateForApi(normalizedPlate);
+    const plateBelongsToDriver = selectedPlanPlateOptions.some((plate) => {
+      return normalizePlateForApi(plate.licensePlate) === normalizePlateForApi(normalizedPlate);
     });
 
     setSubmitting(true);
@@ -177,7 +218,7 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
       * Sau đó mới gọi API đăng ký Parking Pass.
       */
       if (!plateBelongsToDriver) {
-        await addPlateToDriverProfile(normalizedPlate);
+        await addPlateToDriverProfile(normalizedPlate, selectedPlan.vehicleTypeId);
 
         if (typeof loadUserData === "function") {
           await loadUserData();
@@ -493,9 +534,9 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
                     type="button"
                     onClick={() => {
                       setPlateInputMode("MANAGED");
-                      setRegPlate(managedPlateValues[0] || "");
+                      setRegPlate(selectedPlanPlateOptions[0]?.licensePlate || "");
                     }}
-                    disabled={managedPlateValues.length === 0}
+                    disabled={selectedPlanPlateOptions.length === 0}
                     className={`rounded-2xl border px-4 py-3 text-left text-xs font-black transition ${
                       plateInputMode === "MANAGED"
                         ? "border-indigo-400 bg-indigo-50 text-indigo-700"
@@ -522,7 +563,7 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
                 </div>
 
                 {plateInputMode === "MANAGED" ? (
-                  managedPlateValues.length > 0 ? (
+                  selectedPlanPlateOptions.length > 0 ? (
                     <select
                       value={regPlate}
                       onChange={(e) => setRegPlate(e.target.value)}
@@ -530,9 +571,9 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
                       className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-mono text-sm font-black tracking-wider text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50"
                     >
                       <option value="">-- Chọn biển số --</option>
-                      {managedPlateValues.map((plate) => (
-                        <option key={plate} value={plate}>
-                          {plate}
+                      {selectedPlanPlateOptions.map((plate) => (
+                        <option key={plate.licensePlate} value={plate.licensePlate}>
+                          {plate.licensePlate} · {plate.vehicleTypeName}
                         </option>
                       ))}
                     </select>
@@ -784,18 +825,31 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
         <div className="space-y-6 p-6 md:p-8">
           <div>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3.5">Xe đã đăng ký trong hồ sơ</span>
-            {user.licensePlates.length === 0 ? (
+           {managedPlates.length === 0 ? (
               <p className="text-slate-400 font-bold italic py-2 text-xs">Chưa có biển số xe nào được liên kết vào tài khoản.</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {user.licensePlates.map((plate, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl hover:border-indigo-100 transition-colors">
-                    <LicensePlate plate={plate} />
-                    <button onClick={() => handleDeletePlate(plate)} className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer" title="Xóa biển số này">
-                      Xóa
-                    </button>
-                  </div>
-                ))}
+                {managedPlates.map((plate, idx) => (
+  <div
+    key={idx}
+    className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl hover:border-indigo-100 transition-colors"
+  >
+    <div>
+      <LicensePlate plate={plate.licensePlate} />
+      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        {plate.vehicleTypeName}
+      </p>
+    </div>
+
+    <button
+      onClick={() => handleDeletePlate(plate.licensePlate)}
+      className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer"
+      title="Xóa biển số này"
+    >
+      Xóa
+    </button>
+  </div>
+))}
               </div>
             )}
           </div>
@@ -813,7 +867,10 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
 
   <button
     type="button"
-    onClick={() => setShowAddPlateModal(true)}
+    onClick={() => {
+      setShowAddPlateModal(true);
+      setAddPlateVehicleTypeId(config.vehicleTypes[0]?.id || "");
+    }}
     className="rounded-xl bg-indigo-600 px-5 py-3 text-xs font-extrabold text-white shadow-md shadow-indigo-600/15 transition-colors hover:bg-indigo-700 cursor-pointer"
   >
     + Thêm biển số
@@ -850,23 +907,43 @@ export default function ProfileTab({ user, newPlateInput, setNewPlateInput, hand
 
       <form onSubmit={handleAddPlateFromPopup} className="space-y-4 p-6">
         <label className="block">
-          <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
-            Biển số xe
-          </span>
+  <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
+    Biển số xe
+  </span>
 
-          <input
-            type="text"
-            value={newPlateInput}
-            onChange={(e) => setNewPlateInput(normalizeLicensePlate(e.target.value))}
-            placeholder="Ví dụ: 51F-123.45 hoặc 51F12345"
-            required
-            autoFocus
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm font-black uppercase tracking-wider text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50"
-          />
-        </label>
+  <input
+    type="text"
+    value={newPlateInput}
+    onChange={(e) => setNewPlateInput(normalizeLicensePlate(e.target.value))}
+    placeholder="Ví dụ: 51F-123.45 hoặc 51F12345"
+    required
+    autoFocus
+    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm font-black uppercase tracking-wider text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50"
+  />
+</label>
+
+<label className="block">
+  <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
+    Loại xe
+  </span>
+
+  <select
+    value={addPlateVehicleTypeId}
+    onChange={(e) => setAddPlateVehicleTypeId(e.target.value)}
+    required
+    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50"
+  >
+    <option value="">-- Chọn loại xe --</option>
+    {config.vehicleTypes.map((vehicleType) => (
+      <option key={vehicleType.id} value={vehicleType.id}>
+        {vehicleType.name}
+      </option>
+    ))}
+  </select>
+</label>
 
         <p className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-[11px] font-semibold leading-5 text-slate-500">
-          Hệ thống sẽ chặn biển số trống, sai định dạng hoặc trùng với biển số đã có trong hồ sơ.
+          Hệ thống sẽ lưu biển số kèm loại xe để chỉ đề xuất đúng xe khi mua vé hoặc đặt chỗ.
         </p>
 
         <div className="grid grid-cols-2 gap-3 pt-2">
