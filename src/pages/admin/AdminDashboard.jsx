@@ -168,7 +168,7 @@ export default function AdminDashboard({ onLogout }) {
   const [isEditingZone, setIsEditingZone] = useState(false);
 
   const [isGateModalOpen, setIsGateModalOpen] = useState(false);
-  const [gateForm, setGateForm] = useState({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: "" });
+  const [gateForm, setGateForm] = useState({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: "", zoneId: "" });
   const [isEditingGate, setIsEditingGate] = useState(false);
 
   const [isTariffModalOpen, setIsTariffModalOpen] = useState(false);
@@ -377,7 +377,8 @@ export default function AdminDashboard({ onLogout }) {
       status: g.isActive === false ? "inactive" : "active",
       barrier: "CLOSED",
       cameraIp: `192.168.1.${50 + idx}`,
-      buildingId: g.buildingId
+      buildingId: g.buildingId,
+      zoneId: g.zoneId
     })));
     setTariffs((config.pricingRules || []).map((r) => ({
       id: r.id,
@@ -494,12 +495,12 @@ export default function AdminDashboard({ onLogout }) {
   };
 
   const handleOpenAddGate = () => {
-    setGateForm({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: firstBuildingId() });
+    setGateForm({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: firstBuildingId(), zoneId: "" });
     setIsEditingGate(false);
     setIsGateModalOpen(true);
   };
   const handleOpenEditGate = (gate) => {
-    setGateForm({ ...gate, buildingId: gate.buildingId || firstBuildingId() });
+    setGateForm({ ...gate, buildingId: gate.buildingId || firstBuildingId(), zoneId: gate.zoneId || "" });
     setIsEditingGate(true);
     setIsGateModalOpen(true);
   };
@@ -511,7 +512,8 @@ export default function AdminDashboard({ onLogout }) {
         gateCode: gateForm.name.trim().toUpperCase().replace(/\s+/g, "-").slice(0, 20),
         gateName: gateForm.name,
         gateType: gateForm.type,
-        isActive: gateForm.status === "active"
+        isActive: gateForm.status === "active",
+        zoneId: gateForm.type.startsWith("ZONE_") ? gateForm.zoneId : null
       };
       if (isEditingGate) await staffApi.updateGate(gateForm.id, payload);
       else await staffApi.createGate(payload);
@@ -548,7 +550,8 @@ export default function AdminDashboard({ onLogout }) {
         gateCode: gate.name.trim().toUpperCase().replace(/\s+/g, "-").slice(0, 20),
         gateName: gate.name,
         gateType: gate.type,
-        isActive: newActive
+        isActive: newActive,
+        zoneId: gate.zoneId || null
       });
       setGates(gates.map((g) => g.id === gate.id ? { ...g, status: newActive ? "active" : "inactive" } : g));
       showToast(newActive ? `Đã kích hoạt cổng ${gate.name}` : `Đã tắt cổng ${gate.name} (bảo trì)`);
@@ -2078,9 +2081,12 @@ export default function AdminDashboard({ onLogout }) {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-400 uppercase">Loại Cổng</label>
                   <select value={gateForm.type} onChange={e => setGateForm({ ...gateForm, type: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
-                    <option value="MAIN_ENTRY">CỔNG VÀO</option>
-                    <option value="MAIN_EXIT">CỔNG RA</option>
-                    <option value="MAIN_BOTH">HAI CHIỀU</option>
+                    <option value="MAIN_ENTRY">CỔNG VÀO (MAIN)</option>
+                    <option value="MAIN_EXIT">CỔNG RA (MAIN)</option>
+                    <option value="MAIN_BOTH">HAI CHIỀU (MAIN)</option>
+                    <option value="ZONE_ENTRY">CỔNG VÀO (ZONE)</option>
+                    <option value="ZONE_EXIT">CỔNG RA (ZONE)</option>
+                    <option value="ZONE_BOTH">HAI CHIỀU (ZONE)</option>
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -2088,6 +2094,17 @@ export default function AdminDashboard({ onLogout }) {
                   <input type="text" required value={gateForm.cameraIp} onChange={e => setGateForm({ ...gateForm, cameraIp: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none" />
                 </div>
               </div>
+              {gateForm.type?.startsWith("ZONE_") && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Khu vực (Zone)</label>
+                  <select value={gateForm.zoneId} onChange={e => setGateForm({ ...gateForm, zoneId: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
+                    <option value="">-- Chọn khu vực --</option>
+                    {zones.map((z) => (
+                      <option key={z.id} value={z.id}>{z.name} ({z.floorName})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsGateModalOpen(false)} className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer">Hủy</button>
                 <button type="submit" className="flex-1 rounded-xl bg-purple-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors">Lưu lại</button>

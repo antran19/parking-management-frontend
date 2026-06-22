@@ -28,10 +28,26 @@ export default function StaffZoneEntry() {
         const res = await staffApi.getParkingConfig();
         const config = res.data.data;
 
-        // Chỉ lấy các cổng Zone (ZONE_ENTRY, ZONE_BOTH hoặc ZONE_EXIT) mà có liên kết Zone cụ thể
-        const zoneGates = (config.gates || []).filter(
-          g => (g.gateType === 'ZONE_ENTRY' || g.gateType === 'ZONE_BOTH' || g.gateType === 'ZONE_EXIT') && g.zoneId
-        );
+        const zones = config.zones || [];
+
+        // Lấy các cổng Zone đầu vào (ZONE_ENTRY)
+        const zoneGates = (config.gates || [])
+          .filter(g => g.gateType === 'ZONE_ENTRY'  )
+          .map(g => {
+            if (g.zoneId) {
+              const z = zones.find(zone => zone.id === g.zoneId);
+              if (z) {
+                return {
+                  ...g,
+                  displayName: `${z.floorName} - ${z.zoneName}`
+                };
+              }
+            }
+            return {
+              ...g,
+              displayName: `${g.gateName} (Chưa gán)`
+            };
+          });
 
         setGates(zoneGates);
         if (zoneGates.length > 0) {
@@ -366,7 +382,7 @@ export default function StaffZoneEntry() {
                 >
                   {gates.map(g => (
                     <option key={g.id} value={g.id}>
-                      {g.gateName} ({g.gateCode}) - {g.zoneCode ? `Zone ${g.zoneCode}` : 'Chưa gán'}
+                      {g.displayName}
                     </option>
                   ))}
                 </select>
