@@ -1,0 +1,199 @@
+@import "tailwindcss";
+
+:root {
+  font-family: "Outfit", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #0f172a;
+  background: #030712;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 90px;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: inherit;
+  background: #030712;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* ===== Driver mobile polish ===== */
+@media (max-width: 640px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    background: #f8fafc;
+  }
+
+  .driver-mobile-shell,
+  .driver-mobile-shell .main-content-area {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .driver-mobile-shell header {
+    min-height: 58px;
+  }
+
+  .driver-content-section {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+    padding-bottom: 98px !important;
+  }
+
+  .mobile-driver-nav {
+    position: fixed;
+    left: 50%;
+    right: auto;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 70;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: calc(100% - 24px);
+    max-width: 390px;
+    height: 66px;
+    transform: translateX(-50%);
+    gap: 4px;
+    border: 1px solid #e2e8f0;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.96);
+    padding: 6px;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-nav-item {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border-radius: 16px;
+    padding: 6px 2px;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.05;
+    transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+  }
+
+  .mobile-nav-item:hover {
+    background: #f1f5f9;
+  }
+
+  .mobile-nav-active {
+    transform: translateY(-3px);
+    background: #4f46e5;
+    color: white;
+    box-shadow: 0 10px 20px rgba(79, 70, 229, 0.28);
+  }
+
+  .mobile-nav-danger {
+    color: #f43f5e;
+  }
+
+  .mobile-nav-danger:hover {
+    background: #fff1f2;
+  }
+
+  .mobile-nav-icon {
+    display: block;
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  .mobile-nav-label {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 1.1;
+  }
+
+  .profile-mobile-root {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .profile-mobile-root h3,
+  .profile-mobile-root h4,
+  .profile-mobile-root h5,
+  .profile-mobile-root p,
+  .profile-mobile-root span,
+  .zone-card-mobile h3,
+  .zone-card-mobile p,
+  .zone-card-mobile span {
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-floor-scroll {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .mobile-floor-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-floor-scroll > button {
+    flex: 0 0 auto;
+    min-width: 92px;
+  }
+
+  .zone-card-mobile {
+    width: 100%;
+    max-width: 100%;
+    padding: 18px !important;
+    border-radius: 22px !important;
+    overflow: hidden;
+  }
+
+  .zone-card-head {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+
+  .zone-card-status {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .zone-card-metrics {
+    gap: 8px !important;
+  }
+
+  .zone-card-legend {
+    display: none !important;
+  }
+
+  .zone-card-footer {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 6px;
+  }
+}
