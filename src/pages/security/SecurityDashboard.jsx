@@ -8,6 +8,7 @@ import BlacklistPage from "./BlacklistPage";
 gsap.config({ nullTargetWarn: false });
 import EmergencyPage from "./EmergencyPage";
 import ExceptionLogsPage from "./ExceptionLogsPage";
+import ParkingDigitalTwin3D from "./ParkingDigitalTwin3D";
 
 
 /**
@@ -60,6 +61,12 @@ const IconSOS = () => (
 const IconLogout = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
     <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+  </svg>
+);
+
+const IconMap3D = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
   </svg>
 );
 
@@ -295,6 +302,7 @@ export default function SecurityDashboard({ onLogout }) {
   // Danh sách các tab trong sidebar
   const NAV_TABS = [
     { key: "overview", label: "Giám sát an ninh", Icon: IconOverview },
+    { key: "map3d", label: "Bản đồ 3D", Icon: IconMap3D },
     { key: "exception", label: "Sự cố an ninh", Icon: IconLogs },
     { key: "emergency", label: "SOS Khẩn cấp", Icon: IconSOS },
     { key: "blacklist", label: "Danh sách đen", Icon: IconBlacklist },
@@ -542,6 +550,17 @@ export default function SecurityDashboard({ onLogout }) {
             </div>
           )}
 
+          {/* ──────────── TAB: BẢN ĐỒ 3D ──────────── */}
+          {activeTab === "map3d" && (
+            <ParkingDigitalTwin3D 
+              zones={overviewStats.zones}
+              gates={overviewStats.gates}
+              floors={[]} 
+              sessions={[]} 
+              onRefresh={fetchOverview}
+            />
+          )}
+
           {/* ──────────── TAB: SỰ CỐ AN NINH ──────────── */}
           {activeTab === "exception" && (
             <ExceptionLogsPage showToast={showToast} user={user} />
@@ -584,7 +603,7 @@ export default function SecurityDashboard({ onLogout }) {
               )}
             </span>
             <span className={`text-[10px] font-bold ${activeTab === key ? "text-red-600" : "font-semibold"}`}>
-              {key === "overview" ? "Giám sát" : key === "exception" ? "Sự cố" : key === "emergency" ? "SOS" : "Blacklist"}
+              {key === "overview" ? "Giám sát" : key === "map3d" ? "Bản đồ" : key === "exception" ? "Sự cố" : key === "emergency" ? "SOS" : "Blacklist"}
             </span>
             {activeTab === key && (
               <span className="absolute top-0 inset-x-0 mx-auto h-[3px] w-8 bg-red-600 rounded-b-md" />
