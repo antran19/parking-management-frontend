@@ -39,6 +39,30 @@ const isValidVietnamLicensePlate = (value) => {
 const LICENSE_PLATE_HINT =
   "Biển số phải đúng định dạng, ví dụ: 49E72932, 51H12345, 30AB99988, 51AC12345, 59X1-12345 hoặc 51F-123.45";
 
+const normalizeVehicleTypeText = (value) => {
+  return String(value || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/Đ/g, "D")
+    .replace(/đ/g, "D")
+    .trim();
+};
+
+const isBicycleVehicleTypeName = (value) => {
+  const raw =
+    typeof value === "object"
+      ? value?.name || value?.vehicleTypeName || value?.code || value?.type || ""
+      : value;
+
+  const text = normalizeVehicleTypeText(raw);
+
+  return (
+    text.includes("XE DAP") ||
+    text.includes("BICYCLE") ||
+    text === "BIKE"
+  );
+};
 const PASS_TYPE_INFO = {
   MONTHLY: { label: "Gói tháng", months: 1, code: "M", color: "from-slate-800 to-slate-950", discount: null },
   QUARTERLY: { label: "Gói quý", months: 3, code: "Q", color: "from-cyan-800 to-slate-950", discount: null },
@@ -102,18 +126,21 @@ const getPlateVehicleTypeName = (plate) => {
 
 const normalizeVehicleTypeId = (value) => String(value || "");
 
-const managedPlates = (user.licensePlates || [])
-  .map((plate) => ({
-    raw: plate,
-    licensePlate: getPlateValue(plate),
-    vehicleTypeId: getPlateVehicleTypeId(plate),
-    vehicleTypeName: getPlateVehicleTypeName(plate),
-  }))
-  .filter((plate) => Boolean(plate.licensePlate));
+  const managedPlates = (user.licensePlates || [])
+    .map((plate) => ({
+      raw: plate,
+      licensePlate: getPlateValue(plate),
+      vehicleTypeId: getPlateVehicleTypeId(plate),
+      vehicleTypeName: getPlateVehicleTypeName(plate),
+    }))
+    .filter((plate) => Boolean(plate.licensePlate))
+    .filter((plate) => !isBicycleVehicleTypeName(plate.vehicleTypeName));
 
-const managedPlateValues = managedPlates.map((plate) => plate.licensePlate);
+  const plateVehicleTypes = (config.vehicleTypes || [])
+    .filter((vehicleType) => !isBicycleVehicleTypeName(vehicleType));
 
-const getManagedPlatesByVehicleType = (vehicleTypeId) => {
+  const managedPlateValues = managedPlates.map((plate) => plate.licensePlate);
+  const getManagedPlatesByVehicleType = (vehicleTypeId) => {
   const targetTypeId = normalizeVehicleTypeId(vehicleTypeId);
 
   return managedPlates.filter((plate) => {
@@ -205,32 +232,45 @@ const selectedPlanPlateOptions = selectedPlan
       return;
     }
 
+
+    // Hàm: handleRegister
+    // Mục đích: đăng ký gói gửi xe cho Driver.
+    // Fix:
+    // - Nếu chọn biển số có sẵn thì phải đúng loại xe của gói.
+    // - Nếu nhập biển mới thì mới tự add biển số vào profile.
+    // - Gửi licensePlate đã normalize về backend để tránh lỗi do dấu chấm/gạch.
     const plateBelongsToDriver = selectedPlanPlateOptions.some((plate) => {
-      return normalizePlateForApi(plate.licensePlate) === normalizePlateForApi(normalizedPlate);
-    });
+    return normalizePlateForApi(plate.licensePlate) === normalizePlateForApi(normalizedPlate);
+  });
 
-    setSubmitting(true);
+  if (plateInputMode === "MANAGED" && !plateBelongsToDriver) {
+    showToast(
+      "Biển số đã chọn không khớp loại xe của gói. Vui lòng chọn đúng biển số hoặc nhập biển mới.",
+      "error"
+    );
+    return;
+  }
 
-    try {
-      /*
-      * NOTE Quảng - Driver:
-      * Nếu Driver nhập biển số mới khi mua vé, tự thêm biển số đó vào hồ sơ trước.
-      * Sau đó mới gọi API đăng ký Parking Pass.
-      */
-      if (!plateBelongsToDriver) {
-        await addPlateToDriverProfile(normalizedPlate, selectedPlan.vehicleTypeId);
+  setSubmitting(true);
 
-        if (typeof loadUserData === "function") {
-          await loadUserData();
-        }
+  try {
+    if (plateInputMode === "MANUAL" && !plateBelongsToDriver) {
+      await addPlateToDriverProfile(
+        normalizePlateForApi(normalizedPlate),
+        selectedPlan.vehicleTypeId
+      );
+
+      if (typeof loadUserData === "function") {
+        await loadUserData();
       }
+    }
 
-      const res = await staffApi.registerDriverPass({
-        buildingId: selectedPlan.buildingId,
-        vehicleTypeId: selectedPlan.vehicleTypeId,
-        licensePlate: normalizedPlate,
-        passType: selectedPassType,
-      });
+    const res = await staffApi.registerDriverPass({
+      buildingId: selectedPlan.buildingId,
+      vehicleTypeId: selectedPlan.vehicleTypeId,
+      licensePlate: normalizePlateForApi(normalizedPlate),
+      passType: selectedPassType,
+    });
 
       const paymentUrl = res.data?.data?.paymentUrl;
 
@@ -422,8 +462,11 @@ const selectedPlanPlateOptions = selectedPlan
                       return (
                         <button key={type} 
                         onClick={() => {
+                          const planVehicleTypeId = plan.vehicleType?.id || plan.vehicleTypeId;
+                          const matchingPlates = getManagedPlatesByVehicleType(planVehicleTypeId);
+
                           setSelectedPlan({
-                            vehicleTypeId: plan.vehicleType?.id || plan.vehicleTypeId,
+                            vehicleTypeId: planVehicleTypeId,
                             vehicleTypeName: vtName,
                             monthlyPrice,
                             buildingId: plan.building?.id || plan.buildingId,
@@ -432,9 +475,9 @@ const selectedPlanPlateOptions = selectedPlan
 
                           setSelectedPassType(type);
 
-                          if (managedPlateValues.length > 0) {
+                          if (matchingPlates.length > 0) {
                             setPlateInputMode("MANAGED");
-                            setRegPlate(managedPlateValues[0]);
+                            setRegPlate(matchingPlates[0].licensePlate);
                           } else {
                             setPlateInputMode("MANUAL");
                             setRegPlate("");
@@ -830,52 +873,57 @@ const selectedPlanPlateOptions = selectedPlan
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {managedPlates.map((plate, idx) => (
-  <div
-    key={idx}
-    className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl hover:border-indigo-100 transition-colors"
-  >
-    <div>
-      <LicensePlate plate={plate.licensePlate} />
-      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-        {plate.vehicleTypeName}
-      </p>
-    </div>
+                <div
+                  key={idx}
+                  className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl hover:border-indigo-100 transition-colors"
+                >
+                  <div>
+                    <LicensePlate plate={plate.licensePlate} />
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {plate.vehicleTypeName}
+                    </p>
+                  </div>
 
-    <button
-      onClick={() => handleDeletePlate(plate.licensePlate)}
-      className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer"
-      title="Xóa biển số này"
-    >
-      Xóa
-    </button>
-  </div>
-))}
+                  <button
+                    onClick={() => handleDeletePlate(plate.licensePlate)}
+                    className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer"
+                    title="Xóa biển số này"
+                  >
+                    Xóa
+                  </button>
+                </div>
+              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="pt-6 border-t border-slate-100">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3">Thêm biển số xe</span>
+                          <div className="flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-slate-900">
+                Thêm biển số xe
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Biển số được dùng khi đặt chỗ, check-in và tra cứu phiên gửi xe.
+              </p>
               </div>
-            )}
-          </div>
-          <div className="pt-6 border-t border-slate-100">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3">Thêm biển số xe</span>
-            <div className="flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
-  <div>
-    <p className="text-sm font-black text-slate-900">
-  Thêm biển số xe
-</p>
-<p className="mt-1 text-xs font-semibold text-slate-500">
-  Biển số được dùng khi đặt chỗ, check-in và tra cứu phiên gửi xe.
-</p>
-  </div>
 
-  <button
-    type="button"
-    onClick={() => {
-      setShowAddPlateModal(true);
-      setAddPlateVehicleTypeId(config.vehicleTypes[0]?.id || "");
-    }}
-    className="rounded-xl bg-indigo-600 px-5 py-3 text-xs font-extrabold text-white shadow-md shadow-indigo-600/15 transition-colors hover:bg-indigo-700 cursor-pointer"
-  >
-    + Thêm biển số
-  </button>
-</div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (plateVehicleTypes.length === 0) {
+                    alert("Không có loại xe cần đăng ký biển số");
+                    return;
+                  }
+
+                  setShowAddPlateModal(true);
+                  setAddPlateVehicleTypeId(plateVehicleTypes[0]?.id || "");
+                }}
+                className="rounded-xl bg-indigo-600 px-5 py-3 text-xs font-extrabold text-white shadow-md shadow-indigo-600/15 transition-colors hover:bg-indigo-700 cursor-pointer"
+              >
+                + Thêm biển số
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -934,11 +982,13 @@ const selectedPlanPlateOptions = selectedPlan
     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50"
   >
     <option value="">-- Chọn loại xe --</option>
-    {config.vehicleTypes.map((vehicleType) => (
-      <option key={vehicleType.id} value={vehicleType.id}>
-        {vehicleType.name}
-      </option>
-    ))}
+    {plateVehicleTypes
+      .filter((vehicleType) => !isBicycleVehicleTypeName(vehicleType))
+      .map((vehicleType) => (
+        <option key={vehicleType.id} value={vehicleType.id}>
+          {vehicleType.name}
+        </option>
+      ))}
   </select>
 </label>
 

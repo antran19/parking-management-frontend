@@ -97,6 +97,10 @@ export const staffApi = {
     return axiosClient.post(`/driver/parking-passes/${passId}/pay`);
   },
 
+  cancelDriverPass(passId) {
+  return axiosClient.delete(`/driver/parking-passes/${passId}/cancel`);
+},
+
   getVnPayPassReturn(queryString) {
     return axiosClient.get(`/driver/payments/vnpay-return${queryString}`);
   },

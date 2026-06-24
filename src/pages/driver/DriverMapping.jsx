@@ -7,7 +7,7 @@
  * - WebSocket listener: /topic/zones/{buildingId} để cập nhật real-time
  */
 
-// src/pages/driver/DriverMapping.jsx
+import DriverSosBanner from "./DriverSosBanner";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { staffApi } from "../../api/parkingApi";
@@ -58,6 +58,7 @@ const getPlateVehicleTypeName = (plate) => {
 };
 
 const normalizeVehicleTypeId = (value) => String(value || "");
+const isBicycleZone = (zone) => zone?.type === "bicycle";
 // Sắp xếp các tầng theo thứ tự logic từ sâu nhất dưới hầm lên trên cao (B2, B1, G, 1, 2,...)
 export const getFloorWeight = (key) => {
   if (key === "B2") return -2;
@@ -144,12 +145,40 @@ function getVehicleLabel(type) {
   return "Ô tô";
 }
 
-function getZoneAvailability(zone) {
-  return Math.max(zone.capacity - zone.currentCount - zone.reservedCount, 0);
+// Hàm: toSafeNumber
+// Note: Chuẩn hóa số zone từ backend, tránh NaN khi capacity/currentCount/reservedCount là null/string.
+function toSafeNumber(value) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
+function getZoneAvailability(zone) {
+  const capacity = toSafeNumber(zone?.capacity);
+  const currentCount = toSafeNumber(zone?.currentCount);
+  const reservedCount = toSafeNumber(zone?.reservedCount);
+
+  return Math.max(capacity - currentCount - reservedCount, 0);
+}
+
+// Hàm: getZoneAvailability
+// Fix: tránh phép trừ với null/undefined/string.
+
+// Hàm: getZoneUsagePercent
+// Fix: tránh chia cho 0, tránh NaN, tránh Infinity.
+
 function getZoneUsagePercent(zone) {
-  return Math.round((zone.currentCount / zone.capacity) * 100);
+  const capacity = toSafeNumber(zone?.capacity);
+
+  if (capacity <= 0) {
+    return 0;
+  }
+
+  const currentCount = toSafeNumber(zone?.currentCount);
+
+  return Math.min(
+    100,
+    Math.max(0, Math.round((currentCount / capacity) * 100))
+  );
 }
 
 function getZoneStatus(zone) {
@@ -201,6 +230,10 @@ export default function DriverMapping({ onLogout }) {
   const [floors, setFloors] = useState(emptyFloors);
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [activeSession, setActiveSession] = useState(null);
+  const [emergencyStatus, setEmergencyStatus] = useState({
+    active: false,
+    message: "",
+  });
 
   // Quản lý thông tin tài xế dưới dạng state động để đồng bộ real-time
   const [userState, setUserState] = useState(() => JSON.parse(localStorage.getItem("user") || "{}"));
@@ -219,6 +252,28 @@ export default function DriverMapping({ onLogout }) {
     currentZoneId: userState.currentZoneId || null,
     plate: getPlateValue(plates[0]) || "Chưa đăng ký",
   }), [userState, plates]);
+
+  const loadEmergencyStatus = async () => {
+    try {
+      const res = await staffApi.getEmergencyStatus();
+      const data = res.data?.data || res.data || {};
+
+      setEmergencyStatus({
+        active: Boolean(data.active || data.isActive || data.sosActive),
+        message:
+          data.message ||
+          data.reason ||
+          "Hệ thống đang trong trạng thái khẩn cấp.",
+      });
+    } catch (err) {
+      console.warn("Không thể tải trạng thái SOS ở DriverMapping:", err);
+
+      setEmergencyStatus({
+        active: false,
+        message: "",
+      });
+    }
+  };
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -400,11 +455,13 @@ export default function DriverMapping({ onLogout }) {
   fetchDriverPlates();
   fetchRealtimeConfig();
   fetchActiveSession();
+  loadEmergencyStatus();
 
   const configInterval = setInterval(() => {
     fetchDriverPlates();
     fetchRealtimeConfig();
     fetchActiveSession();
+    loadEmergencyStatus();
   }, 10000);
 
     return () => {
@@ -428,10 +485,21 @@ export default function DriverMapping({ onLogout }) {
 
   const currentZone = allZones.find((zone) => zone.id === currentZoneId);
 
+
+  // Vị trí: phần thống kê tầng trong DriverMapping.
   const counts = {
-    available: floorZones.reduce((sum, zone) => sum + getZoneAvailability(zone), 0),
-    occupied: floorZones.reduce((sum, zone) => sum + zone.currentCount, 0),
-    reserved: floorZones.reduce((sum, zone) => sum + zone.reservedCount, 0),
+    available: floorZones.reduce(
+      (sum, zone) => sum + getZoneAvailability(zone),
+      0
+    ),
+    occupied: floorZones.reduce(
+      (sum, zone) => sum + toSafeNumber(zone.currentCount),
+      0
+    ),
+    reserved: floorZones.reduce(
+      (sum, zone) => sum + toSafeNumber(zone.reservedCount),
+      0
+    ),
   };
 
   const filterZone = (zone) => {
@@ -450,63 +518,71 @@ const matchSearch =
   };
 
   const handleReserveZone = async (zoneId, licensePlate, reservedFromInput, reservedToInput) => {
-    const zone = allZones.find((item) => item.id === zoneId);
-    if (!zone) return;
+    
+    // nếu SOS đang hoạt động thì driver không được đặt chỗ
+    if (emergencyStatus.active) {
+      alert(
+        "Hệ thống đang SOS. Tài xế không thể tạo đặt chỗ mới trong lúc báo động. Vui lòng quay về Dashboard và làm theo hướng dẫn an toàn."
+      );
+      navigate("/driver/dashboard");
+      return;
+    }
 
-    const plate = normalizePlateForApi(licensePlate);
+    const zone = allZones.find((item) => String(item.id) === String(zoneId));
+    if (!zone) {
+      alert("Không tìm thấy zone để tạo đặt chỗ.");
+      return;
+    }
 
-    if (!plate) {
+    const isBicycle = isBicycleZone(zone);
+    const plate = isBicycle ? "" : normalizePlateForApi(licensePlate);
+
+    if (!isBicycle && !plate) {
       alert("Vui lòng chọn hoặc nhập biển số xe");
       return;
     }
 
-    if (!isValidVietnamLicensePlate(plate)) {
+    if (!isBicycle && !isValidVietnamLicensePlate(plate)) {
       alert(LICENSE_PLATE_HINT);
       return;
     }
 
     try {
-      // NOTE:
-      // ReservationService bên BE yêu cầu biển số phải thuộc tài khoản Driver.
-      // Vì vậy nếu user nhập biển số mới ở modal giữ chỗ,
-      // FE phải thêm biển số vào /driver/plates trước rồi mới gọi /driver/reservations.
-      const plateAlreadyManaged = plates.some((item) => {
-        return normalizePlateForApi(getPlateValue(item)) === plate;
-      });
-
-      if (!plateAlreadyManaged) {
-        await staffApi.addDriverPlate(plate, zone.vehicleTypeId).catch((err) => {
-          const message = err?.response?.data?.message || err?.message || "";
-
-          if (
-            message.includes("đã tồn tại") ||
-            message.includes("đã được đăng ký") ||
-            message.includes("Biển số đã tồn tại")
-          ) {
-            return;
-          }
-
-          throw err;
+      if (!isBicycle) {
+        const plateAlreadyManaged = plates.some((item) => {
+          return normalizePlateForApi(getPlateValue(item)) === plate;
         });
 
-        const res = await staffApi.getDriverPlates().catch(() => null);
-        const backendPlates = res?.data?.data || [...plates, plate];
+        if (!plateAlreadyManaged) {
+          await staffApi.addDriverPlate(plate, zone.vehicleTypeId).catch((err) => {
+            const message = err?.response?.data?.message || err?.message || "";
 
-        setDriverPlates(backendPlates);
+            if (
+              message.includes("đã tồn tại") ||
+              message.includes("đã được đăng ký") ||
+              message.includes("Biển số đã tồn tại")
+            ) {
+              return;
+            }
 
-        const updatedUser = {
-          ...userState,
-          licensePlates: backendPlates,
-        };
+            throw err;
+          });
 
-        localStorage.setItem("user", JSON.stringify(updatedUser));
-        setUserState(updatedUser);
+          const res = await staffApi.getDriverPlates().catch(() => null);
+          const backendPlates = res?.data?.data || [...plates, plate];
+
+          setDriverPlates(backendPlates);
+
+          const updatedUser = {
+            ...userState,
+            licensePlates: backendPlates,
+          };
+
+          localStorage.setItem("user", JSON.stringify(updatedUser));
+          setUserState(updatedUser);
+        }
       }
 
-      // NOTE:
-      // Sau khi chắc chắn biển số đã thuộc Driver,
-      // mới tạo reservation để tránh lỗi 400:
-      // "Biển số chưa được đăng ký bởi driver này".
       const reservedFrom = reservedFromInput ? new Date(reservedFromInput) : new Date();
       const reservedTo = reservedToInput ? new Date(reservedToInput) : new Date(Date.now() + 30 * 60 * 1000);
 
@@ -520,23 +596,26 @@ const matchSearch =
         return;
       }
 
-      // NOTE:
-      // Spring LocalDateTime không đọc tốt chuỗi ISO có chữ Z từ toISOString().
-      // Gửi yyyy-MM-ddTHH:mm:ss theo giờ local để tránh lỗi 400 khi tạo reservation.
-      await staffApi.createReservation({
+      const reservationRes = await staffApi.createReservation({
         zoneId,
         vehicleTypeId: zone.vehicleTypeId,
-        licensePlate: plate,
+        licensePlate: isBicycle ? null : plate,
         reservedFrom: toSpringLocalDateTime(reservedFrom),
         reservedTo: toSpringLocalDateTime(reservedTo),
       });
 
-      setSelectedZone(null);
-      alert(`Đã giữ chỗ thật tại ${zone.zoneCode} cho xe ${plate} từ ${reservedFrom.toLocaleString("vi-VN")} đến ${reservedTo.toLocaleString("vi-VN")}`);
+      const savedReservation = reservationRes?.data?.data;
+      const vehicleIdentifier = savedReservation?.licensePlate || plate;
 
-      // NOTE:
-      // Điều hướng về dashboard tab phiên gửi xe để FE hiển thị QR reservation.
-      navigate("/driver/dashboard#current-session");
+      setSelectedZone(null);
+
+      alert(
+        isBicycle
+          ? `Đã giữ chỗ tại ${zone.zoneCode}. Mã xe đạp của bạn là ${vehicleIdentifier}.`
+          : `Đã giữ chỗ tại ${zone.zoneCode} cho xe ${plate} từ ${reservedFrom.toLocaleString("vi-VN")} đến ${reservedTo.toLocaleString("vi-VN")}`
+      );
+
+      navigate("/driver/dashboard#my-reservations");
     } catch (err) {
       const message = err.response?.data?.message || err.message || "Không thể giữ chỗ";
       alert(`Giữ chỗ thất bại: ${message}`);
@@ -549,6 +628,7 @@ const matchSearch =
 
   return (
     <div ref={containerRef} className="driver-mobile-shell min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-900 flex font-sans">
+      <DriverSosBanner />
       <aside
         className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${
           collapsed ? "w-20" : "w-72"
@@ -861,7 +941,9 @@ const matchSearch =
             handleReserveZone(selectedZone.id, plate, reservedFrom, reservedTo)
           }
           plates={plates}
-/>
+          emergencyActive={emergencyStatus.active}
+          emergencyMessage={emergencyStatus.message}
+        />
       )}
 
       <MobileMapNav onLogout={onLogout} />
@@ -962,7 +1044,7 @@ function ZoneCard({ zone, isCurrent, onClick }) {
   const available = getZoneAvailability(zone);
   const usagePercent = getZoneUsagePercent(zone);
   const status = getZoneStatus(zone);
-  const isClosed = zone.status === "CLOSED";
+  const isClosed = getZoneStatus(zone) === "closed";
   const style = isClosed
     ? "border-slate-300 bg-slate-100 opacity-60 hover:opacity-80"
     : isCurrent
@@ -1015,8 +1097,18 @@ function ZoneCard({ zone, isCurrent, onClick }) {
         </div>
         <div className="flex flex-wrap gap-1">
           {Array.from({ length: 24 }).map((_, idx) => {
-            const isOccupied = idx < Math.round((zone.currentCount / zone.capacity) * 24);
-            const isReserved = !isOccupied && idx < Math.round(((zone.currentCount + zone.reservedCount) / zone.capacity) * 24);
+            const capacity = Math.max(toSafeNumber(zone.capacity), 1);
+            const occupiedSlots = Math.round(
+              (toSafeNumber(zone.currentCount) / capacity) * 24
+            );
+            const reservedSlots = Math.round(
+              ((toSafeNumber(zone.currentCount) + toSafeNumber(zone.reservedCount)) /
+                capacity) *
+                24
+            );
+
+            const isOccupied = idx < occupiedSlots;
+            const isReserved = !isOccupied && idx < reservedSlots;
             return (
               <span
                 key={idx}
@@ -1042,11 +1134,20 @@ function ZoneCard({ zone, isCurrent, onClick }) {
   );
 }
 
-function ZoneModal({ zone, isCurrent, onClose, onReserve, plates = [] }) {
+function ZoneModal({
+  zone,
+  isCurrent,
+  onClose,
+  onReserve,
+  plates = [],
+  emergencyActive = false,
+  emergencyMessage = "",
+}) {
   const available = getZoneAvailability(zone);
   const status = getZoneStatus(zone);
-  const canReserve = available > 0 && !isCurrent && zone.status === "ACTIVE";
-
+  const canReserve =
+    !emergencyActive && available > 0 && !isCurrent && zone.status === "ACTIVE";
+  const isBicycle = isBicycleZone(zone);
   const makeDateInput = (date) => toDateTimeLocalInputValue(date);
 
   const [selectedPlate, setSelectedPlate] = useState("");
@@ -1078,52 +1179,60 @@ function ZoneModal({ zone, isCurrent, onClose, onReserve, plates = [] }) {
     });
   };
 
-const setStartNow = () => {
-  setReservedFromInput(makeDateInput(new Date()));
-};
-  const plateOptions = (plates || [])
-    .map((plate) => ({
-      licensePlate: getPlateValue(plate),
-      vehicleTypeId: getPlateVehicleTypeId(plate),
-      vehicleTypeName: getPlateVehicleTypeName(plate),
-    }))
-    .filter((plate) => Boolean(plate.licensePlate))
-    .filter((plate) => normalizeVehicleTypeId(plate.vehicleTypeId) === normalizeVehicleTypeId(zone.vehicleTypeId));
+  const setStartNow = () => {
+      setReservedFromInput(makeDateInput(new Date()));
+    };
+      const plateOptions = isBicycle
+      ? []
+      : (plates || [])
+          .map((plate) => ({
+            licensePlate: getPlateValue(plate),
+            vehicleTypeId: getPlateVehicleTypeId(plate),
+            vehicleTypeName: getPlateVehicleTypeName(plate),
+          }))
+          .filter((plate) => Boolean(plate.licensePlate))
+          .filter((plate) => normalizeVehicleTypeId(plate.vehicleTypeId) === normalizeVehicleTypeId(zone.vehicleTypeId));
 
-  useEffect(() => {
-    if (!selectedPlate && plateOptions.length > 0) {
-      setSelectedPlate(plateOptions[0].licensePlate);
-    }
-  }, [selectedPlate, plateOptions]);
+    useEffect(() => {
+      if (isBicycle) {
+        setSelectedPlate("");
+        setNewPlate("");
+        return;
+      }
 
-  const finalPlate = normalizePlateForApi(newPlate || selectedPlate);
+      if (!selectedPlate && plateOptions.length > 0) {
+        setSelectedPlate(plateOptions[0].licensePlate);
+      }
+    }, [isBicycle, selectedPlate, plateOptions]);
 
-  const submitReservation = async () => {
-    if (isSubmitting) return;
+    const finalPlate = isBicycle ? "" : normalizePlateForApi(newPlate || selectedPlate);
 
-    if (!finalPlate) {
-      alert("Vui lòng chọn hoặc nhập biển số xe");
-      return;
-    }
+    const submitReservation = async () => {
+      if (isSubmitting) return;
 
-    if (!isValidVietnamLicensePlate(finalPlate)) {
-      alert(LICENSE_PLATE_HINT);
-      return;
-    }
+      if (!isBicycle && !finalPlate) {
+        alert("Vui lòng chọn hoặc nhập biển số xe");
+        return;
+      }
 
-    setIsSubmitting(true);
+      if (!isBicycle && !isValidVietnamLicensePlate(finalPlate)) {
+        alert(LICENSE_PLATE_HINT);
+        return;
+      }
 
-    try {
-      await onReserve(finalPlate, reservedFromInput, reservedToInput);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+      setIsSubmitting(true);
+
+      try {
+        await onReserve(isBicycle ? null : finalPlate, reservedFromInput, reservedToInput);
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-2xl">
-        <div className="flex items-center justify-between bg-slate-900 p-6 text-white">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl shadow-slate-950/30">
+        <div className="flex items-center justify-between bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-6 py-5 text-white">
           <div>
             <h3 className="text-lg font-bold">Zone {zone.zoneCode}</h3>
             <p className="mt-0.5 text-xs uppercase tracking-widest text-slate-400">
@@ -1139,7 +1248,22 @@ const setStartNow = () => {
           </button>
         </div>
 
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto p-8">
+        <div className="max-h-[68vh] space-y-4 overflow-y-auto bg-slate-50 p-5">
+          {emergencyActive && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left">
+              <p className="text-xs font-black uppercase tracking-widest text-rose-700">
+                🚨 Đang báo động khẩn cấp
+              </p>
+              <p className="mt-2 text-xs font-semibold leading-5 text-rose-800">
+                Tài xế không thể tạo đặt chỗ mới trong lúc SOS đang bật. Vui lòng quay về Dashboard và làm theo hướng dẫn an toàn.
+              </p>
+              {emergencyMessage && (
+                <p className="mt-2 rounded-xl bg-white/70 px-3 py-2 text-[11px] font-bold text-rose-700">
+                  {emergencyMessage}
+                </p>
+              )}
+            </div>
+          )}
           <div
             className={`rounded-2xl border p-5 text-center flex flex-col items-center ${
               zone.status === "CLOSED"
@@ -1173,49 +1297,51 @@ const setStartNow = () => {
 
           {canReserve && (
             <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left">
-              <div>
-                <p className="text-xs font-black uppercase tracking-wider text-slate-600">
-                  Biển số giữ chỗ
-                </p>
-
-                {plateOptions.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {plateOptions.map((plate) => (
-                      <button
-                        key={plate.licensePlate}
-                        type="button"
-                        onClick={() => {
-                          setSelectedPlate(plate.licensePlate);
-                          setNewPlate("");
-                        }}
-                        className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${
-                          selectedPlate === plate.licensePlate && !newPlate
-                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                        }`}
-                      >
-                        {plate.licensePlate}
-                        <span className="ml-1 text-[9px] font-black uppercase text-slate-400">
-                          {plate.vehicleTypeName}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
-                    Chưa có biển số {getVehicleLabel(zone.type)} trong hồ sơ. Bạn có thể nhập biển số mới, hệ thống sẽ lưu kèm loại xe của zone này.
+              {!isBicycle && (
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-600">
+                    Biển số giữ chỗ
                   </p>
-                )}
 
-                <input
-                  value={newPlate}
-                  onChange={(event) => setNewPlate(normalizeLicensePlate(event.target.value))}
-                  placeholder="Hoặc nhập biển số mới"
-                  className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
-                />
-              </div>
+                      {plateOptions.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {plateOptions.map((plate) => (
+                            <button
+                              key={plate.licensePlate}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPlate(plate.licensePlate);
+                                setNewPlate("");
+                              }}
+                              className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${
+                                selectedPlate === plate.licensePlate && !newPlate
+                                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                              }`}
+                            >
+                              {plate.licensePlate}
+                              <span className="ml-1 text-[9px] font-black uppercase text-slate-400">
+                                {plate.vehicleTypeName}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
+                          Chưa có biển số {getVehicleLabel(zone.type)} trong hồ sơ. Bạn có thể nhập biển số mới, hệ thống sẽ lưu kèm loại xe của zone này.
+                        </p>
+                      )}
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <input
+                        value={newPlate}
+                        onChange={(event) => setNewPlate(normalizeLicensePlate(event.target.value))}
+                        placeholder="Hoặc nhập biển số mới"
+                        className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                      />
+                    </div>
+                  )}
+
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-black uppercase tracking-wider text-slate-700">
@@ -1290,7 +1416,7 @@ const setStartNow = () => {
           )}
         </div>
 
-        <div className="flex gap-3 border-t border-slate-100 bg-slate-50 p-6">
+        <div className="flex gap-3 border-t border-slate-200 bg-white p-5">
           <button
             onClick={onClose}
             className="flex-1 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-white"
@@ -1298,15 +1424,24 @@ const setStartNow = () => {
             Đóng
           </button>
 
-          {canReserve && (
-            <button
-              onClick={submitReservation}
-              disabled={isSubmitting}
-              className="flex-1 rounded-xl bg-slate-900 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? "Đang tạo..." : "Tạo đặt chỗ"}
-            </button>
-          )}
+          {emergencyActive ? (
+              <button
+                type="button"
+                disabled
+                className="flex-1 rounded-xl bg-rose-100 py-3 text-sm font-black text-rose-700 opacity-80"
+              >
+                Đặt chỗ đang tạm khóa
+              </button>
+            ) : canReserve ? (
+              <button
+                type="button"
+                onClick={submitReservation}
+                disabled={isSubmitting}
+                className="flex-1 rounded-xl bg-slate-900 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "Đang tạo..." : "Tạo đặt chỗ"}
+              </button>
+            ) : null}
         </div>
       </div>
     </div>

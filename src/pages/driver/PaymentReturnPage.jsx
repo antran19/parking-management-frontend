@@ -6,6 +6,7 @@
  * - Hiển thị kết quả: thành công (confetti) hoặc thất bại (thông báo lỗi)
  * - Nút quay về Dashboard
  */
+import DriverSosBanner from "./DriverSosBanner";
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { staffApi } from "../../api/parkingApi";
@@ -223,6 +224,8 @@ export default function PaymentReturnPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-cyan-50 relative overflow-hidden">
+      <DriverSosBanner />
+
       <Confetti active={state.success} />
 
       {/* decorative bg */}
