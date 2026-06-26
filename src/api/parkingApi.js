@@ -149,6 +149,10 @@ export const staffApi = {
     return axiosClient.delete(`/admin/gates/${id}`);
   },
 
+  controlBarrier(id, state) {
+    return axiosClient.put(`/admin/gates/${id}/barrier`, { state });
+  },
+
   createPricingRule(data) {
     return axiosClient.post("/admin/pricing-rules", data);
   },

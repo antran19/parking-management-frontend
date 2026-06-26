@@ -32,7 +32,7 @@ export default function StaffZoneEntry() {
 
         // Lấy các cổng Zone đầu vào (ZONE_ENTRY)
         const zoneGates = (config.gates || [])
-          .filter(g => g.gateType === 'ZONE_ENTRY'  )
+          .filter(g => g.gateType === 'ZONE_ENTRY' || g.gateType === 'ZONE_BOTH')
           .map(g => {
             if (g.zoneId) {
               const z = zones.find(zone => zone.id === g.zoneId);
