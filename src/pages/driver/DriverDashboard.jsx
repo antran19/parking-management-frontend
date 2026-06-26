@@ -1,40 +1,33 @@
 ﻿// src/pages/driver/DriverDashboard.jsx
-
+import DriverSosBanner from "./DriverSosBanner";
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import driverAvatar from "../../assets/driver-avatar.png";
 import { staffApi } from "../../api/parkingApi";
 import gsap from "gsap";
 import ProfileTab from "./ProfileTab";
-/**
- * NOTE Quảng - Driver scope:
- * Không sửa shared utils/licensePlate.js vì TEAM_ASSIGNMENT đánh dấu FE shared không sửa.
- * Helper local này chấp nhận cả dạng user nhập có dấu và dạng backend normalize.
- */
-const normalizeLicensePlate = (value) => {
-  return String(value || "")
+
+import {
+  isValidVietnamLicensePlate,
+  normalizeLicensePlate as normalizePlateForApi,
+  LICENSE_PLATE_HINT,
+  formatLicensePlate,
+} from "../../utils/licensePlate";
+
+// Hàm: normalizePlateInput
+// Note: Chỉ dùng cho input UI Driver.
+// API/DB vẫn dùng normalizePlateForApi() để ra format compact giống Staff.
+const normalizePlateInput = (value) =>
+  String(value || "")
     .trim()
     .toUpperCase()
     .replace(/\s+/g, "")
     .replace(/[–—]/g, "-");
-};
 
-const normalizePlateForApi = (value) => {
-  return normalizeLicensePlate(value).replace(/[^A-Z0-9]/g, "");
-};
-
-const isValidVietnamLicensePlate = (value) => {
-  const plate = normalizeLicensePlate(value);
-  const compactPlate = normalizePlateForApi(value);
-
-  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2,3})$/;
-  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{4,6}$/;
-
-  return displayPattern.test(plate) || backendPattern.test(compactPlate);
-};
-
-const LICENSE_PLATE_HINT =
-  "Biển số phải đúng định dạng, ví dụ: 49E72932, 51H12345, 30AB99988, 51AC12345, 59X1-12345 hoặc 51F-123.45";
+// Hàm: formatPlateForDisplay
+// Note: Hiển thị biển số đẹp giống Staff, không dùng để gửi API.
+const formatPlateForDisplay = (plate, vehicleType) =>
+  formatLicensePlate(plate, vehicleType || "ô tô");
 
 const getPlateValue = (plate) => {
   if (typeof plate === "string") return plate;
@@ -50,6 +43,20 @@ const getPlateVehicleTypeName = (plate) => {
   if (typeof plate === "string") return "Chưa gán loại xe";
   return plate?.vehicleTypeName || plate?.vehicleType?.name || "Chưa gán loại xe";
 };
+
+
+const isBicycleVehicleTypeName = (name) => {
+  return String(name || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .includes("xe dap");
+};
+
+const getVehicleIdentifierLabel = (vehicleTypeName) =>
+  isBicycleVehicleTypeName(vehicleTypeName) ? "Mã xe đạp" : "Biển số";
+
+const getVehicleIdentifierValue = (item) => item?.licensePlate || "--";
 // Custom SVG Icons for Premium UI
 const IconDashboard = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
@@ -216,12 +223,8 @@ export default function DriverDashboard({ onLogout }) {
 
 const loadEmergencyStatus = async () => {
   try {
-    const API_BASE_URL =
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
-
-    const response = await fetch(`${API_BASE_URL}/public/emergency/status`);
-    const result = await response.json().catch(() => ({}));
-    const data = result.data || result || {};
+    const res = await staffApi.getEmergencyStatus();
+    const data = res.data?.data || res.data || {};
 
     const isActive = Boolean(data.active || data.isActive || data.sosActive);
 
@@ -237,10 +240,12 @@ const loadEmergencyStatus = async () => {
       updatedAt: data.activatedAt || data.updatedAt || data.timestamp || null,
     });
   } catch (err) {
+    console.warn("Không thể tải trạng thái SOS cho Driver:", err);
+
     setEmergencyStatus({
       loading: false,
       active: false,
-      message: "Hệ thống đang vận hành ổn định",
+      message: "Không thể đồng bộ trạng thái hệ thống",
       reason: "",
       updatedAt: null,
     });
@@ -408,48 +413,36 @@ const loadEmergencyStatus = async () => {
     setLoading(false);
   };
 
-  // Thm biển số xe ln Database
+  // Hàm: handleAddPlate
+  // Note: Driver đăng ký biển số phải gửi compact uppercase giống StaffCheckIn.
+  // Ví dụ: "51H-123.45" hoặc "51h12345" -> "51H12345".
   const handleAddPlate = async (e, vehicleTypeId) => {
     e.preventDefault();
 
-    const normalizedPlate = normalizeLicensePlate(newPlateInput);
-    const compactPlate = String(normalizedPlate || "")
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .toUpperCase();
+    const inputPlate = normalizePlateInput(newPlateInput);
+    const compactPlate = normalizePlateForApi(inputPlate);
 
-    if (!compactPlate) return false;
-
-    if (!vehicleTypeId) {
-      alert("Vui lòng chọn loại xe cho biển số");
+    if (!compactPlate) {
       return false;
     }
 
-    if (!isValidVietnamLicensePlate(normalizedPlate)) {
+    if (!vehicleTypeId) {
+      alert("Vui lòng chọn loại xe trước khi thêm biển số.");
+      return false;
+    }
+
+    if (!isValidVietnamLicensePlate(compactPlate)) {
       alert(LICENSE_PLATE_HINT);
       return false;
     }
 
-    /*
-    * NOTE Quảng - Driver scope:
-    * Chặn trùng ngay trên FE trước khi gọi API.
-    * Không sửa shared utils/licensePlate.js.
-    *
-    * Ví dụ:
-    * - 51H12345
-    * - 51H-123.45
-    * - 51H 123.45
-    * đều được xem là cùng một biển số.
-    */
     const existedPlate = data?.user?.licensePlates?.some((plate) => {
-      const existedCompact = String(getPlateValue(plate) || "")
-        .replace(/[^a-zA-Z0-9]/g, "")
-        .toUpperCase();
-
-      return existedCompact === compactPlate;
+      const currentPlate = getPlateValue(plate);
+      return normalizePlateForApi(currentPlate) === compactPlate;
     });
 
     if (existedPlate) {
-      alert("Biển số này đã tồn tại trong hồ sơ. Hệ thống đã nhận dạng cả dạng có dấu gạch/chấm và dạng không dấu.");
+      alert("Biển số này đã tồn tại trong hồ sơ của bạn.");
       return false;
     }
 
@@ -457,11 +450,11 @@ const loadEmergencyStatus = async () => {
       await staffApi.addDriverPlate(compactPlate, vehicleTypeId);
       setNewPlateInput("");
       await loadUserData();
-      alert("Đăng ký biển số xe thành công!");
+      alert(`Đăng ký biển số ${formatPlateForDisplay(compactPlate)} thành công!`);
       return true;
     } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || "Lỗi đăng ký biển số xe";
-      alert(`Đăng ký biển số thất bại: ${errorMsg}`);
+      console.error("Failed to add driver plate", err);
+      alert(err?.response?.data?.message || "Không thể thêm biển số xe.");
       return false;
     }
   };
@@ -629,14 +622,6 @@ const emergencyInterval = setInterval(() => {
     vehicleType: currentSession.vehicle,
     zoneCode: currentSession.zoneCode,
     floor: currentSession.floor,
-  }) : currentBooking ? JSON.stringify({
-    type: "RESERVATION",
-    reservationCode: currentBooking.bookingCode,
-    licensePlate: currentBooking.licensePlate,
-    vehicleTypeId: currentBooking.vehicleTypeId,
-    vehicleType: currentBooking.vehicleType,
-    zoneCode: currentBooking.zoneCode,
-    floor: currentBooking.floor,
   }) : "";
 
   // Format Timer Seconds
@@ -708,6 +693,7 @@ const filteredReservations = reservations.filter((item) => {
   return (
     <div ref={containerRef} className="driver-mobile-shell min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-900 flex font-sans">
       {/* Sidebar - Đồng bộ 100% với DriverMapping.jsx */}
+      <DriverSosBanner />
       <aside
         className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${collapsed ? "w-20" : "w-72"
         }`}
@@ -827,8 +813,14 @@ const filteredReservations = reservations.filter((item) => {
           : "Bình thường"}
     </p>
 
-    <p className="mt-1 line-clamp-3 text-[10px] font-semibold leading-4 text-slate-500">
-      {emergencyStatus.message}
+    <p
+      className={`mt-1 line-clamp-3 text-[10px] font-semibold leading-4 ${
+        emergencyStatus.active ? "text-rose-100" : "text-slate-500"
+      }`}
+    >
+      {emergencyStatus.active
+        ? "Đang có cảnh báo khẩn cấp. Hệ thống tạm khóa tạo đặt chỗ mới cho tài xế."
+        : emergencyStatus.message}
     </p>
 
     {emergencyStatus.active && (
@@ -837,8 +829,7 @@ const filteredReservations = reservations.filter((item) => {
           Hướng dẫn tài xế
         </p>
         <p className="mt-1 text-[10px] font-semibold leading-4 text-rose-100">
-          Dừng đặt chỗ/thanh toán, theo hướng dẫn của Staff/Security và di chuyển ra lối thoát gần nhất.
-        </p>
+          Không tạo đặt chỗ mới trong lúc SOS đang bật. Vui lòng theo dõi hướng dẫn của Staff/Security và di chuyển theo lối an toàn.        </p>
       </div>
     )}
   </div>
@@ -1041,45 +1032,93 @@ const filteredReservations = reservations.filter((item) => {
 
                 {/* Right Column */}
                 <div className="xl:col-span-4 space-y-6">
-                  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm text-center relative overflow-hidden">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm text-left relative overflow-hidden">
                     <div className="absolute top-0 right-0 -mt-6 -mr-6 w-20 h-20 bg-indigo-500/10 rounded-full blur-xl" />
-                    <span className="text-[9px] font-black text-indigo-700 tracking-widest uppercase bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100 inline-block mb-4">
-                      Phiên QR hiện tại
-                    </span>
-                    {currentSession || currentBooking ? (
+
+                    {currentBooking ? (
                       <>
-                        <h4 className="text-xs font-extrabold text-slate-900">{currentSession ? "Mã phiên gửi xe" : "Mã giữ chỗ"}</h4>
-                        <p className="text-[10px] text-slate-450 font-semibold font-mono mt-0.5">{currentSession ? currentSession.sessionCode : currentBooking.bookingCode}</p>
-                        <div className="my-5 relative w-40 h-40 mx-auto bg-white p-2.5 rounded-xl border border-slate-200 shadow-md flex items-center justify-center">
-                          <img
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrPayload)}`}
-                            alt="Driver QR Code"
-                            className="w-full h-full object-contain rounded-lg relative z-10"
-                          />
-                        </div>
-                        <div className="text-[10px] space-y-2.5 text-left font-semibold border-t border-slate-100 pt-3">
-                          <div className="flex justify-between">
-                            <span className="text-slate-450">Biển số:</span>
-                            <LicensePlate plate={currentSession ? currentSession.licensePlate : currentBooking.licensePlate} />
+                        <span className="text-[9px] font-black text-indigo-700 tracking-widest uppercase bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100 inline-block mb-4">
+                          Vé giữ chỗ hiện tại
+                        </span>
+
+                        <ReservationTicketPreview booking={currentBooking} userName={user.name} />
+
+                        <button
+                          onClick={() => setActiveTab("reservations")}
+                          className="mt-4 w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-xl text-xs transition-all"
+                        >
+                          Xem danh sách đặt chỗ →
+                        </button>
+                      </>
+                    ) : currentSession ? (
+                      <>
+                        <span className="text-[9px] font-black text-indigo-700 tracking-widest uppercase bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100 inline-block mb-4">
+                          Phiên gửi xe hiện tại
+                        </span>
+
+                        <h4 className="text-sm font-extrabold text-slate-900">
+                          Thông tin phiên gửi xe
+                        </h4>
+
+                        <p className="mt-1 text-[10px] font-semibold font-mono text-slate-400">
+                          {currentSession.sessionCode || "--"}
+                        </p>
+
+                        <div className="mt-5 space-y-3 border-t border-slate-100 pt-4 text-xs font-semibold">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-450 font-bold">Chủ xe:</span>
+                            <span className="text-slate-800">{user.name}</span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-450">Zone:</span>
-                            <span className="font-bold text-indigo-600 font-mono">{currentSession ? currentSession.floor : currentBooking.floor} - {currentSession ? currentSession.zoneCode : currentBooking.zoneCode}</span>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-450 font-bold">Biển số:</span>
+                            <LicensePlate plate={currentSession.licensePlate} />
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-450 font-bold">Zone:</span>
+                            <span className="font-bold text-indigo-600 font-mono">
+                              {currentSession.floor} - {currentSession.zoneCode}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-450 font-bold">Trạng thái:</span>
+                            <span className="text-emerald-600 font-extrabold">
+                              {currentSession.status}
+                            </span>
                           </div>
                         </div>
+
+                        <button
+                          onClick={() => setActiveTab("session")}
+                          className="mt-4 w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-xl text-xs transition-all"
+                        >
+                          Xem chi tiết phiên →
+                        </button>
                       </>
                     ) : (
-                      <div className="py-8">
-                        <h4 className="text-xs font-bold text-slate-955">Chưa có phiên hoặc giữ chỗ</h4>
-                        <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">Khi có reservation hoặc session thật từ backend, mã QR sẽ hiển thị tại đây.</p>
+                      <div className="py-8 text-center">
+                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-[10px] font-black tracking-widest text-slate-400 shadow-inner">
+                          TICKET
+                        </div>
+
+                        <h4 className="text-xs font-bold text-slate-950">
+                          Chưa có phiên hoặc giữ chỗ
+                        </h4>
+
+                        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                          Khi có đặt chỗ hoặc phiên gửi xe thật từ backend, thông tin vé sẽ hiển thị tại đây.
+                        </p>
+
+                        <button
+                          onClick={() => navigate("/driver/map")}
+                          className="mt-4 w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-xl text-xs transition-all"
+                        >
+                          Tạo đặt chỗ →
+                        </button>
                       </div>
                     )}
-                    <button
-                      onClick={() => setActiveTab("session")}
-                      className="mt-4 w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-xl text-xs transition-all"
-                    >
-                      Xem chi tiết phiên →
-                    </button>
                   </div>
 
                   {/* Member Card Summary */}
@@ -1264,58 +1303,65 @@ const filteredReservations = reservations.filter((item) => {
                 </div>
 
                 <div className="action-panel-item lg:col-span-5">
+                {currentBooking ? (
+                  <ReservationTicketPreview booking={currentBooking} userName={user.name} />
+                ) : currentSession ? (
                   <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-center relative overflow-hidden">
                     <div className="absolute top-0 right-0 -mt-6 -mr-6 w-20 h-20 bg-indigo-500/10 rounded-full blur-xl" />
+
                     <span className="text-[9px] font-black text-indigo-700 tracking-widest uppercase bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100 inline-block mb-4">
-                      Session QR
+                      Session Ticket
                     </span>
-                    {currentSession || currentBooking ? (
-                      <>
-                        <h4 className="text-md font-extrabold text-slate-900">{currentSession ? "Mã phiên gửi xe" : "Mã giữ chỗ"}</h4>
-                        <p className="text-xs text-slate-400 font-semibold font-mono mt-1">{currentSession ? currentSession.sessionCode : currentBooking.bookingCode}</p>
-                        <div className="my-6 relative w-48 h-48 mx-auto bg-white p-3 rounded-2xl border border-slate-200/80 shadow-md overflow-hidden flex items-center justify-center">
-                          <div className="scanline" />
-                          <img
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(qrPayload)}`}
-                            alt="Driver QR Code"
-                            className="w-full h-full object-contain rounded-lg relative z-10"
-                          />
-                        </div>
-                        <div className="space-y-3.5 border-t border-slate-100 pt-4 text-left text-xs font-semibold">
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-450 font-bold">Chủ xe:</span>
-                            <span className="text-slate-800">{user.name}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-450 font-bold">Biển số:</span>
-                            <LicensePlate plate={currentSession ? currentSession.licensePlate : currentBooking.licensePlate} />
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-450 font-bold">Zone:</span>
-                            <span className="font-bold text-indigo-600 font-mono">{currentSession ? currentSession.floor : currentBooking.floor} - {currentSession ? currentSession.zoneCode : currentBooking.zoneCode}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-450 font-bold">Trạng thái:</span>
-                            <span className="text-emerald-600 font-extrabold">{currentSession ? currentSession.status : currentBooking.status}</span>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="py-16 flex flex-col items-center">
-                        <div className="h-16 w-16 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mb-4 shadow-inner text-[10px] font-black text-slate-400 tracking-widest">QR</div>
-                        <h4 className="text-sm font-bold text-slate-950">Chưa có phiên hoặc giữ chỗ</h4>
-                        <p className="text-xs text-slate-400 font-medium mt-1 leading-relaxed max-w-[240px]">
-                          QR chỉ xuất hiện khi có session hoặc reservation thật từ backend.
-                        </p>
+
+                    <h4 className="text-md font-extrabold text-slate-900">Thông tin phiên gửi xe</h4>
+                    <p className="text-xs text-slate-400 font-semibold font-mono mt-1">
+                      {currentSession.sessionCode || "--"}
+                    </p>
+
+                    <div className="mt-6 space-y-3.5 border-t border-slate-100 pt-4 text-left text-xs font-semibold">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-450 font-bold">Chủ xe:</span>
+                        <span className="text-slate-800">{user.name}</span>
                       </div>
-                    )}
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-450 font-bold">Biển số:</span>
+                        <LicensePlate plate={currentSession.licensePlate} />
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-450 font-bold">Zone:</span>
+                        <span className="font-bold text-indigo-600 font-mono">
+                          {currentSession.floor} - {currentSession.zoneCode}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-450 font-bold">Trạng thái:</span>
+                        <span className="text-emerald-600 font-extrabold">
+                          {currentSession.status}
+                        </span>
+                      </div>
+                    </div>
+
                     <p className="text-[10px] text-slate-400 font-medium leading-relaxed mt-4 border-t border-slate-100 pt-3">
-                      Mã QR lấy từ dữ liệu thật của hệ thống.
+                      Thông tin phiên gửi xe dùng để nhân viên kiểm tra tại cổng.
                     </p>
                   </div>
-                </div>
+                ) : (
+                  <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-center">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-[10px] font-black tracking-widest text-slate-400 shadow-inner">
+                      TICKET
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-950">Chưa có vé giữ chỗ</h4>
+                    <p className="mt-1 text-xs font-medium leading-relaxed text-slate-400">
+                      Khi bạn đặt chỗ thành công, vé giữ chỗ sẽ hiển thị tại đây.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
+          </div>
           )}
 
           {activeTab === "reservations" && (
@@ -1378,9 +1424,9 @@ const filteredReservations = reservations.filter((item) => {
       ) : (
         <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
           {filteredReservations.map((reservation) => {
-  const canCancel = isReservationCancelable(reservation.status);
+    const canCancel = isReservationCancelable(reservation.status);
 
-  return (
+    return (
               <div
                 key={reservation.id}
                 className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5 text-xs shadow-sm transition hover:border-indigo-100 hover:bg-white"
@@ -1406,7 +1452,11 @@ const filteredReservations = reservations.filter((item) => {
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
-                  <InfoRow label="Biển số" value={reservation.licensePlate} mono />
+                  <InfoRow
+                    label={getVehicleIdentifierLabel(reservation.vehicleTypeName)}
+                    value={getVehicleIdentifierValue(reservation)}
+                    mono
+                  />
                   <InfoRow label="Loại phương tiện" value={reservation.vehicleTypeName} />
                   <InfoRow label="Thời gian bắt đầu" value={formatDateTime(reservation.reservedFrom)} />
                   <InfoRow label="Thời gian kết thúc" value={formatDateTime(reservation.reservedTo)} />
@@ -1420,19 +1470,19 @@ const filteredReservations = reservations.filter((item) => {
                     onClick={() => setQrModalData({ type: "RESERVATION", reservation })}
                     className="rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-slate-800"
                   >
-Xem mã QR / mã đặt chỗ
+                    Xem vé đặt chỗ    
                   </button>
 
                   {canCancel ? (
-  <button
+    <button
     type="button"
     onClick={() => handleCancelReservation(reservation)}
     className="rounded-xl border border-rose-200 bg-white px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-rose-600 transition hover:bg-rose-50"
-  >
+    >
     Hủy đặt chỗ
-  </button>
-) : (
-  <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">
+    </button>
+    ) : (
+   <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">
     Không thể hủy
   </div>
 )}  
@@ -1559,6 +1609,57 @@ Xem mã QR / mã đặt chỗ
       )}
     </div>
   );
+  
+}
+function ReservationTicketPreview({ booking, userName }) {
+  if (!booking) return null;
+
+  const vehicleTypeName = booking.vehicleTypeName || booking.vehicleType || "--";
+  const isBike = isBicycleVehicleTypeName(vehicleTypeName);
+  const identifierLabel = isBike ? "Mã xe đạp" : "Biển số";
+  const identifierValue = booking.licensePlate || "--";
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-left">
+      <div className="rounded-[1.5rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-slate-50 p-5 text-center">
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-500">
+          Reservation Ticket
+        </p>
+
+        <h3 className="mt-2 text-xl font-black text-slate-950">
+          Vé giữ chỗ
+        </h3>
+
+        <p className="mt-1 font-mono text-xs font-black text-slate-500">
+          {booking.reservationCode || booking.bookingCode || "--"}
+        </p>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+        <InfoRow label="Chủ xe" value={userName || "--"} />
+        <InfoRow label="Loại xe" value={vehicleTypeName} />
+        <InfoRow label={identifierLabel} value={identifierValue} mono />
+        <InfoRow
+          label="Zone"
+          value={`${booking.floorName || booking.floor || "--"} - ${booking.zoneCode || "--"}`}
+          mono
+        />
+        <InfoRow
+          label="Bắt đầu"
+          value={booking.reservedFrom ? new Date(booking.reservedFrom).toLocaleString("vi-VN") : "--"}
+        />
+        <InfoRow
+          label="Kết thúc"
+          value={booking.reservedTo ? new Date(booking.reservedTo).toLocaleString("vi-VN") : "--"}
+        />
+        <InfoRow label="Trạng thái" value={booking.status || "--"} />
+      </div>
+
+      <p className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-xs font-semibold leading-5 text-slate-600">
+        Xuất trình mã đặt chỗ hoặc {isBike ? "mã xe đạp" : "biển số"} cho nhân viên tại cổng.
+      </p>
+    </div>
+  );
 }
 
 function InfoRow({ label, value, mono = false }) {
@@ -1579,27 +1680,19 @@ function DriverQrModal({ data, userName, onClose }) {
   const item = isSession ? data.session : data.reservation;
   const code = isSession ? item.sessionCode : item.reservationCode || item.bookingCode;
 
-  const payload = JSON.stringify(
-    isSession
-      ? {
-          type: "SESSION",
-          sessionCode: item.sessionCode,
-          licensePlate: item.licensePlate,
-          vehicleType: item.vehicle,
-          zoneCode: item.zoneCode,
-          floor: item.floor,
-        }
-      : {
-          type: "RESERVATION",
-          reservationCode: item.reservationCode || item.bookingCode,
-          licensePlate: item.licensePlate,
-          vehicleTypeId: item.vehicleTypeId,
-          vehicleType: item.vehicleTypeName || item.vehicleType,
-          zoneCode: item.zoneCode,
-          floor: item.floorName || item.floor,
-          status: item.status,
-        }
-  );
+  const payload = isSession
+    ? JSON.stringify({
+        type: "SESSION",
+        sessionCode: item.sessionCode,
+        licensePlate: item.licensePlate,
+        vehicleType: item.vehicle,
+        zoneCode: item.zoneCode,
+        floor: item.floor,
+      })
+    : "";
+
+  const vehicleTypeName = item.vehicleTypeName || item.vehicleType || item.vehicle;
+  const identifierLabel = getVehicleIdentifierLabel(vehicleTypeName);
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
@@ -1607,10 +1700,10 @@ function DriverQrModal({ data, userName, onClose }) {
         <div className="flex items-start justify-between bg-slate-950 px-6 py-5 text-white">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200">
-              {isSession ? "Mã QR phiên gửi xe" : "Mã QR đặt chỗ"}
+              {isSession ? "Mã QR phiên gửi xe" : "Vé giữ chỗ"}
             </p>
             <h3 className="mt-2 text-xl font-black">
-              {isSession ? "Mã phiên gửi xe" : "Mã đặt chỗ"}
+              {isSession ? "Mã phiên gửi xe" : "Thông tin vé đặt chỗ"}
             </h3>
             <p className="mt-1 font-mono text-xs font-bold text-slate-300">
               {code || "--"}
@@ -1626,30 +1719,58 @@ function DriverQrModal({ data, userName, onClose }) {
         </div>
 
         <div className="p-7 text-center">
-          <div className="mx-auto flex h-64 w-64 items-center justify-center rounded-3xl border border-slate-200 bg-white p-4 shadow-inner">
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(payload)}`}
-              alt="Driver QR Code"
-              className="h-full w-full object-contain"
-            />
-          </div>
+          {isSession ? (
+            <>
+              <div className="mx-auto flex h-64 w-64 items-center justify-center rounded-3xl border border-slate-200 bg-white p-4 shadow-inner">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(payload)}`}
+                  alt="Driver QR Code"
+                  className="h-full w-full object-contain"
+                />
+              </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-3 text-left sm:grid-cols-2">
-            <InfoRow label="Tài xế" value={userName} />
-            <InfoRow label="Biển số" value={item.licensePlate} mono />
-            <InfoRow label="Khu vực" value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`} mono />
-            <InfoRow label="Trạng thái" value={getReservationStatusLabel(item.status)} />
-            <InfoRow
-              label="Zone"
-              value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`}
-              mono
-            />
-            <InfoRow label="Trạng thái" value={item.status} />
-          </div>
+              <div className="mt-6 grid grid-cols-1 gap-3 text-left sm:grid-cols-2">
+                <InfoRow label="Tài xế" value={userName} />
+                <InfoRow label="Biển số" value={item.licensePlate} mono />
+                <InfoRow label="Khu vực" value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`} mono />
+                <InfoRow label="Trạng thái" value={item.status} />
+              </div>
 
-          <p className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs font-semibold leading-5 text-indigo-700">
-            Xuất trình mã QR hoặc mã đặt chỗ cho nhân viên tại cổng để hỗ trợ check-in.
-          </p>
+              <p className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs font-semibold leading-5 text-indigo-700">
+                Xuất trình mã QR phiên gửi xe cho nhân viên tại cổng khi cần hỗ trợ.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm">
+                <div className="text-center">
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-500">
+                    Reservation Ticket
+                  </p>
+                  <h3 className="mt-2 text-lg font-black text-slate-900">
+                    Vé giữ chỗ
+                  </h3>
+                  <p className="mt-1 font-mono text-xs font-bold text-slate-400">
+                    {code || "--"}
+                  </p>
+                </div>
+
+                <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                  <InfoRow label="Chủ xe" value={userName || "--"} />
+                  <InfoRow label="Loại xe" value={vehicleTypeName || "--"} />
+                  <InfoRow label={identifierLabel} value={item.licensePlate || "--"} mono />
+                  <InfoRow label="Khu vực" value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`} mono />
+                  <InfoRow label="Bắt đầu" value={item.reservedFrom ? new Date(item.reservedFrom).toLocaleString("vi-VN") : "--"} />
+                  <InfoRow label="Kết thúc" value={item.reservedTo ? new Date(item.reservedTo).toLocaleString("vi-VN") : "--"} />
+                  <InfoRow label="Trạng thái" value={item.status || "--"} />
+                </div>
+
+                <p className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-center text-xs font-semibold leading-5 text-indigo-700">
+                  Xuất trình mã đặt chỗ hoặc {identifierLabel.toLowerCase()} cho nhân viên tại cổng.
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
