@@ -15,7 +15,7 @@ export default function StaffZoneEntry() {
   // Trạng thái quét của Zone Entry
   const [selectedGateId, setSelectedGateId] = useState("");
   const [scanResult, setScanResult] = useState(null); // SessionResponse từ backend
-  const [barrierState, setBarrierState] = useState("CLOSED"); // CLOSED, OPEN, WARNING_OPEN
+  const [barrierState, setBarrierState] = useState("CLOSED"); // CLOSED, OPEN
 
   const barrierRef = useRef(null);
   const [isScannerOn, setIsScannerOn] = useState(false);
@@ -65,7 +65,7 @@ export default function StaffZoneEntry() {
   // Hiệu ứng GSAP cho Barrier xoay
   useEffect(() => {
     if (!barrierRef.current) return;
-    if (barrierState === "OPEN" || barrierState === "WARNING_OPEN") {
+    if (barrierState === "OPEN") {
       gsap.to(barrierRef.current, { rotation: 90, transformOrigin: "right center", duration: 0.8, ease: "power2.out" });
     } else {
       gsap.to(barrierRef.current, { rotation: 0, transformOrigin: "right center", duration: 0.8, ease: "power2.out" });
@@ -165,13 +165,8 @@ export default function StaffZoneEntry() {
       setScanResult(data);
       setTicketInput(data.sessionCode);
 
-      if (data.wrongZoneDetected) {
-        setBarrierState("WARNING_OPEN");
-        setApiSuccess(`Cảnh báo đi sai Zone! Đã tự động cập nhật đỗ tại ${data.zoneName}. Vi phạm: ${data.wrongZoneCount}/3`);
-      } else {
-        setBarrierState("OPEN");
-        setApiSuccess(`Check-in vào ${data.zoneName} thành công. Đỗ đúng vị trí gợi ý.`);
-      }
+      setBarrierState("OPEN");
+      setApiSuccess(`Check-in vào ${data.zoneName} thành công. Đỗ đúng vị trí gợi ý.`);
     } catch (err) {
       console.error("Zone entry error:", err);
       setBarrierState("CLOSED");
@@ -301,16 +296,14 @@ export default function StaffZoneEntry() {
                 {/* Vùng Barrier */}
                 <div className="relative bg-slate-955 aspect-[4/3] flex flex-col items-center justify-center overflow-hidden shrink-0 ">
                   {/* Background Glow */}
-                  <div className={`absolute w-48 h-48 rounded-full filter blur-2xl opacity-15 -top-10 -left-10 transition-all duration-500 ${barrierState === "OPEN" ? "bg-emerald-500" : (barrierState === "WARNING_OPEN" ? "bg-amber-500" : "bg-rose-500")
-                    }`} />
+                  <div className={`absolute w-48 h-48 rounded-full filter blur-2xl opacity-15 -top-10 -left-10 transition-all duration-500 ${barrierState === "OPEN" ? "bg-emerald-500" : "bg-rose-500"}`} />
 
                   {/* Cần Barie (Barrier Arm) */}
                   <div className="w-full max-w-xs h-24 flex items-center justify-center relative mt-2 scale-85">
                     {/* Trụ đứng */}
                     <div className="w-5 h-20 bg-slate-700 rounded-lg absolute right-10 bottom-0 z-10 border-r border-slate-600" />
                     <div className="w-8 h-8 rounded-full bg-slate-600 border-2 border-slate-800 absolute right-8 bottom-12 z-20 flex items-center justify-center">
-                      <div className={`w-3.5 h-3.5 rounded-full transition-all duration-300 ${barrierState === "OPEN" ? "bg-emerald-500 shadow-md shadow-emerald-500" : (barrierState === "WARNING_OPEN" ? "bg-amber-500 shadow-md shadow-amber-500" : "bg-rose-500 shadow-md shadow-rose-500")
-                        }`} />
+                      <div className={`w-3.5 h-3.5 rounded-full transition-all duration-300 ${barrierState === "OPEN" ? "bg-emerald-500 shadow-md shadow-emerald-500" : "bg-rose-500 shadow-md shadow-rose-500"}`} />
                     </div>
                     {/* Thanh ngang Barie xoay */}
                     <div
@@ -324,9 +317,8 @@ export default function StaffZoneEntry() {
 
                   {/* Trạng thái chữ */}
                   <div className="z-10 text-center mt-1">
-                    <div className={`text-xs font-black uppercase tracking-wider ${barrierState === "OPEN" ? "text-emerald-400" : (barrierState === "WARNING_OPEN" ? "text-amber-400 animate-pulse" : "text-rose-500")
-                      }`}>
-                      {barrierState === "OPEN" ? "Barier Mở (Đúng Zone)" : (barrierState === "WARNING_OPEN" ? "Barier Mở (Sai Zone - Đã Đổi)" : "Barier Đóng")}
+                    <div className={`text-xs font-black uppercase tracking-wider ${barrierState === "OPEN" ? "text-emerald-400" : "text-rose-500"}`}>
+                      {barrierState === "OPEN" ? "Barier Mở" : "Barier Đóng"}
                     </div>
                   </div>
 
@@ -347,11 +339,7 @@ export default function StaffZoneEntry() {
                         <span className="text-slate-400 font-bold uppercase">Khu đỗ thực tế:</span>
                         <span className="font-black text-blue-600 uppercase">{scanResult.zoneName} ({scanResult.floorName})</span>
                       </div>
-                      {scanResult.wrongZoneDetected && (
-                        <div className="text-[8px] text-amber-700 font-extrabold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 leading-tight">
-                          ⚠️ Sai Zone gợi ý! Số lần vi phạm 30 ngày: {scanResult.wrongZoneCount}/3
-                        </div>
-                      )}
+
                     </div>
                   ) : (
                     <div className="text-center py-2 text-slate-400 font-extrabold text-[9px] tracking-wider uppercase">

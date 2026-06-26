@@ -4,42 +4,54 @@ export function normalizeLicensePlate(value) {
     .replace(/[^A-Z0-9]/g, "");
 }
 
-export function isValidVietnamLicensePlate(value, vehicleType = "CAR") {
+export function getLicensePlateValidationError(value, vehicleType = "ANY") {
   const plate = normalizeLicensePlate(value);
-  if (!plate) return false;
+  if (!plate) return "Vui lòng nhập biển số xe.";
 
-  let type = "CAR";
+  let type = "ANY";
   if (vehicleType) {
     const tStr = String(vehicleType).toLowerCase();
     if (tStr.includes("máy") || tStr.includes("moto") || tStr.includes("motorbike") || tStr.includes("ebike")) {
       type = "MOTORBIKE";
     } else if (tStr.includes("đạp") || tStr.includes("bicycle") || tStr.includes("bike")) {
       type = "BICYCLE";
+    } else if (tStr.includes("oto") || tStr.includes("ô tô") || tStr.includes("car")) {
+      type = "CAR";
     }
   }
 
-  if (type === "BICYCLE") {
-    return /^[A-Z0-9]{3,15}$/.test(plate);
-  }
+  const isBicycle = /^[A-Z0-9]{3,15}$/.test(plate);
+  const isCar = /^(\d{2}[A-Z]\d{4,6})$|^(\d{2}(LD|DA|MK|HC|TK|NG|NN|QT|CV|AT)\d{4,5})$|^([A-Z]{2}\d{4,5})$/.test(plate);
+  const isMotorbike = /^(\d{2}[A-Z]\d{5,6})$|^(\d{2}(?!(LD|DA|MK|HC|TK|NG|NN|QT|CV|AT))[A-Z]{2}\d{4,5})$|^(\d{2}(MD|MĐ)\d{5,6})$/.test(plate);
 
   if (type === "CAR") {
-    // Dựa theo tài liệu chuẩn:
-    // - Mã tỉnh + 1 Chữ + 4, 5, 6 Số (VD: 29A1234, 30K12345, 30K123456)
-    // - Mã tỉnh + 2 Chữ + 4, 5 Số (VD: 30AA1234, 29LD00123, 51ED12345)
-    // - Quân đội: 2 chữ + 4, 5 số (VD: QA1234)
-    const carReg = /^(\d{2}[A-Z]\d{4,6})$|^(\d{2}[A-Z]{2}\d{4,5})$|^([A-Z]{2}\d{4,5})$/;
-    return carReg.test(plate);
+    if (isCar) return null;
+    if (isMotorbike) {
+      return "Đây là biển số xe máy. Vui lòng chọn lại loại xe hoặc kiểm tra lại biển số!";
+    }
+    return "Biển số ô tô không đúng định dạng (VD: 30K-123.45, 29LD-001.23).";
   }
 
   if (type === "MOTORBIKE") {
-    // Dựa theo tài liệu chuẩn:
-    // - Mã tỉnh + 1 Chữ + 1 Số + 4, 5 Số (Gộp chung là Mã tỉnh + 1 Chữ + 5, 6 Số) (VD: 29F41234, 59G112345)
-    // - Mã tỉnh + 2 Chữ + 4, 5 Số (VD: 29FA1234, 36AA12345)
-    const motoReg = /^(\d{2}[A-Z]\d{5,6})$|^(\d{2}[A-Z]{2}\d{4,5})$/;
-    return motoReg.test(plate);
+    if (isMotorbike) return null;
+    if (isCar) {
+      return "Đây là biển số ô tô. Vui lòng chọn lại loại xe hoặc kiểm tra lại biển số!";
+    }
+    return "Biển số xe máy không đúng định dạng (VD: 29C1-123.45, 36AA-123.45).";
   }
 
-  return /^[A-Z0-9]{3,15}$/.test(plate);
+  if (type === "BICYCLE") {
+    if (isBicycle) return null;
+    return "Biển số xe đạp không đúng định dạng (từ 3 đến 15 ký tự chữ và số).";
+  }
+
+  // type === "ANY"
+  if (isCar || isMotorbike || isBicycle) return null;
+  return "Biển số không hợp lệ hoặc không đúng định dạng xe Việt Nam.";
+}
+
+export function isValidVietnamLicensePlate(value, vehicleType = "ANY") {
+  return getLicensePlateValidationError(value, vehicleType) === null;
 }
 
 export function formatLicensePlate(value, vehicleType) {

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { staffApi } from "../../api/parkingApi";
-import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate } from "../../utils/licensePlate";
+import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
+import { getCloudinaryFolder, uploadToCloudinary } from "../../utils/cloudinary";
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 
@@ -47,16 +48,35 @@ const getTicketTypeLabel = (driverType, passType) => {
   const pType = (passType || "").toUpperCase();
   if (dType === 'SUBSCRIBER') {
     const passTypeLabels = {
-      MONTHLY: "Vé tháng (Thuê bao)",
-      QUARTERLY: "Vé quý (Thuê bao)",
-      YEARLY: "Vé năm (Thuê bao)"
+      MONTHLY: "Vé đăng ký (Tháng)",
+      QUARTERLY: "Vé đăng ký (Quý)",
+      YEARLY: "Vé đăng ký (Năm)"
     };
-    return passTypeLabels[pType] || "Vé tháng (Thuê bao)";
+    return passTypeLabels[pType] || "Vé đăng ký (Tháng)";
   }
   if (dType === 'PRE_BOOKED') {
     return "Vé đặt trước";
   }
   return "Vé lượt";
+};
+
+const formatDateTime = (dateVal) => {
+  if (!dateVal) return "---";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "---";
+  const pad = (num) => String(num).padStart(2, '0');
+  const hh = pad(d.getHours());
+  const mm = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  return `${hh}:${mm}:${ss} ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+};
+
+const formatDuration = (minutes) => {
+  if (!minutes) return '0 phút';
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes} phút` : `${hours}h`;
 };
 
 /**
@@ -68,6 +88,16 @@ export default function StaffCheckOut() {
   const [showHistory, setShowHistory] = useState(false);
   const [searchPlate, setSearchPlate] = useState("");
   const [sessionData, setSessionData] = useState(null);
+  const [scannedExitTime, setScannedExitTime] = useState(null);
+
+  useEffect(() => {
+    if (sessionData) {
+      setScannedExitTime(new Date());
+    } else {
+      setScannedExitTime(null);
+    }
+  }, [sessionData?.sessionId, sessionData?.sessionCode]);
+
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [apiError, setApiError] = useState("");
@@ -87,6 +117,9 @@ export default function StaffCheckOut() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedUrl, setUploadedUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
+
+  const [faceBlob, setFaceBlob] = useState(null);
+  const [plateBlob, setPlateBlob] = useState(null);
 
   const [ticketInput, setTicketInput] = useState("");
   const [plateInput, setPlateInput] = useState("");
@@ -119,15 +152,20 @@ export default function StaffCheckOut() {
       const data = res.data.data || [];
       const completedSessions = data
         .filter(s => s.status === "COMPLETED")
+        .sort((a, b) => new Date(b.exitTime || 0) - new Date(a.exitTime || 0))
         .slice(0, 5)
-        .map(s => [
-          s.exitTime ? new Date(s.exitTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--",
-          s.licensePlate,
-          s.vehicleType || "Xe",
-          s.totalFee ? `${Number(s.totalFee).toLocaleString("vi-VN")}đ` : "0đ",
-          s.paymentMethod === "BANK_TRANSFER" ? "Chuyển khoản" : "Tiền mặt",
-          s
-        ]);
+        .map(s => {
+          const duration = s.durationMinutes || (s.entryTime && s.exitTime ? Math.floor((new Date(s.exitTime).getTime() - new Date(s.entryTime).getTime()) / 60000) : 0);
+          const feeStr = s.totalFee ? `${Number(s.totalFee).toLocaleString("vi-VN")}đ` : "0đ";
+          return [
+            s.exitTime ? new Date(s.exitTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--",
+            s.licensePlate,
+            s.vehicleType || "Xe",
+            `${feeStr} (${formatDuration(duration)})`,
+            s.paymentMethod === "BANK_TRANSFER" ? "Chuyển khoản" : "Tiền mặt",
+            s
+          ];
+        });
       setCheckoutHistory(completedSessions);
     } catch (err) {
       console.error("Lỗi khi tải lịch sử checkout:", err);
@@ -176,50 +214,10 @@ export default function StaffCheckOut() {
       if (!blob) return;
       const localUrl = URL.createObjectURL(blob);
       setPreviewFaceUrl(localUrl);
-      stopFaceScanner();
-      performUploadFace(blob);
-    }, "image/jpeg", 0.6);
-  };
-
-  const performUploadFace = async (blob) => {
-    try {
-      setFaceUploading(true);
+      setFaceBlob(blob);
       setUploadedFaceUrl("");
-
-      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
-      const hasCloudinary = cloudName && uploadPreset &&
-        cloudName !== "tên_cloud_name_của_bạn" &&
-        uploadPreset !== "tên_unsigned_preset_của_bạn";
-
-      if (!hasCloudinary) {
-        console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
-        setUploadedFaceUrl(URL.createObjectURL(blob));
-        return;
-      }
-
-      const uploadData = new FormData();
-      uploadData.append("file", blob, "captured_face.jpg");
-      uploadData.append("upload_preset", uploadPreset.trim());
-
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
-        { method: "POST", body: uploadData }
-      );
-
-      if (!response.ok) {
-        throw new Error("Lỗi tải ảnh chân dung lên Cloudinary!");
-      }
-
-      const resData = await response.json();
-      const url = resData.secure_url || resData.url;
-      setUploadedFaceUrl(url);
-    } catch (err) {
-      console.error("Lỗi upload face checkout:", err);
-    } finally {
-      setFaceUploading(false);
-    }
+      stopFaceScanner();
+    }, "image/jpeg", 0.6);
   };
 
   const handleDoubleUpload = async (e) => {
@@ -292,6 +290,7 @@ export default function StaffCheckOut() {
           const uploadData = new FormData();
           uploadData.append("file", faceFile);
           uploadData.append("upload_preset", uploadPreset.trim());
+          uploadData.append("folder", getCloudinaryFolder(false, false));
 
           const response = await fetch(
             `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
@@ -319,6 +318,8 @@ export default function StaffCheckOut() {
       setPlateMessage("Đang xử lý ảnh biển số xe...");
       const localUrl = URL.createObjectURL(plateFile);
       setPreviewUrl(localUrl);
+      setPlateBlob(plateFile);
+      setUploadedUrl("");
 
       let detectedPlate = "";
       try {
@@ -357,40 +358,8 @@ export default function StaffCheckOut() {
       } catch (err) {
         console.error("Lỗi quy trình nhận diện check-out:", err);
         setPlateMessage(err.message || "Tải ảnh hoặc nhận diện thất bại!");
-      }
-
-      if (!hasCloudinary) {
-        setUploadedUrl(localUrl);
-        if (!detectedPlate) {
-          const demoPlate = sessionData?.licensePlate || "30G-888.88";
-          setPlateInput(formatLicensePlate(demoPlate, sessionData?.vehicleType));
-          setPlateMessage(`Demo: Nhận dạng: ${formatLicensePlate(demoPlate, sessionData?.vehicleType)}`);
-        }
+      } finally {
         setIsUploading(false);
-      } else {
-        try {
-          const uploadData = new FormData();
-          uploadData.append("file", plateFile);
-          uploadData.append("upload_preset", uploadPreset.trim());
-
-          const response = await fetch(
-            `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
-            { method: "POST", body: uploadData }
-          );
-
-          if (response.ok) {
-            const resData = await response.json();
-            setUploadedUrl(resData.secure_url || resData.url);
-            setPlateMessage(prev => prev + " - Tải ảnh thành công.");
-          } else {
-            throw new Error("Lỗi upload Cloudinary cho ảnh biển số");
-          }
-        } catch (err) {
-          console.error("Lỗi upload plate:", err);
-          setPlateMessage(prev => prev + " ❌ Lỗi lưu ảnh.");
-        } finally {
-          setIsUploading(false);
-        }
       }
     }
 
@@ -462,10 +431,10 @@ export default function StaffCheckOut() {
   const performUpload = async (blob) => {
     try {
       setIsUploading(true);
+      setPlateBlob(blob);
       setUploadedUrl("");
       setPlateMessage("Đang nhận diện biển số xe bằng AI...");
 
-      // 1. Nhận diện biển số bằng Plate Recognizer OCR trước
       let detectedPlate = "";
       const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
       const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
@@ -502,44 +471,6 @@ export default function StaffCheckOut() {
           }
         }
       }
-
-      // 2. Upload lên Cloudinary
-      setPlateMessage(prev => prev + " (Đang lưu ảnh lên Cloudinary...)");
-      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
-      const hasCloudinary = cloudName && uploadPreset &&
-        cloudName !== "tên_cloud_name_của_bạn" &&
-        uploadPreset !== "tên_unsigned_preset_của_bạn";
-
-      if (!hasCloudinary) {
-        console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
-        setUploadedUrl(URL.createObjectURL(blob));
-        if (!detectedPlate) {
-          const demoPlate = sessionData?.licensePlate || "30G-888.88";
-          setPlateInput(formatLicensePlate(demoPlate, sessionData?.vehicleType));
-          setPlateMessage(`Demo: Nhận dạng: ${formatLicensePlate(demoPlate, sessionData?.vehicleType)}`);
-        }
-        return;
-      }
-
-      const uploadData = new FormData();
-      uploadData.append("file", blob, "captured_vehicle.jpg");
-      uploadData.append("upload_preset", uploadPreset.trim());
-
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
-        { method: "POST", body: uploadData }
-      );
-
-      if (!response.ok) {
-        throw new Error("Lỗi tải ảnh biển số lên Cloudinary!");
-      }
-
-      const resData = await response.json();
-      const url = resData.secure_url || resData.url;
-      setUploadedUrl(url);
-      setPlateMessage(prev => prev + " - Tải ảnh thành công.");
     } catch (err) {
       console.error("Lỗi quy trình nhận diện check-out:", err);
       setPlateMessage(err.message || "Tải ảnh hoặc nhận diện thất bại!");
@@ -680,8 +611,9 @@ export default function StaffCheckOut() {
     }
 
     const normalizedPlate = normalizeLicensePlate(searchTerm);
-    if (!isValidVietnamLicensePlate(normalizedPlate)) {
-      setApiError(LICENSE_PLATE_HINT);
+    const plateError = getLicensePlateValidationError(normalizedPlate);
+    if (plateError) {
+      setApiError(plateError);
       setIsSearching(false);
       return;
     }
@@ -782,8 +714,47 @@ export default function StaffCheckOut() {
         exitPlateImageUrl: uploadedUrl || "",
         exitFaceImageUrl: uploadedFaceUrl || "",
       });
-      setCheckOutResult(res.data.data);
+      const backendSession = res.data.data;
+      setCheckOutResult(backendSession);
       setShowSuccess(true);
+
+      // SAU KHI THÀNH CÔNG: Upload ảnh lên Cloudinary (chạy song song)
+      let finalFaceUrl = uploadedFaceUrl;
+      let finalPlateUrl = uploadedUrl;
+      let needUpdate = false;
+
+      const uploadTasks = [];
+
+      if (faceBlob && !finalFaceUrl) {
+        const faceUploadTask = uploadToCloudinary(faceBlob, false, false)
+          .then(url => {
+            if (url) { finalFaceUrl = url; setUploadedFaceUrl(url); needUpdate = true; }
+          })
+          .catch(err => console.error("Lỗi upload ảnh mặt:", err));
+        uploadTasks.push(faceUploadTask);
+      }
+      
+      if (plateBlob && !finalPlateUrl) {
+        const plateUploadTask = uploadToCloudinary(plateBlob, false, true)
+          .then(url => {
+            if (url) { finalPlateUrl = url; setUploadedUrl(url); needUpdate = true; }
+          })
+          .catch(err => console.error("Lỗi upload ảnh biển số:", err));
+        uploadTasks.push(plateUploadTask);
+      }
+
+      // Đợi cả 2 ảnh upload xong cùng lúc
+      if (uploadTasks.length > 0) {
+        await Promise.all(uploadTasks);
+      }
+
+      if (needUpdate) {
+        await staffApi.updateSessionImages(backendSession.sessionId, {
+           plateUrl: finalPlateUrl,
+           faceUrl: finalFaceUrl,
+           isEntry: false
+        }).catch(err => console.error("Lỗi gọi API cập nhật Session Images:", err));
+      }
 
       localStorage.removeItem("driver_session");
       localStorage.removeItem("driver_booking");
@@ -792,6 +763,8 @@ export default function StaffCheckOut() {
       setUploadedUrl("");
       setPreviewFaceUrl("");
       setUploadedFaceUrl("");
+      setFaceBlob(null);
+      setPlateBlob(null);
       setPlateInput("");
       setTicketInput("");
       setPlateMessage("Đang chờ quét biển số...");
@@ -815,54 +788,144 @@ export default function StaffCheckOut() {
 
   const handlePrint = () => {
     if (!checkOutResult) return;
-    const printWindow = window.open("", "_blank");
+    const printWindow = window.open("", "_blank", "width=600,height=600");
+    if (!printWindow) {
+      alert("Vui lòng cho phép trình duyệt mở popup để in hóa đơn!");
+      return;
+    }
+
+    const customerRow = checkOutResult.customerName ? `
+      <div class="info-row">
+        <span>Khách hàng:</span>
+        <span class="info-value">${checkOutResult.customerName}</span>
+      </div>
+    ` : '';
+
+    const ticketType = getTicketTypeLabel(checkOutResult.driverType, checkOutResult.passType);
+    const location = checkOutResult.floorName && checkOutResult.zoneCode
+      ? `${checkOutResult.floorName} - ZONE-${checkOutResult.zoneCode}`
+      : (checkOutResult.floorName && checkOutResult.zoneName ? `${checkOutResult.floorName} - ${checkOutResult.zoneName}` : "---");
+
     printWindow.document.write(`
       <html>
         <head>
           <title>Hóa đơn thanh toán - #${checkOutResult.sessionCode}</title>
           <style>
-            body { font-family: 'Segoe UI', sans-serif; padding: 40px; color: #333; text-align: center; }
-            .receipt-card { max-width: 400px; margin: 0 auto; border: 1px solid #ddd; padding: 30px; border-radius: 12px; }
-            h1 { font-size: 22px; margin-bottom: 5px; color: #1e1b4b; }
-            p { font-size: 13px; color: #666; margin-top: 0; }
-            .divider { border-top: 2px dashed #eee; margin: 20px 0; }
-            .info-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 12px; }
-            .info-label { color: #777; }
-            .info-value { font-weight: bold; color: #111; }
-            .total-fee { font-size: 24px; font-weight: 900; color: #4f46e5; margin: 15px 0; }
-            .footer-msg { font-size: 11px; color: #aaa; margin-top: 30px; }
+            body {
+              font-family: Consolas, 'Courier New', monospace;
+              text-align: center;
+              padding: 20px;
+              color: #333;
+              background: #fff;
+            }
+            .ticket-container {
+              border: 2px dashed #444;
+              padding: 20px;
+              display: inline-block;
+              width: 280px;
+            }
+            .header {
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
+              letter-spacing: 2px;
+            }
+            .subtitle {
+              font-size: 11px;
+              margin-bottom: 15px;
+              text-transform: uppercase;
+              font-weight: 600;
+            }
+            .info-row {
+              display: flex;
+              justify-content: space-between;
+              font-size: 12px;
+              margin: 5px 0;
+              border-bottom: 1px dotted #bbb;
+              padding-bottom: 3px;
+              font-weight: 600;
+            }
+            .info-value {
+              font-weight: 600;
+            }
+            .total-section {
+              margin-top: 15px;
+              border-top: 2px dashed #444;
+              padding-top: 10px;
+            }
+            .total-label {
+              font-size: 11px;
+              font-weight: bold;
+              color: #555;
+              text-transform: uppercase;
+            }
+            .total-fee {
+              font-size: 20px;
+              font-weight: 900;
+              margin: 8px 0;
+              color: #111;
+            }
+            .footer {
+              font-size: 10px;
+              margin-top: 15px;
+              border-top: 1px dashed #444;
+              padding-top: 10px;
+            }
           </style>
         </head>
         <body>
-          <div class="receipt-card">
-            <h1>SMART PARKING</h1>
-            <p>Hóa đơn điện tử check-out xe</p>
-            <div class="divider"></div>
+          <div class="ticket-container">
+            <div class="header">SMART PARKING TICKET</div>
+            <div class="subtitle">Hóa đơn thanh toán</div>
+            <div class="subtitle" style="margin-top: -10px; font-weight: bold;">Cổng ra: ${checkOutResult.exitGate || "Cổng ra"}</div>
+            
             <div class="info-row">
-              <span class="info-label">Mã phiên:</span>
+              <span>Mã phiên:</span>
               <span class="info-value">#${checkOutResult.sessionCode}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Biển số xe:</span>
-              <span class="info-value">${formatLicensePlate(checkOutResult.licensePlate, checkOutResult.vehicleType)}</span>
+              <span>Biển số xe:</span>
+              <span class="info-value">${formatLicensePlate(checkOutResult.licensePlate, checkOutResult.vehicleType) || "---"}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Thời gian gửi:</span>
-              <span class="info-value">${checkOutResult.durationMinutes} phút</span>
+              <span>Phương tiện:</span>
+              <span class="info-value">${checkOutResult.vehicleType || "---"}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Hình thức:</span>
-              <span class="info-value">${paymentMethod === "BANK_TRANSFER" ? "QR Chuyển khoản" : "Tiền mặt tại quầy"}</span>
+              <span>Vị trí đỗ:</span>
+              <span class="info-value">${location}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Trạng thái:</span>
-              <span class="info-value" style="color: #059669;">ĐÃ THANH TOÁN</span>
+              <span>Loại vé:</span>
+              <span class="info-value">${ticketType}</span>
             </div>
-            <div class="divider"></div>
-            <div class="info-label" style="font-size: 12px; font-weight: bold;">TỔNG TIỀN THANH TOÁN</div>
-            <div class="total-fee">${Number(checkOutResult.totalFee).toLocaleString('vi-VN')}đ</div>
-            <div class="divider"></div>
-            <div class="footer-msg">Cảm ơn và chúc quý khách thượng lộ bình an!<br/>Hẹn gặp lại quý khách!</div>
+            <div class="info-row">
+              <span>Thời gian vào:</span>
+              <span class="info-value">${formatDateTime(checkOutResult.entryTime)}</span>
+            </div>
+            <div class="info-row">
+              <span>Thời gian ra:</span>
+              <span class="info-value">${formatDateTime(checkOutResult.exitTime)}</span>
+            </div>
+            <div class="info-row">
+              <span>Thời gian gửi:</span>
+              <span class="info-value">${formatDuration(checkOutResult.durationMinutes || 0)}</span>
+            </div>
+            <div class="info-row">
+              <span>Hình thức:</span>
+              <span class="info-value">${paymentMethod === "BANK_TRANSFER" ? "VietQR CK" : "Tiền mặt"}</span>
+            </div>
+            ${customerRow}
+            
+            <div class="total-section">
+              <div class="total-label">Tổng tiền thanh toán</div>
+              <div class="total-fee">${formatFee(checkOutResult.totalFee)}</div>
+            </div>
+            
+            <div class="footer">
+              Cảm ơn và chúc quý khách thượng lộ bình an!<br/>
+              Hẹn gặp lại quý khách!
+            </div>
           </div>
           <script>
             window.onload = function() {
@@ -1034,24 +1097,24 @@ export default function StaffCheckOut() {
                 </div>
 
                 {/* Điều khiển Cột 1 */}
-                <div className="bg-slate-50 p-5 flex flex-col gap-2 mt-auto min-h-[110px] justify-center">
+                <div className="bg-slate-50 p-2.5 flex flex-col gap-1.5 mt-auto min-h-[85px] justify-center">
                   <div className="flex gap-1 justify-center">
                     <button
                       onClick={isFaceScanning ? stopFaceScanner : startFaceScanner}
-                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isFaceScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                      className={`flex-1 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isFaceScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
                     >
                       {isFaceScanning ? 'Tắt' : 'Bật'}
                     </button>
                     <button
                       onClick={handleCaptureFace}
                       disabled={!isFaceScanning}
-                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
                     >
                       Chụp
                     </button>
                     <button
                       onClick={async () => { stopFaceScanner(); setPreviewFaceUrl(""); setUploadedFaceUrl(""); await startFaceScanner(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
                     >
                       Bỏ qua
                     </button>
@@ -1116,24 +1179,24 @@ export default function StaffCheckOut() {
                 </div>
 
                 {/* Điều khiển Cột 2 */}
-                <div className="bg-slate-50 p-5 flex flex-col gap-2 mt-auto min-h-[110px] justify-center">
+                <div className="bg-slate-50 p-2.5 flex flex-col gap-1.5 mt-auto min-h-[85px] justify-center">
                   <div className="flex gap-1 justify-center">
                     <button
                       onClick={isPlateScanning ? stopPlateScanner : startPlateScanner}
-                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isPlateScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                      className={`flex-1 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isPlateScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
                     >
                       {isPlateScanning ? 'Tắt' : 'Bật'}
                     </button>
                     <button
                       onClick={handleCaptureAndUpload}
                       disabled={!isPlateScanning || isUploading}
-                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
                     >
                       Chụp
                     </button>
                     <button
                       onClick={async () => { stopPlateScanner(); setPreviewUrl(""); setUploadedUrl(""); await startPlateScanner(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                      className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
                     >
                       Bỏ qua
                     </button>
@@ -1233,17 +1296,17 @@ export default function StaffCheckOut() {
                 </div>
 
                 {/* Điều khiển Cột 3 */}
-                <div className=" p-5 flex flex-col gap-2 mt-auto min-h-[110px] justify-center">
+                <div className="bg-slate-50 p-2.5 flex flex-col gap-1.5 mt-auto min-h-[85px] justify-center">
                   <div className="flex gap-1 justify-center">
                     <button
                       onClick={isTicketScanning ? stopTicketScanner : startTicketScanner}
-                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isTicketScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                      className={`flex-1 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isTicketScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
                     >
                       {isTicketScanning ? 'Tắt' : 'Bật'}
                     </button>
                     <button
                       onClick={async () => { await stopTicketScanner(); setTicketInput(""); await startTicketScanner(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                      className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
                     >
 
                       Bỏ qua
@@ -1291,23 +1354,12 @@ export default function StaffCheckOut() {
         </div>
 
         {/* Cột phải (Vé thanh toán) - chiếm 3 cột (25%) */}
-        <div className="space-y-3 lg:col-span-3 flex flex-col">
+        <div className="space-y-2 lg:col-span-3 flex flex-col">
 
-          {/* Trạng thái đỗ xe */}
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-2.5 shadow-xs flex-shrink-0">
-            <p className="font-bold text-emerald-900 flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Trạng thái:
-              </span>
-              <span className="font-black text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                {sessionData ? "Chờ Check-out" : "Chờ tra cứu..."}
-              </span>
-            </p>
-          </div>
+          
 
           {/* VÉ ĐIỆN TỬ THANH TOÁN */}
-          <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm overflow-hidden flex flex-col gap-2 border-t-4 border-t-indigo-600">
+          <div className="relative rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm overflow-hidden flex flex-col gap-2 border-t-4 border-t-indigo-600">
             {/* Punch hole trang trí */}
             <div className="absolute left-0 top-1/3 -translate-y-1/2 -ml-2.5 w-5 h-5 rounded-full bg-[#f8fafc] border-r border-slate-200/80 z-10"></div>
             <div className="absolute right-0 top-1/3 -translate-y-1/2 -mr-2.5 w-5 h-5 rounded-full bg-[#f8fafc] border-l border-slate-200/80 z-10"></div>
@@ -1333,26 +1385,33 @@ export default function StaffCheckOut() {
             <div className="space-y-1.5 text-[11px] font-semibold text-slate-500 pt-1">
               <div className="flex justify-between items-center">
                 <span>Mã phiên gửi:</span>
-                <span className="text-slate-900 font-mono font-bold">
+                <span className="text-slate-600 font-mono font-bold">
                   {sessionData?.sessionCode ? `#${sessionData.sessionCode}` : "---"}
                 </span>
               </div>
 
               <div className="flex justify-between items-center">
                 <span>Biển số xe:</span>
-                <span className="text-slate-900 text-xs font-black tracking-wide uppercase px-2 py-0.5 bg-slate-100 rounded border border-slate-200 font-mono">
+                <span className="text-slate-600 text-xs font-black tracking-wide uppercase px-2 py-0.5 bg-slate-100 rounded border border-slate-200 font-mono">
                   {formatLicensePlate(sessionData?.licensePlate, sessionData?.vehicleType) || "---"}
                 </span>
               </div>
 
               <div className="flex justify-between">
-                <span>Loại xe:</span>
-                <span className="text-slate-900 font-extrabold">{sessionData?.vehicleType || "---"}</span>
+                <span>Phương tiện:</span>
+                <span className="text-slate-600 font-extrabold">{sessionData?.vehicleType || "---"}</span>
+              </div>
+
+            <div className="flex justify-between">
+                <span>Loại vé:</span>
+                <span className="text-slate-600 font-extrabold text-indigo-600">
+                  {sessionData ? getTicketTypeLabel(sessionData.driverType, sessionData.passType) : "---"}
+                </span>
               </div>
 
               <div className="flex justify-between">
                 <span>Vị trí đỗ:</span>
-                <span className="text-slate-900 font-extrabold">
+                <span className="text-slate-600 font-extrabold">
                   {sessionData?.floorName && sessionData?.zoneName
                     ? `${sessionData.floorName} - ${sessionData.zoneName}`
                     : "---"}
@@ -1362,43 +1421,36 @@ export default function StaffCheckOut() {
               <div className="flex justify-between">
                 <span>Thời gian vào:</span>
                 <span className="text-slate-800 font-mono text-[10px] font-bold">
-                  {sessionData?.entryTime
-                    ? new Date(sessionData.entryTime).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })
-                    : "---"}
+                  {sessionData?.entryTime ? formatDateTime(sessionData.entryTime) : "---"}
                 </span>
               </div>
 
               <div className="flex justify-between">
                 <span>Thời gian ra:</span>
                 <span className="text-slate-800 font-mono text-[10px] font-bold">
-                  {sessionData ? `${liveDate.split(',')[1] || liveDate} - ${liveTime.slice(0, 5)}` : "---"}
+                  {scannedExitTime ? formatDateTime(scannedExitTime) : "---"}
                 </span>
               </div>
 
-              <div className="flex justify-between">
-                <span>Loại vé:</span>
-                <span className="text-slate-900 font-extrabold text-indigo-600">
-                  {getTicketTypeLabel(sessionData?.driverType, sessionData?.passType)}
-                </span>
-              </div>
+              
 
               <div className="flex justify-between">
                 <span>Thời gian gửi:</span>
-                <span className="text-slate-900 font-extrabold">
-                  {sessionData?.durationMinutes ? `${sessionData.durationMinutes} phút` : "0 phút"}
+                <span className="text-slate-600 font-extrabold">
+                  {formatDuration(sessionData?.durationMinutes)}
                 </span>
               </div>
 
               {sessionData?.customerName && (
                 <div className="flex justify-between">
                   <span>Khách hàng:</span>
-                  <span className="text-slate-900 font-bold text-indigo-650">{sessionData.customerName}</span>
+                  <span className="text-slate-600 font-bold text-indigo-650">{sessionData.customerName}</span>
                 </div>
               )}
 
               <div className="border-t border-dashed border-slate-200 pt-2 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase font-bold">Tổng thanh toán:</span>
-                <span className="text-lg font-black text-slate-700 mt-0.5">
+                <span className="text-lg font-black text-slate-600 mt-0.5">
                   {sessionData ? formatFee(sessionData.totalFee) : "0đ"}
                 </span>
               </div>
@@ -1412,7 +1464,7 @@ export default function StaffCheckOut() {
           </div>
 
           {/* PHƯƠNG THỨC THANH TOÁN */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm space-y-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-0 shadow-sm space-y-1">
 
             {paymentMethod === "BANK_TRANSFER" && sessionData && (
               <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-2 flex flex-col items-center gap-2 mt-0">
@@ -1421,7 +1473,7 @@ export default function StaffCheckOut() {
                   <img
                     src={`https://api.vietqr.io/image/970422-0974114657-compact.png?amount=${sessionData.totalFee}&addInfo=${encodeURIComponent(sessionData.sessionCode || sessionData.licensePlate)}&accountName=TRAN%20NGUYEN%20MINH%20AN`}
                     alt="VietQR Invoice"
-                    className="w-[205px] h-[205px] object-contain"
+                    className="w-[185px] h-[185px] object-contain"
                     onError={(e) => {
                       e.target.src = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`STK: 0974114657 | MB BANK | TRAN NGUYEN MINH AN | So tien: ${sessionData.totalFee}`)}`;
                     }}
@@ -1429,12 +1481,12 @@ export default function StaffCheckOut() {
                 </div>
               </div>
             )}
-            <label className="block text-[9px] font-black uppercase tracking-wider text-slate-600 px-2">Phương thức thanh toán</label>
-            <div className="grid grid-cols-2 gap-4">
+            <label className="block text-[9px] font-black uppercase tracking-wider text-slate-600 text-center mt-1">Phương thức thanh toán</label>
+            <div className="grid grid-cols-2 gap-4 ">
               <button
                 type="button"
                 onClick={() => setPaymentMethod("CASH")}
-                className={`rounded-xl border py-2.5 font-bold transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${paymentMethod === "CASH"
+                className={`rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "CASH"
                   ? "border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm border-2"
                   : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
                   }`}
@@ -1444,7 +1496,7 @@ export default function StaffCheckOut() {
               <button
                 type="button"
                 onClick={() => setPaymentMethod("BANK_TRANSFER")}
-                className={`rounded-xl border py-2.5 font-bold transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${paymentMethod === "BANK_TRANSFER"
+                className={`rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "BANK_TRANSFER"
                   ? "border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm border-2"
                   : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
                   }`}
@@ -1490,6 +1542,7 @@ export default function StaffCheckOut() {
             ▼
           </span>
         </button>
+
 
         {showHistory && (
           <div className="overflow-x-auto border-t border-slate-100">
@@ -1550,9 +1603,7 @@ export default function StaffCheckOut() {
                         }}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-100 hover:border-indigo-200 rounded-xl transition-all duration-150 cursor-pointer"
                       >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                        </svg>
+                        
                         Xem biên lai
                       </button>
                     </td>
@@ -1576,16 +1627,18 @@ export default function StaffCheckOut() {
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm overflow-y-auto">
 
           {/* Big Success Message */}
-          <div className="mb-6 flex flex-col items-center animate-scale-in text-center mt-8">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white text-4xl shadow-lg mb-3 shadow-emerald-500/30">
-              ✓
+          <div className="mb-3 flex flex-col items-center animate-scale-in text-center mt-8">
+            <div className="flex items-center justify-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white text-3xl shadow-lg shadow-emerald-500/30 pb-1">
+                ✓
+              </div>
+              <h2 className="text-2xl font-black text-green-400 tracking-wide drop-shadow-md uppercase">Check-out Thành Công</h2>
             </div>
-            <h2 className="text-2xl font-black text-white tracking-wide drop-shadow-md uppercase">Check-out Thành Công</h2>
-            <p className="text-emerald-50 font-medium mt-1 text-sm max-w-xs">Barie đã mở. Xe có thể di chuyển ra ngoài bãi.</p>
+            <p className="text-emerald-50 font-medium mt-2 text-sm max-w-xs">Barie đã mở. Xe có thể di chuyển ra ngoài bãi.</p>
           </div>
 
           {/* Ticket */}
-          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl flex flex-col gap-4 animate-scale-in mb-8">
+          <div className="relative w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl flex flex-col gap-1 animate-scale-in mb-5">
             {/* Punch hole trang trí */}
             <div className="absolute left-0 top-[110px] -ml-2.5 w-5 h-5 rounded-full bg-slate-800 z-10"></div>
             <div className="absolute right-0 top-[110px] -mr-2.5 w-5 h-5 rounded-full bg-slate-800 z-10"></div>
@@ -1642,13 +1695,19 @@ export default function StaffCheckOut() {
               <div className="flex justify-between">
                 <span>Thời gian vào:</span>
                 <span className="text-slate-600 font-mono text-[11px] font-bold">
-                  {checkOutResult.entryTime ? new Date(checkOutResult.entryTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " • " + new Date(checkOutResult.entryTime).toLocaleDateString("vi-VN") : "--"}
+                  {checkOutResult.entryTime ? formatDateTime(checkOutResult.entryTime) : "---"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Thời gian ra:</span>
                 <span className="text-slate-600 font-mono text-[11px] font-bold">
-                  {checkOutResult.exitTime ? new Date(checkOutResult.exitTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " • " + new Date(checkOutResult.exitTime).toLocaleDateString("vi-VN") : "--"}
+                  {checkOutResult.exitTime ? formatDateTime(checkOutResult.exitTime) : "---"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Thời gian gửi:</span>
+                <span className="text-slate-600 font-extrabold">
+                  {formatDuration(checkOutResult.durationMinutes)}
                 </span>
               </div>
               <div className="flex justify-between">
