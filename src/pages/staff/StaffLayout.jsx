@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, Outlet } from "react-router-dom";
+import { Client } from "@stomp/stompjs";
+import SockJS from "sockjs-client";
+import { staffApi } from "../../api/parkingApi";
+import { formatLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
 
 // Icons tùy chỉnh dạng SVG cao cấp
 const IconDashboard = () => (
@@ -54,7 +58,26 @@ const IconSettings = () => (
 export default function StaffLayout({ onLogout }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("staff_sidebar_collapsed") === "true");
-  const [liveTime, setLiveTime] = useState(new Date().toLocaleTimeString("vi-VN", { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+  // Format thời gian đếm giờ ca làm việc
+  const formatDuration = (ms) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    const s = String(totalSeconds % 60).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  };
+
+  // Khởi tạo thời gian bắt đầu ca làm việc
+  const [loginTime] = useState(() => {
+    const stored = localStorage.getItem("staff_login_time");
+    if (stored) return parseInt(stored, 10);
+    const now = Date.now();
+    localStorage.setItem("staff_login_time", now.toString());
+    return now;
+  });
+
+  const [liveTime, setLiveTime] = useState(() => formatDuration(Date.now() - loginTime));
   const [liveDate, setLiveDate] = useState("");
 
   // Lấy thông tin tài khoản đăng nhập từ localStorage
@@ -75,10 +98,86 @@ export default function StaffLayout({ onLogout }) {
   };
   const pageTitle = pageTitles[location.pathname] || "Cổng nhân viên";
 
-  // Cập nhật đồng hồ và ngày tháng
+  // System SOS State
+  const [systemSosStatus, setSystemSosStatus] = useState({ active: false });
+  const [showSystemSosModal, setShowSystemSosModal] = useState(false);
+
+  // Exception Modal States
+  const [showExceptionModal, setShowExceptionModal] = useState(false);
+  const [exceptionData, setExceptionData] = useState({ type: "LOST_TICKET", description: "", plate: "" });
+  const [exceptionSubmitting, setExceptionSubmitting] = useState(false);
+  const [apiMessage, setApiMessage] = useState("");
+
+  // Modal Dragging State
+  const modalPos = useRef({ x: 0, y: 0 });
+  const isDragging = useRef(false);
+  const dragStartPos = useRef({ x: 0, y: 0 });
+  const modalRef = useRef(null);
+  const headerRef = useRef(null);
+
+  const handlePointerDown = (e) => {
+    isDragging.current = true;
+    dragStartPos.current = {
+      x: e.clientX - modalPos.current.x,
+      y: e.clientY - modalPos.current.y,
+    };
+    e.target.setPointerCapture(e.pointerId);
+    if (headerRef.current) headerRef.current.style.cursor = "grabbing";
+    if (modalRef.current) modalRef.current.style.transition = "none"; // Bỏ CSS transition để kéo ko bị lag
+  };
+
+  const handlePointerMove = (e) => {
+    if (!isDragging.current) return;
+    const newX = e.clientX - dragStartPos.current.x;
+    const newY = e.clientY - dragStartPos.current.y;
+    modalPos.current = { x: newX, y: newY };
+    if (modalRef.current) {
+      modalRef.current.style.transform = `translate(${newX}px, ${newY}px)`;
+    }
+  };
+
+  const handlePointerUp = (e) => {
+    isDragging.current = false;
+    e.target.releasePointerCapture(e.pointerId);
+    if (headerRef.current) headerRef.current.style.cursor = "grab";
+  };
+
+  const submitException = async () => {
+    if (!exceptionData.description) return;
+
+    const plateError = getLicensePlateValidationError(exceptionData.plate);
+    if (plateError) {
+      setApiMessage(`❌ Lỗi biển số: ${plateError}`);
+      setTimeout(() => setApiMessage(""), 5000);
+      return;
+    }
+
+    setExceptionSubmitting(true);
+    try {
+      await staffApi.logSecurityException({
+        exceptionType: exceptionData.type,
+        description: exceptionData.description,
+        licensePlate: exceptionData.plate || "Chưa xác định",
+        gateId: "staff-ui", // Gửi từ Header UI chung
+        images: []
+      });
+      setApiMessage("✅ Báo sự cố thành công tới Bảo vệ!");
+      setShowExceptionModal(false);
+      modalPos.current = { x: 0, y: 0 }; // reset position on close
+      setExceptionData({ type: "LOST_TICKET", description: "", plate: "" });
+      setTimeout(() => setApiMessage(""), 10000);
+    } catch (err) {
+      setApiMessage("❌ Lỗi khi báo sự cố. Vui lòng thử lại!");
+      setTimeout(() => setApiMessage(""), 10000);
+    } finally {
+      setExceptionSubmitting(false);
+    }
+  };
+
+  // Cập nhật đồng hồ ca làm việc và ngày tháng
   useEffect(() => {
     const clockTimer = setInterval(() => {
-      setLiveTime(new Date().toLocaleTimeString("vi-VN", { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setLiveTime(formatDuration(Date.now() - loginTime));
     }, 1000);
 
     const today = new Date();
@@ -87,6 +186,40 @@ export default function StaffLayout({ onLogout }) {
 
     return () => {
       clearInterval(clockTimer);
+    };
+  }, [loginTime]);
+
+  // Lắng nghe SOS từ hệ thống qua WebSocket
+  useEffect(() => {
+    const client = new Client({
+      webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+      reconnectDelay: 5000,
+      heartbeatIncoming: 4000,
+      heartbeatOutgoing: 4000,
+      debug: (str) => { if (str.includes("ERROR")) console.error("[STAFF-STOMP]", str); },
+    });
+
+    client.onConnect = () => {
+      client.subscribe("/topic/emergency", (message) => {
+        try {
+          const data = JSON.parse(message.body);
+          const active = Boolean(data.active);
+          setSystemSosStatus({ active, ...data });
+          
+          if (active) {
+            setShowSystemSosModal(true); // Tự động mở Modal khi có SOS
+          } else {
+            setShowSystemSosModal(false); // Tự động đóng Modal khi hết SOS
+          }
+        } catch (err) {
+          console.error("Emergency WS parse error:", err);
+        }
+      });
+    };
+
+    client.activate();
+    return () => {
+      if (client.active) client.deactivate();
     };
   }, []);
 
@@ -158,7 +291,10 @@ export default function StaffLayout({ onLogout }) {
         {/* Sidebar Footer */}
         <div className={`border-t border-indigo-950/40 overflow-hidden ${collapsed ? "p-2" : "p-4"}`}>
           <button
-            onClick={onLogout}
+            onClick={() => {
+              localStorage.removeItem("staff_login_time");
+              if (onLogout) onLogout();
+            }}
             className={`flex w-full items-center rounded-xl py-3 font-semibold text-rose-400 hover:bg-rose-950 hover:text-rose-200 transition-all duration-200 cursor-pointer ${collapsed ? "justify-center px-0" : "gap-3 px-4"}`}
           >
             <IconLogout />
@@ -178,7 +314,18 @@ export default function StaffLayout({ onLogout }) {
             <h2 className="text-lg font-bold text-slate-900 tracking-tight">{pageTitle}</h2>
             <p className="text-xs text-slate-500 font-semibold mt-0.5">{liveDate}</p>
           </div>
-
+          {/* Nút báo SOS — chỉ hiện khi đang có SOS active */}
+          {systemSosStatus.active && (
+            <button
+              onClick={() => setShowSystemSosModal(true)}
+              className="mr-2 flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-black text-white hover:bg-rose-700 transition-all cursor-pointer shadow-lg animate-pulse border-2 border-rose-400"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              ĐANG CÓ SOS
+            </button>
+          )}
           <div className="flex items-center gap-6">
             <div className="hidden md:flex flex-col items-end border-r border-indigo-200 pr-6">
               <span className="font-mono text-base font-bold text-indigo-800 bg-white px-3.5 py-1 rounded-lg border border-indigo-300/60">
@@ -187,6 +334,23 @@ export default function StaffLayout({ onLogout }) {
             </div>
 
             <div className="flex items-center gap-2">
+              
+
+              {/* Nút báo sự cố (SOS cá nhân) */}
+              <button
+                onClick={() => {
+                  setShowExceptionModal(true);
+                  modalPos.current = { x: 0, y: 0 }; // reset position on open
+                  if (modalRef.current) modalRef.current.style.transform = `translate(0px, 0px)`;
+                }}
+                className="mr-2 flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-2 text-xs font-bold text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white transition-all cursor-pointer shadow-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+
+              </button>
+
               <button className="relative rounded-xl p-2.5 text-indigo-700 hover:text-indigo-900 hover:bg-indigo-200/60 transition-all cursor-pointer">
                 <IconBell />
                 <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white animate-pulse" />
@@ -210,6 +374,136 @@ export default function StaffLayout({ onLogout }) {
 
         {/* Nơi hiển thị ruột của từng trang con */}
         <Outlet />
+
+        {/* Modal Báo sự cố */}
+        {showExceptionModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 pointer-events-none">
+            <div 
+              ref={modalRef}
+              className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200 pointer-events-auto"
+              style={{ transform: `translate(${modalPos.current.x}px, ${modalPos.current.y}px)` }}
+            >
+              <div 
+                ref={headerRef}
+                className="bg-rose-50 border-b border-rose-100 p-4 flex justify-between items-center cursor-grab select-none touch-none"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+              >
+                <h3 className="font-bold text-rose-800 flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  GỌI BẢO VỆ / BÁO SỰ CỐ
+                </h3>
+                <button onClick={() => setShowExceptionModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Loại sự cố *</label>
+                  <select
+                    className="w-full text-sm border border-slate-300 rounded-lg p-2.5 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 bg-slate-50"
+                    value={exceptionData.type}
+                    onChange={(e) => setExceptionData({ ...exceptionData, type: e.target.value })}
+                  >
+                    <option value="LOST_TICKET">Khách làm mất vé</option>
+                    <option value="WRONG_PLATE">Sai lệch biển số vào/ra</option>
+                    <option value="OVERTIME">Gửi xe quá hạn</option>
+                    <option value="WRONG_ZONE">Đỗ sai phân khu quy định</option>
+                    <option value="UNPAID">Khách không chịu thanh toán phí</option>
+                    <option value="SUSPICIOUS_BEHAVIOR">Hành vi đáng ngờ (Trộm cắp, Phá hoại)</option>
+                    <option value="OTHER">Lý do khác</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Biển số xe (Bắt buộc) *</label>
+                  <input
+                    type="text"
+                    className="w-full text-sm font-mono border border-slate-300 rounded-lg p-2.5 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                    placeholder="VD: 30A-123.45"
+                    value={exceptionData.plate}
+                    onChange={(e) => setExceptionData({ ...exceptionData, plate: formatLicensePlate(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Mô tả tình hình (Bắt buộc) *</label>
+                  <textarea
+                    className="w-full text-sm border border-slate-300 rounded-lg p-2.5 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 min-h-[80px]"
+                    placeholder="Ghi chú thêm thông tin cho bảo vệ..."
+                    value={exceptionData.description}
+                    onChange={(e) => setExceptionData({ ...exceptionData, description: e.target.value })}
+                  ></textarea>
+                </div>
+              </div>
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShowExceptionModal(false);
+                    modalPos.current = { x: 0, y: 0 };
+                  }}
+                  className="px-4 py-2 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  onClick={submitException}
+                  disabled={!exceptionData.description || !exceptionData.plate || exceptionSubmitting}
+                  className="px-4 py-2 text-sm font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  {exceptionSubmitting ? "Đang gửi..." : "GỬI BÁO CÁO TỚI BẢO VỆ"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Toast Message Notification */}
+        {apiMessage && (
+          <div className="fixed top-16 right-30 z-[100] animate-in slide-in-from-top-5">
+            <div className={`px-4 py-3 rounded-xl shadow-lg border text-sm font-bold flex items-center gap-3 ${apiMessage.includes("✅")
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : "bg-rose-50 border-rose-200 text-rose-800"
+              }`}>
+              {apiMessage}
+              <button onClick={() => setApiMessage("")} className="opacity-50 hover:opacity-100 cursor-pointer">✕</button>
+            </div>
+          </div>
+        )}
+
+        {/* Tạm thời comment Modal custom SOS theo yêu cầu
+        {showSystemSosModal && systemSosStatus.active && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-rose-900/40 p-4 backdrop-blur-sm pointer-events-auto">
+            <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border-4 border-rose-600 overflow-hidden animate-in zoom-in duration-300">
+              <div className="bg-rose-600 text-white p-5 flex flex-col items-center justify-center gap-2">
+                <svg className="w-12 h-12 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h2 className="text-2xl font-black uppercase tracking-wider text-center">Hệ thống đang báo động!</h2>
+              </div>
+              <div className="p-6 bg-rose-50 flex flex-col items-center gap-4 text-center">
+                <p className="text-rose-900 font-medium text-lg">
+                  Lý do: <span className="font-bold">{systemSosStatus.reason || "Sự cố khẩn cấp"}</span>
+                </p>
+                <p className="text-rose-800 text-sm">
+                  Đã được kích hoạt bởi: <strong>{systemSosStatus.triggeredBy || "Hệ thống"}</strong>
+                </p>
+                <p className="text-rose-800 text-sm bg-white px-4 py-3 rounded-lg border border-rose-200 shadow-sm w-full font-semibold">
+                  Vui lòng chú ý quan sát và làm theo hướng dẫn của quản lý / bảo vệ.
+                </p>
+                <button
+                  onClick={() => setShowSystemSosModal(false)}
+                  className="mt-2 px-8 py-3 text-sm font-black text-white bg-rose-700 rounded-xl hover:bg-rose-800 transition-colors cursor-pointer shadow-lg w-full uppercase tracking-wider"
+                >
+                  Đã hiểu & Đóng bảng này
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        */}
       </main>
     </div>
   );

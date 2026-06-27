@@ -19,6 +19,13 @@ export default function StaffDashboard() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const fullName = user.fullName || "Nguyễn Văn A";
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Chào buổi sáng";
+    if (hour < 18) return "Chào buổi chiều";
+    return "Chào buổi tối";
+  };
+
   // Thống kê bãi xe và hoạt động
   const [stats, setStats] = useState({
     availableSlots: 0,
@@ -30,6 +37,7 @@ export default function StaffDashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [zones, setZones] = useState([]);
+  const [gates, setGates] = useState([]);
   const [recentExceptions, setRecentExceptions] = useState([]);
   const [closedZones, setClosedZones] = useState([]);
   const [upcomingReservations, setUpcomingReservations] = useState([]);
@@ -50,7 +58,30 @@ export default function StaffDashboard() {
       try {
         const configRes = await staffApi.getParkingConfig();
         zonesData = configRes.data.data?.zones || [];
+
+        // Sắp xếp các zone theo thứ tự tầng từ cao xuống thấp (T2 -> T1 -> B1 -> B2)
+        zonesData.sort((a, b) => {
+          const getFloorVal = (z) => {
+            const name = String(z.floorName || (z.floor && z.floor.floorName) || "").toUpperCase();
+            if (name.includes("B") || name.includes("HẦM")) {
+              const m = name.match(/\d+/);
+              return m ? -parseInt(m[0], 10) : -1;
+            }
+            const m = name.match(/\d+/);
+            return m ? parseInt(m[0], 10) : 0;
+          };
+          const valA = getFloorVal(a);
+          const valB = getFloorVal(b);
+          if (valA !== valB) return valB - valA; // Cao xuống thấp
+          
+          // Cùng tầng thì sắp xếp theo tên khu
+          const nameA = String(a.zoneName || "");
+          const nameB = String(b.zoneName || "");
+          return nameA.localeCompare(nameB);
+        });
+
         setZones(zonesData);
+        setGates(configRes.data.data?.gates || []);
 
         const closedZonesSet = new Set(closedZonesArray);
         zonesData.forEach(z => {
@@ -84,10 +115,15 @@ export default function StaffDashboard() {
       }
 
       const formattedBackend = backendExceptions.map(ex => {
-        const diff = Date.now() - new Date(ex.createdAt).getTime();
+        const date = new Date(ex.createdAt);
+        const diff = Date.now() - date.getTime();
         const minutes = Math.floor(diff / 60000);
         let timeAgo = "Vừa xong";
-        if (minutes > 60) {
+        if (minutes >= 1440) {
+          // Lớn hơn 24 giờ thì hiển thị số ngày
+          const days = Math.floor(minutes / 1440);
+          timeAgo = `${days} ngày trước`;
+        } else if (minutes >= 60) {
           const hours = Math.floor(minutes / 60);
           timeAgo = `${hours} giờ trước`;
         } else if (minutes > 0) {
@@ -154,7 +190,7 @@ export default function StaffDashboard() {
       <div className="welcome-banner rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-8 text-white relative overflow-hidden shadow-lg shadow-indigo-900/10">
         <div className="absolute right-0 bottom-0 top-0 w-1/3 bg-gradient-to-l from-black/10 to-transparent pointer-events-none" />
         <h1 className="text-2xl font-bold tracking-tight">
-          Xin chào ngày mới, {fullName}! 👋
+          {getGreeting()}, {fullName}! 👋
         </h1>
         <p className="mt-2.5 text-sm text-indigo-100/90 max-w-2xl leading-relaxed font-normal">
           Chào mừng bạn đến với cổng quản trị thông tin điều phối SmartParking. Hãy theo dõi trực tiếp tình trạng các zone đỗ xe, hỗ trợ check-in xe vào và xử lý thanh toán check-out đúng quy trình.
@@ -197,11 +233,24 @@ export default function StaffDashboard() {
           </div>
         </div>
 
-        <div className="action-panel-item rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm space-y-5">
-          <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-500">Trạng thái vận hành IoT</h3>
-          <div className="space-y-3">
-            <StatusRow label="Barrier Cổng vào" status="Hoạt động" />
-            <StatusRow label="Barrier Cổng ra" status="Hoạt động" />
+        <div className="action-panel-item rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm flex flex-col space-y-5 h-full max-h-[250px]">
+          <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-500 shrink-0">Trạng thái vận hành IoT</h3>
+          <div className="space-y-3 overflow-y-auto pr-1 scrollbar-thin pb-1">
+            {gates.length > 0 ? (
+              gates.map(gate => (
+                <StatusRow 
+                  key={gate.id} 
+                  label={`Barrier ${gate.gateName || gate.name || "Cổng"}`} 
+                  status={gate.isActive ? "Hoạt động" : "Bảo trì"} 
+                  isError={!gate.isActive} 
+                />
+              ))
+            ) : (
+              <div className="text-center py-4 text-slate-400 text-[11px] font-bold animate-pulse">
+                Đang tải trạng thái cổng...
+              </div>
+            )}
+            {/* Luôn hiển thị các hệ thống phụ trợ */}
             <StatusRow label="Cổng thanh toán QR" status="Sẵn sàng" />
             <StatusRow label="Camera AI nhận diện" status="Sẵn sàng" />
           </div>
@@ -214,8 +263,8 @@ export default function StaffDashboard() {
         {/* Cột 1: Live Zone Occupancy Grid */}
         <div className="rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm flex flex-col space-y-5 h-[420px] overflow-hidden">
           <div className="flex justify-between items-center shrink-0">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">📊 Tải trọng Phân khu (Live Zone)</h3>
-            <span className="text-[9px] font-extrabold bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100 animate-pulse">Live</span>
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Tải trọng Phân khu</h3>
+            
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
@@ -233,9 +282,9 @@ export default function StaffDashboard() {
                 <div key={zone.id} className="space-y-2 border-b border-slate-100/40 pb-3.5 last:border-0 last:pb-0">
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">
-                      <span className="text-xs font-extrabold text-slate-800">Tầng {zone.floorName || (zone.floor && zone.floor.floorName) || "?"} - Khu {zone.zoneName} ({zone.zoneCode})</span>
+                      <span className="text-[12px] font-extrabold text-slate-800">{zone.floorName || (zone.floor && zone.floor.floorName) || "?"} - {zone.zoneName} ({zone.zoneCode})</span>
                       <span className="text-[10px] text-slate-500 font-bold mt-0.5">
-                        Chứa: {occupied}/{total} xe • Loại: {zone.vehicleType?.name || 'Không rõ'}
+                        Chứa: {occupied}/{total} xe • Loại: {zone.vehicleTypeName || (zone.type === "O_TO" ? "Ô tô" : zone.type === "XE_MAY" ? "Xe máy" : zone.type) || 'Không rõ'}
                       </span>
                     </div>
                   </div>
@@ -245,7 +294,7 @@ export default function StaffDashboard() {
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }}></div>
                       </div>
-                      <span className="absolute right-0 top-3 text-[9px] font-extrabold text-slate-650">{pct}% đầy</span>
+                      <span className="absolute right-0 top-3 text-[20px] font-extrabold text-slate-650">{pct}% </span>
                     </div>
                   ) : (
                     <div className="text-[9px] font-bold text-rose-500 italic bg-rose-50/50 py-1 px-2.5 rounded border border-rose-100/40">
@@ -266,7 +315,7 @@ export default function StaffDashboard() {
         {/* Cột 2: Operations Alert Feed */}
         <div className="rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm flex flex-col space-y-5 h-[420px] overflow-hidden">
           <div className="flex justify-between items-center shrink-0">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">🚨 Cảnh báo & Ngoại lệ an ninh</h3>
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Cảnh báo & Ngoại lệ an ninh</h3>
             <span className="text-[9px] font-extrabold bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-100">Cấp bách</span>
           </div>
 
@@ -287,7 +336,7 @@ export default function StaffDashboard() {
                     <span className="font-extrabold uppercase text-[9px] tracking-wider bg-white/70 px-1.5 py-0.5 rounded border border-black/5">
                       {ex.exceptionType === "WRONG_ZONE" ? "⚠️ Đỗ sai Zone" : (ex.exceptionType === "SOS" ? "🚨 SOS Báo động" : `⚠️ ${ex.exceptionType}`)}
                     </span>
-                    <span className="text-[9px] font-mono font-bold opacity-75">{ex.timeAgo}</span>
+                    <span className="text-[11px] font-mono font-bold opacity-75">{ex.timeAgo}</span>
                   </div>
                   <p className="font-bold text-slate-800 text-[11px] leading-tight">{ex.description}</p>
                   {ex.licensePlate && (
@@ -369,14 +418,14 @@ function QuickAction({ title, desc, to, icon }) {
 }
 
 // Component dòng trạng thái IoT
-function StatusRow({ label, status }) {
+function StatusRow({ label, status, isError }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-slate-50/40 p-3.5 border border-slate-100 hover:bg-slate-50/85 transition-colors duration-200">
+    <div className={`flex items-center justify-between rounded-xl p-3.5 border hover:bg-slate-50/85 transition-colors duration-200 ${isError ? "bg-rose-50/40 border-rose-100" : "bg-slate-50/40 border-slate-100"}`}>
       <span className="text-xs font-bold text-slate-600">
         {label}
       </span>
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-100/50">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+      <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-lg border ${isError ? "text-rose-700 bg-rose-50 border-rose-100/50" : "text-emerald-700 bg-emerald-50 border-emerald-100/50"}`}>
+        <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${isError ? "bg-rose-500" : "bg-emerald-500"}`} />
         {status}
       </span>
     </div>

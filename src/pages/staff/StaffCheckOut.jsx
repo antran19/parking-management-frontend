@@ -104,6 +104,14 @@ export default function StaffCheckOut() {
   const [checkOutResult, setCheckOutResult] = useState(null);
   const stompClientRef = useRef(null);
 
+  // Tự động ẩn thông báo lỗi sau 10 giây
+  useEffect(() => {
+    if (apiError) {
+      const timer = setTimeout(() => setApiError(""), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [apiError]);
+
   // States for face camera
   const [isFaceScanning, setIsFaceScanning] = useState(false);
   const [previewFaceUrl, setPreviewFaceUrl] = useState("");
@@ -374,7 +382,7 @@ export default function StaffCheckOut() {
       ticketScannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 155, height: 155 } },
+        { fps: 20, qrbox: { width: 155, height: 155 } },
         async (decodedText) => {
           setTicketInput(decodedText.toUpperCase());
           setTicketMessage("Đã quét mã vé!");
@@ -581,7 +589,7 @@ export default function StaffCheckOut() {
         const storedCode = storedSession.sessionCode || "";
         const cleanStoredCode = storedCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
         const cleanSearchTerm = searchTerm.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-        if (cleanStoredCode === cleanSearchTerm || cleanSearchTerm.includes(cleanStoredCode) || cleanStoredCode.includes(cleanSearchTerm)) {
+        if (cleanStoredCode === cleanSearchTerm) {
           const minutes = Math.max(1, Math.round((Date.now() - (storedSession.createdTimestamp || Date.now() - 300000)) / 60000));
           const hourlyRate = storedSession.vehicle?.includes("My") ? 5000 : 15000;
           const fee = Math.max(hourlyRate, Math.ceil(minutes / 60) * hourlyRate);
@@ -710,9 +718,7 @@ export default function StaffCheckOut() {
       const res = await staffApi.checkOut({
         sessionId: sessionData.sessionId,
         gateExitId: selectedGateId,
-        paymentMethod: paymentMethod,
-        exitPlateImageUrl: uploadedUrl || "",
-        exitFaceImageUrl: uploadedFaceUrl || "",
+        paymentMethod: paymentMethod
       });
       const backendSession = res.data.data;
       setCheckOutResult(backendSession);
@@ -1025,14 +1031,14 @@ export default function StaffCheckOut() {
   }, []);
 
   return (
-    <section className="flex-1 space-y-6 p-1">
+    <section className="flex-1 space-y-4 p-1">
       {/* Thông báo lỗi */}
       {apiError && (
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 border border-rose-200 px-4 py-3 text-xs font-bold text-rose-700 shadow-sm w-full animate-pulse">
+        <div className="fixed top-17 left-1/2 -translate-x-1/2 z-[100] flex items-center justify-between gap-3 rounded-3xl bg-rose-50 border border-rose-200 px-6 py-3 text-sm font-bold text-rose-700 shadow-2xl min-w-[400px] max-w-[90vw] animate-pulse">
           <span className="flex items-center gap-2">⚠️ {apiError}</span>
           <button
             onClick={() => setApiError("")}
-            className="text-rose-450 hover:text-rose-600 transition-colors font-bold text-base leading-none cursor-pointer"
+            className="text-rose-450 hover:text-rose-600 transition-colors font-bold text-xl leading-none cursor-pointer ml-4"
           >
             &times;
           </button>
@@ -1334,13 +1340,13 @@ export default function StaffCheckOut() {
           </div>
 
           {/* Cổng check-out box */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 space-y-3">
-            <div>
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-3.5 flex flex-row items-stretch gap-4">
+            <div className="w-1/2 flex flex-col justify-center">
               <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Cổng ra check-out</label>
               <select
                 value={selectedGateId}
                 onChange={(e) => setSelectedGateId(e.target.value)}
-                className="max-w-xs w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
               >
                 {exitGates.map(g => (
                   <option key={g.id} value={g.id}>{g.gateName}</option>
@@ -1348,7 +1354,20 @@ export default function StaffCheckOut() {
               </select>
             </div>
 
-
+            {/* Hiển thị Ghi chú từ lúc Check-in */}
+            {sessionData?.notes && (
+              <div className="w-1/2 p-2.5 rounded-xl border-2 border-amber-300 bg-amber-50 animate-pulse-slow flex flex-col justify-center">
+                <div className="flex items-center gap-1.5 mb-0.5 text-amber-700">
+                  <AlertTriangleIcon className="w-3.5 h-3.5" /> 
+                  <span className="font-black text-[10px] uppercase tracking-wider">
+                    GHI CHÚ LÚC VÀO
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-amber-900 leading-snug break-words">
+                  {sessionData.notes}
+                </p>
+              </div>
+            )}
           </div>
 
         </div>
@@ -1374,10 +1393,10 @@ export default function StaffCheckOut() {
 
             {/* Warning lệch biển số */}
             {sessionData && plateInput && plateInput.trim() !== "" && (sessionData.licensePlate || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase() !== (plateInput || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase() && (
-              <div className="mx-1 my-1 border border-rose-250 bg-rose-50 rounded-xl p-2 text-center text-rose-700 animate-pulse flex flex-col items-center gap-0.5 shadow-sm">
-                <AlertTriangleIcon className="w-4 h-4 text-rose-600" />
-                <h5 className="font-black text-[9px] uppercase tracking-wider">Cảnh báo: Lệch biển số</h5>
-                <p className="text-[8px] text-slate-500 leading-tight font-medium">Biển xe vào và ra không trùng khớp!</p>
+              <div className="mx-1 my-1 border border-rose-250 bg-rose-50 rounded-xl p-1.5 text-center text-rose-700 animate-pulse flex flex-col items-center gap-0.5 shadow-sm">
+                <AlertTriangleIcon className="w-5 h-5 text-rose-600" />
+                <h5 className="font-black text-[15px] uppercase tracking-wider">Lệch biển số</h5>
+                <p className="text-[10px] text-slate-600 leading-tight font-medium">Biển xe vào và ra không trùng khớp!</p>
               </div>
             )}
 
@@ -1482,7 +1501,7 @@ export default function StaffCheckOut() {
               </div>
             )}
             <label className="block text-[9px] font-black uppercase tracking-wider text-slate-600 text-center mt-1">Phương thức thanh toán</label>
-            <div className="grid grid-cols-2 gap-4 ">
+            <div className="grid grid-cols-2 gap-4 px-3 ">
               <button
                 type="button"
                 onClick={() => setPaymentMethod("CASH")}
@@ -1746,7 +1765,7 @@ export default function StaffCheckOut() {
                 onClick={handlePrint}
                 className="flex-1 rounded-xl bg-slate-800 py-1 font-bold text-white hover:bg-slate-800 text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
               >
-                🖨️ In hóa đơn
+               In hóa đơn
               </button>
 
               <button
