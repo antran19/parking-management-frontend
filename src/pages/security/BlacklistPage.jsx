@@ -64,6 +64,10 @@ export default function BlacklistPage({ showToast, user }) {
   const [loading, setLoading] = useState(true);
   const [submittingBlacklist, setSubmittingBlacklist] = useState(false);
 
+  // Danh sách loại phương tiện tải từ API thực (không hardcode)
+  const [vehicleTypes, setVehicleTypes] = useState([]);
+  const [loadingConfig, setLoadingConfig] = useState(true);
+
   // State quản lý ảnh đính kèm
   const [selectedFiles, setSelectedFiles] = useState([]);
   
@@ -73,8 +77,10 @@ export default function BlacklistPage({ showToast, user }) {
   const streamRef = useRef(null);
 
   // State form thêm biển số mới vào blacklist
+  // vehicleTypeId sẽ được set sau khi tải config từ API
   const [blacklistForm, setBlacklistForm] = useState({
-    vehicleType: "MOTORBIKE",
+    vehicleTypeId: "",
+    vehicleTypeName: "",
     licensePlate: "",
     reason: "STOLEN",
     description: "",
@@ -83,6 +89,33 @@ export default function BlacklistPage({ showToast, user }) {
   // State filter/search để lọc danh sách
   const [searchText, setSearchText] = useState("");
   const [filterActive, setFilterActive] = useState("all"); // "all" | "active" | "removed"
+
+  // Tải cấu hình bãi xe (danh sách loại phương tiện thực từ backend)
+  useEffect(() => {
+    const fetchConfig = async () => {
+      setLoadingConfig(true);
+      try {
+        const res = await staffApi.getParkingConfig();
+        const config = res.data.data || {};
+        const types = config.vehicleTypes || [];
+        setVehicleTypes(types);
+        // Mặc định chọn loại phương tiện đầu tiên từ API
+        if (types.length > 0) {
+          setBlacklistForm(prev => ({
+            ...prev,
+            vehicleTypeId: types[0].id,
+            vehicleTypeName: types[0].name,
+          }));
+        }
+      } catch (err) {
+        console.error("Fetch parking config error:", err);
+        showToast("Không thể tải cấu hình loại phương tiện từ máy chủ.", "error");
+      } finally {
+        setLoadingConfig(false);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   // Lấy danh sách blacklist từ backend
   const fetchBlacklist = async () => {
@@ -102,13 +135,19 @@ export default function BlacklistPage({ showToast, user }) {
     fetchBlacklist();
   }, []);
 
+  // Helper: kiểm tra loại xe hiện tại có phải xe đạp không (dùng name từ API)
+  const isBicycle = () => {
+    const name = (blacklistForm.vehicleTypeName || "").toLowerCase();
+    return name.includes("đạp") || name.includes("bicycle");
+  };
+
   // Thêm biển số vào blacklist
   const addBlacklist = async (e) => {
     e.preventDefault();
 
     let finalLicensePlate = blacklistForm.licensePlate;
 
-    if (blacklistForm.vehicleType === "BICYCLE") {
+    if (isBicycle()) {
       // Đối với xe đạp không có biển số, tự tạo một mã định danh giả duy nhất (< 20 ký tự)
       finalLicensePlate = `XEDAP-${Date.now().toString().slice(-8)}`;
     } else {
@@ -116,7 +155,7 @@ export default function BlacklistPage({ showToast, user }) {
         showToast("Vui lòng nhập biển số", "error");
         return;
       }
-      finalLicensePlate = formatLicensePlate(finalLicensePlate, blacklistForm.vehicleType);
+      finalLicensePlate = formatLicensePlate(finalLicensePlate, blacklistForm.vehicleTypeName);
       if (!isValidVietnamLicensePlate(finalLicensePlate)) {
         showToast("Biển số xe không đúng định dạng. Vui lòng nhập lại!", "error");
         setBlacklistForm(prev => ({ ...prev, licensePlate: "" }));
@@ -130,7 +169,7 @@ export default function BlacklistPage({ showToast, user }) {
     }
 
     // Yêu cầu bắt buộc có ảnh đối với xe đạp (tuỳ chọn với xe máy/ô tô)
-    if (blacklistForm.vehicleType === "BICYCLE" && selectedFiles.length === 0) {
+    if (isBicycle() && selectedFiles.length === 0) {
       showToast("Vui lòng đính kèm ít nhất 1 ảnh nhận diện hoặc ảnh người vi phạm cho Xe Đạp", "error");
       return;
     }
@@ -170,7 +209,13 @@ export default function BlacklistPage({ showToast, user }) {
         addedByUserId: user.id,
       });
       // Reset form sau khi thêm thành công
-      setBlacklistForm({ vehicleType: "MOTORBIKE", licensePlate: "", reason: "STOLEN", description: "" });
+      // Reset form - giữ lại vehicleTypeId/vehicleTypeName mặc định (loại đầu tiên từ API)
+      setBlacklistForm(prev => ({
+        ...prev,
+        licensePlate: "",
+        reason: "STOLEN",
+        description: "",
+      }));
       setSelectedFiles([]);
       showToast("Đã thêm biển số vào blacklist", "success");
       fetchBlacklist();
@@ -307,23 +352,33 @@ export default function BlacklistPage({ showToast, user }) {
             {/* Mobile: 1 cột full-width; Desktop: 2 cột */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Loại phương tiện">
-                <select
-                  value={blacklistForm.vehicleType}
-                  onChange={(e) => {
-                    const newType = e.target.value;
-                    setBlacklistForm({
-                      ...blacklistForm,
-                      vehicleType: newType,
-                      licensePlate: "" // Xóa nội dung khi đổi loại phương tiện để nhập lại cho chuẩn
-                    });
-                  }}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                >
-                  <option value="MOTORBIKE">🏍️ Xe Máy</option>
-                  <option value="CAR">🚗 Xe Ô tô</option>
-                  <option value="ELECTRIC_BIKE">🚲 Xe Điện</option>
-                  <option value="BICYCLE">🚲 Xe Đạp</option>
-                </select>
+                {loadingConfig ? (
+                  <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+                    Đang tải danh sách loại xe...
+                  </div>
+                ) : vehicleTypes.length === 0 ? (
+                  <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-500">
+                    ⚠️ Không tải được cấu hình loại xe từ server
+                  </div>
+                ) : (
+                  <select
+                    value={blacklistForm.vehicleTypeId}
+                    onChange={(e) => {
+                      const selected = vehicleTypes.find(v => String(v.id) === String(e.target.value));
+                      setBlacklistForm({
+                        ...blacklistForm,
+                        vehicleTypeId: e.target.value,
+                        vehicleTypeName: selected?.name || "",
+                        licensePlate: "", // Xóa nội dung khi đổi loại phương tiện để nhập lại cho chuẩn
+                      });
+                    }}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                  >
+                    {vehicleTypes.map(vt => (
+                      <option key={vt.id} value={vt.id}>{vt.name}</option>
+                    ))}
+                  </select>
+                )}
               </Field>
 
               <Field label="Biển số xe (Tự động format)">
@@ -331,8 +386,8 @@ export default function BlacklistPage({ showToast, user }) {
                   value={blacklistForm.licensePlate}
                   onChange={(e) => setBlacklistForm({ ...blacklistForm, licensePlate: e.target.value.toUpperCase() })}
                   onBlur={() => {
-                    if (blacklistForm.vehicleType !== "BICYCLE") {
-                      const formattedPlate = formatLicensePlate(blacklistForm.licensePlate, blacklistForm.vehicleType);
+                    if (!isBicycle()) {
+                      const formattedPlate = formatLicensePlate(blacklistForm.licensePlate, blacklistForm.vehicleTypeName);
                       if (formattedPlate.trim()) {
                         if (!isValidVietnamLicensePlate(formattedPlate)) {
                           showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
@@ -343,8 +398,8 @@ export default function BlacklistPage({ showToast, user }) {
                       setBlacklistForm({ ...blacklistForm, licensePlate: formattedPlate });
                     }
                   }}
-                  disabled={blacklistForm.vehicleType === "BICYCLE"}
-                  placeholder={blacklistForm.vehicleType === "BICYCLE" ? "Không yêu cầu nhập cho xe đạp" : "VD: 59A1-123.45"}
+                  disabled={isBicycle()}
+                  placeholder={isBicycle() ? "Không yêu cầu nhập cho xe đạp" : "VD: 59A1-123.45"}
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono font-bold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 uppercase disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </Field>
