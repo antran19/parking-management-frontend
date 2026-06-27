@@ -75,6 +75,7 @@ export const staffApi = {
     return axiosClient.get("/driver/plates");
   },
 
+  // === thêm biển số xe và loại xe
   addDriverPlate(licensePlate, vehicleTypeId) {
     return axiosClient.post("/driver/plates", { licensePlate, vehicleTypeId });
   },
