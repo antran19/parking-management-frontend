@@ -168,7 +168,7 @@ export default function AdminDashboard({ onLogout }) {
   const [isEditingZone, setIsEditingZone] = useState(false);
 
   const [isGateModalOpen, setIsGateModalOpen] = useState(false);
-  const [gateForm, setGateForm] = useState({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: "" });
+  const [gateForm, setGateForm] = useState({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: "", zoneId: "" });
   const [isEditingGate, setIsEditingGate] = useState(false);
 
   const [isTariffModalOpen, setIsTariffModalOpen] = useState(false);
@@ -377,7 +377,8 @@ export default function AdminDashboard({ onLogout }) {
       status: g.isActive === false ? "inactive" : "active",
       barrier: "CLOSED",
       cameraIp: `192.168.1.${50 + idx}`,
-      buildingId: g.buildingId
+      buildingId: g.buildingId,
+      zoneId: g.zoneId || ""
     })));
     setTariffs((config.pricingRules || []).map((r) => ({
       id: r.id,
@@ -494,24 +495,26 @@ export default function AdminDashboard({ onLogout }) {
   };
 
   const handleOpenAddGate = () => {
-    setGateForm({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: firstBuildingId() });
+    setGateForm({ id: "", name: "", type: "MAIN_ENTRY", status: "active", barrier: "CLOSED", cameraIp: "", buildingId: firstBuildingId(), zoneId: "" });
     setIsEditingGate(false);
     setIsGateModalOpen(true);
   };
   const handleOpenEditGate = (gate) => {
-    setGateForm({ ...gate, buildingId: gate.buildingId || firstBuildingId() });
+    setGateForm({ ...gate, buildingId: gate.buildingId || firstBuildingId(), zoneId: gate.zoneId || "" });
     setIsEditingGate(true);
     setIsGateModalOpen(true);
   };
   const handleSaveGate = async (e) => {
     e.preventDefault();
     try {
+      const isZoneGate = gateForm.type.startsWith("ZONE_");
       const payload = {
         buildingId: gateForm.buildingId || firstBuildingId(),
         gateCode: gateForm.name.trim().toUpperCase().replace(/\s+/g, "-").slice(0, 20),
         gateName: gateForm.name,
         gateType: gateForm.type,
-        isActive: gateForm.status === "active"
+        isActive: gateForm.status === "active",
+        ...(isZoneGate && gateForm.zoneId ? { zoneId: gateForm.zoneId } : {})
       };
       if (isEditingGate) await staffApi.updateGate(gateForm.id, payload);
       else await staffApi.createGate(payload);
@@ -1230,19 +1233,20 @@ export default function AdminDashboard({ onLogout }) {
                 {gates.map(g => (
                   <div key={g.id} className={`rounded-2xl border p-5 flex justify-between items-center transition-colors ${g.status === "active" ? "border-slate-200/80 bg-slate-50/50 hover:bg-slate-50" : "border-amber-200 bg-amber-50/30 opacity-75"}`}>
                     <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${g.type.includes("ENTRY") || g.type === "IN"
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${g.type.includes("ENTRY")
                           ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           : g.type.includes("BOTH")
                             ? "bg-purple-50 text-purple-700 border border-purple-200"
                             : "bg-indigo-50 text-indigo-700 border border-indigo-200"
                           }`}>
-                          {g.type.includes("ENTRY") || g.type === "IN" ? "CỔNG VÀO" : g.type.includes("BOTH") ? "HAI CHIỀU" : "CỔNG RA"}
+                          {g.type.startsWith("ZONE_") ? "ZONE" : "CHÍNH"} · {g.type.includes("ENTRY") ? "VÀO" : g.type.includes("BOTH") ? "2 CHIỀU" : "RA"}
                         </span>
                         <span className={`h-2 w-2 rounded-full ${g.status === "active" ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
                       </div>
                       <h4 className={`font-extrabold text-sm ${g.status === "active" ? "text-slate-900" : "text-slate-500 line-through"}`}>{g.name}</h4>
                       <p className="text-[10px] text-slate-450 font-mono">Địa chỉ IP Camera: {g.cameraIp}</p>
+                      {g.zoneId && (() => { const z = zones.find(z => z.id === g.zoneId); return z ? <p className="text-[10px] text-blue-600 font-bold">📍 Zone: {z.name} ({z.floorName})</p> : null; })()}
                     </div>
 
                     <div className="flex flex-col items-end gap-2">
@@ -2111,20 +2115,33 @@ export default function AdminDashboard({ onLogout }) {
                 <label className="text-[10px] font-bold text-slate-400 uppercase">Tên Cổng / Làn</label>
                 <input type="text" required value={gateForm.name} onChange={e => setGateForm({ ...gateForm, name: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Loại Cổng</label>
-                  <select value={gateForm.type} onChange={e => setGateForm({ ...gateForm, type: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
-                    <option value="MAIN_ENTRY">CỔNG VÀO</option>
-                    <option value="MAIN_EXIT">CỔNG RA</option>
-                    <option value="MAIN_BOTH">HAI CHIỀU</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Camera IP Address</label>
-                  <input type="text" required value={gateForm.cameraIp} onChange={e => setGateForm({ ...gateForm, cameraIp: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none" />
-                </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Loại Cổng</label>
+                <select value={gateForm.type} onChange={e => setGateForm({ ...gateForm, type: e.target.value, zoneId: e.target.value.startsWith("ZONE_") ? gateForm.zoneId : "" })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
+                  <option value="MAIN_ENTRY">Cổng chính — Vào</option>
+                  <option value="MAIN_EXIT">Cổng chính — Ra</option>
+                  <option value="MAIN_BOTH">Cổng chính — Hai chiều</option>
+                  <option value="ZONE_ENTRY">Cổng Zone — Vào</option>
+                  <option value="ZONE_EXIT">Cổng Zone — Ra</option>
+                  <option value="ZONE_BOTH">Cổng Zone — Hai chiều</option>
+                </select>
               </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Camera IP Address</label>
+                <input type="text" required value={gateForm.cameraIp} onChange={e => setGateForm({ ...gateForm, cameraIp: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none" />
+              </div>
+              {gateForm.type.startsWith("ZONE_") && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Gán vào Zone <span className="text-rose-500">*</span></label>
+                  <select required value={gateForm.zoneId} onChange={e => setGateForm({ ...gateForm, zoneId: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
+                    <option value="">— Chọn zone —</option>
+                    {zones.map(z => (
+                      <option key={z.id} value={z.id}>{z.name} ({z.floorName} · {z.type})</option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-amber-600 font-medium">⚠ Cổng Zone phải gán vào zone để Staff check-in biết xe vào khu nào</p>
+                </div>
+              )}
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsGateModalOpen(false)} className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer">Hủy</button>
                 <button type="submit" className="flex-1 rounded-xl bg-purple-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors">Lưu lại</button>
