@@ -375,7 +375,7 @@ export default function AdminDashboard({ onLogout }) {
       name: g.gateName || `Cổng ${g.gateCode}`,
       type: g.gateType || "MAIN_ENTRY",
       status: g.isActive === false ? "inactive" : "active",
-      barrier: "CLOSED",
+      barrier: g.barrierState || "CLOSED",
       cameraIp: `192.168.1.${50 + idx}`,
       buildingId: g.buildingId,
       zoneId: g.zoneId || ""
