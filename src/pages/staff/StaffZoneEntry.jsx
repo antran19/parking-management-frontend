@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { staffApi } from "../../api/parkingApi";
 import gsap from "gsap";
+import { formatLicensePlate } from "../../utils/licensePlate";
 
 export default function StaffZoneEntry() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,16 +31,16 @@ export default function StaffZoneEntry() {
 
         const zones = config.zones || [];
 
-        // Lấy các cổng Zone đầu vào (ZONE_ENTRY)
+        // Lấy các cổng Zone đầu vào (ZONE_ENTRY hoặc ZONE_BOTH)
         const zoneGates = (config.gates || [])
-          .filter(g => g.gateType === 'ZONE_ENTRY' || g.gateType === 'ZONE_BOTH')
+          .filter(g => g.gateType === 'ZONE_ENTRY' )
           .map(g => {
             if (g.zoneId) {
               const z = zones.find(zone => zone.id === g.zoneId);
               if (z) {
                 return {
                   ...g,
-                  displayName: `${z.floorName} - ${z.zoneName}`
+                  displayName: `${z.floorName} - ${z.zoneName}  (${g.gateName})`
                 };
               }
             }
@@ -48,6 +49,26 @@ export default function StaffZoneEntry() {
               displayName: `${g.gateName} (Chưa gán)`
             };
           });
+
+        // Sắp xếp cổng theo thứ tự tầng từ cao xuống thấp (T2 -> T1 -> B1 -> B2)
+        zoneGates.sort((a, b) => {
+          const getFloorVal = (displayName) => {
+            // Chỉ xét phần trước dấu gạch ngang để tránh lỗi dính chữ "Khu B"
+            const floorPart = String(displayName).split('-')[0].trim().toUpperCase();
+            if (floorPart.includes("B") || floorPart.includes("HẦM")) {
+              const m = floorPart.match(/\d+/);
+              return m ? -parseInt(m[0], 10) : -1;
+            }
+            const m = floorPart.match(/\d+/);
+            return m ? parseInt(m[0], 10) : 0;
+          };
+          const valA = getFloorVal(a.displayName);
+          const valB = getFloorVal(b.displayName);
+          if (valA !== valB) return valB - valA; // Cao xuống thấp
+          
+          // Cùng tầng thì sắp xếp theo tên hiển thị
+          return a.displayName.localeCompare(b.displayName);
+        });
 
         setGates(zoneGates);
         if (zoneGates.length > 0) {
@@ -86,9 +107,9 @@ export default function StaffZoneEntry() {
           await scanner.start(
             { facingMode: "environment" },
             {
-              fps: 10,
+              fps: 20,
               qrbox: (width, height) => {
-                const size = Math.min(width, height) * 0.7;
+                const size = Math.min(width, height) * 0.55;
                 return { width: size, height: size };
               }
             },
@@ -236,13 +257,7 @@ export default function StaffZoneEntry() {
                   {isScannerOn && (
                     /* Scanning red/green laser line */
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                      <div className="w-48 h-48 border border-dashed border-emerald-500/50 rounded-2xl relative animate-pulse">
-                        <div className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-2 border-l-2 border-emerald-500 rounded-tl"></div>
-                        <div className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-2 border-r-2 border-emerald-500 rounded-tr"></div>
-                        <div className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-2 border-l-2 border-emerald-500 rounded-bl"></div>
-                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-2 border-r-2 border-emerald-500 rounded-br"></div>
-                        <div className="w-full h-0.5 bg-emerald-500 absolute left-0 animate-laser shadow-[0_0_10px_#10b981]"></div>
-                      </div>
+                      
                     </div>
                   )}
 
@@ -435,12 +450,16 @@ export default function StaffZoneEntry() {
               <div className="space-y-2 text-xs">
                 <div>
                   <span className="text-slate-400 font-bold block text-[9px] uppercase">Biển số xe:</span>
-                  <span className="font-mono font-black text-sm text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 inline-block mt-0.5">{scanResult.licensePlate}</span>
+                  <span className="font-mono font-black text-sm text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 inline-block mt-0.5">
+                    {formatLicensePlate(scanResult.licensePlate, scanResult.vehicleType)}
+                  </span>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 font-bold block text-[9px] uppercase">Khách hàng:</span>
-                  <span className="font-black text-slate-700">{scanResult.customerName || "Khách vãng lai"}</span>
+                  <span className="text-slate-400 font-bold block text-[9px] uppercase">Loại xe:</span>
+                  <span className="font-black text-slate-700">
+                    {scanResult.vehicleTypeName || (scanResult.vehicleType === "O_TO" ? "Ô tô" : scanResult.vehicleType === "XE_MAY" ? "Xe máy" : scanResult.vehicleType) || "Không rõ"}
+                  </span>
                 </div>
 
                 <div>
