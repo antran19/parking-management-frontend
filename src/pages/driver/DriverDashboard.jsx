@@ -109,6 +109,57 @@ const getVehicleIdentifierValue = (item) => {
 
   return formatPlateForDisplay(item?.licensePlate, vehicleTypeName);
 };
+
+const formatDateTimeText = (value) => {
+  if (!value) return "--";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+
+  return date.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatDurationText = (minutes) => {
+  const totalMinutes = Number(minutes || 0);
+  if (totalMinutes <= 0) return "--";
+
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+
+  if (hours <= 0) return `${mins} phút`;
+  if (mins <= 0) return `${hours} giờ`;
+  return `${hours} giờ ${mins} phút`;
+};
+
+const getSessionStatusLabel = (status) => {
+  const value = String(status || "").toUpperCase();
+
+  if (value === "ACTIVE") return "Đang gửi";
+  if (value === "COMPLETED") return "Đã hoàn tất";
+  if (value === "CANCELLED") return "Đã hủy";
+
+  return value || "--";
+};
+
+const getPaymentStatusLabel = (status) => {
+  const value = String(status || "").toUpperCase();
+
+  if (!value || value === "--") return "Chưa có thanh toán";
+  if (value === "PAID" || value === "COMPLETED" || value === "SUCCESS") {
+    return "Đã thanh toán";
+  }
+  if (value === "PENDING") return "Chờ thanh toán";
+  if (value === "FAILED") return "Thanh toán thất bại";
+
+  return value;
+};
+
 // Custom SVG Icons for Premium UI
 const IconDashboard = () => (
   <svg
@@ -404,8 +455,8 @@ export default function DriverDashboard({ onLogout }) {
         active: isActive,
         message: isActive
           ? data.message ||
-            data.reason ||
-            "Hệ thống đang trong trạng thái khẩn cấp. Vui lòng theo dõi hướng dẫn sơ tán."
+          data.reason ||
+          "Hệ thống đang trong trạng thái khẩn cấp. Vui lòng theo dõi hướng dẫn sơ tán."
           : "Hệ thống đang vận hành ổn định",
         reason: data.reason || "",
         updatedAt: data.activatedAt || data.updatedAt || data.timestamp || null,
@@ -429,6 +480,7 @@ export default function DriverDashboard({ onLogout }) {
     let activeSession = null;
     let activeReservation = null;
     let reservations = [];
+    let parkingPasses = [];
     let historyList = [];
     let totalAvailable = 0;
 
@@ -450,6 +502,61 @@ export default function DriverDashboard({ onLogout }) {
         new Date(a.createdAt || a.createdTime || a.reservedFrom || 0)
       );
     });
+
+    // Xe đạp không nằm trong /driver/plates.
+    // Vì vậy phải lấy mã xe đạp từ reservations và parkingPasses để query active/history.
+    const passRes = await staffApi.getDriverPasses().catch(() => null);
+    parkingPasses = passRes?.data?.data || [];
+
+    const getLookupVehicleTypeName = (item, source = "UNKNOWN") => {
+      return (
+        item?.vehicleTypeName ||
+        item?.vehicleType?.name ||
+        item?.vehicleType?.vehicleTypeName ||
+        (typeof item?.vehicleType === "string" ? item.vehicleType : "") ||
+        (source === "PASS" ? "Xe theo vé đăng ký" : "Xe đặt chỗ")
+      );
+    };
+
+    const addLookupIdentifierIfMissing = (item, source = "UNKNOWN") => {
+      const rawIdentifier = item?.licensePlate;
+      const normalizedIdentifier = normalizePlateForApi(rawIdentifier);
+
+      if (!normalizedIdentifier || normalizedIdentifier === "--") return;
+
+      const existed = plates.some(
+        (plate) =>
+          normalizePlateForApi(getPlateValue(plate)) === normalizedIdentifier,
+      );
+
+      if (existed) return;
+
+      plates = [
+        ...plates,
+        {
+          licensePlate: normalizedIdentifier,
+          vehicleTypeId: item?.vehicleTypeId || item?.vehicleType?.id || null,
+          vehicleTypeName: getLookupVehicleTypeName(item, source),
+          source,
+        },
+      ];
+    };
+
+    reservations
+      .filter((item) =>
+        ["PENDING", "CONFIRMED", "COMPLETED"].includes(
+          String(item?.status || "").toUpperCase(),
+        ),
+      )
+      .forEach((item) => addLookupIdentifierIfMissing(item, "RESERVATION"));
+
+    parkingPasses
+      .filter((item) =>
+        ["ACTIVE", "PENDING_PAYMENT", "PENDING"].includes(
+          String(item?.status || "").toUpperCase(),
+        ),
+      )
+      .forEach((item) => addLookupIdentifierIfMissing(item, "PASS"));
 
     activeReservation =
       reservations.find((item) =>
@@ -493,20 +600,21 @@ export default function DriverDashboard({ onLogout }) {
           floor: backendSession.floorName || "--",
           area: backendSession.zoneName || "--",
           vehicle: backendSession.vehicleType || "--",
-          startTime: backendSession.entryTime
-            ? new Date(backendSession.entryTime).toLocaleString("vi-VN", {
-                hour: "2-digit",
-                minute: "2-digit",
-                day: "2-digit",
-                month: "2-digit",
-              })
-            : "--",
+          identifierLabel: getVehicleIdentifierLabel(
+            backendSession.vehicleType,
+          ),
+          identifierValue: formatPlateForDisplay(
+            backendSession.licensePlate,
+            backendSession.vehicleType,
+          ),
+          startTime: formatDateTimeText(backendSession.entryTime),
+          zoneEntryTime: formatDateTimeText(backendSession.zoneEntryTime),
           estimatedFee: Number(backendSession.totalFee || 0),
-          status:
-            backendSession.status === "ACTIVE"
-              ? "Đang gửi xe"
-              : backendSession.status,
-          buildingName: "Smart Parking",
+          status: getSessionStatusLabel(backendSession.status),
+          buildingName: backendSession.buildingName || "Smart Parking",
+          buildingAddress: backendSession.buildingAddress || "--",
+          entryMainGateName: backendSession.entryMainGateName || "--",
+          entryZoneGateName: backendSession.entryZoneGateName || "--",
           licensePlate: backendSession.licensePlate,
           sessionCode: backendSession.sessionCode,
           createdTimestamp: backendSession.entryTime
@@ -532,33 +640,79 @@ export default function DriverDashboard({ onLogout }) {
         ),
       );
 
-      historyList = historyResults.flat().map((s, idx) => ({
-        id: `${s.sessionId || s.sessionCode || idx}`,
-        date: s.entryTime
-          ? new Date(s.entryTime).toLocaleString("vi-VN", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "--",
-        zoneCode: s.zoneCode || "--",
-        zoneName: s.zoneName || "--",
-        floorName: s.floorName || "--",
-        vehicle: s.vehicleType || "--",
-        cost: s.totalFee
-          ? `${Number(s.totalFee).toLocaleString("vi-VN")}đ`
-          : "0đ",
-        durationMinutes: Number(s.durationMinutes || 0),
-        status:
-          s.status === "COMPLETED"
-            ? "Đã thanh toán"
-            : s.status === "ACTIVE"
-              ? "Đang gửi"
-              : s.status || "--",
-        building: "Smart Parking",
-      }));
+/// xếp cái lịch sử của xe sort theo thời gian 
+// mới nhất sẽ ở trên, cũ hơn sẽ ở dupwsi....
+
+      const getHistoryTime = (session) => {
+        const rawTime =
+          session.exitTime ||
+          session.zoneExitTime ||
+          session.entryTime ||
+          session.zoneEntryTime ||
+          session.sessionCreatedAt;
+
+        const time = new Date(rawTime || 0).getTime();
+        return Number.isFinite(time) ? time : 0;
+      };
+
+      historyList = historyResults
+        .flat()
+        .slice()
+        .sort((a, b) => getHistoryTime(b) - getHistoryTime(a))
+        .map((s, idx) => {
+          const vehicleTypeName = s.vehicleType || "--";
+          const durationMinutes = Number(s.durationMinutes || 0);
+
+          return {
+            id: `${s.sessionId || s.sessionCode || idx}`,
+            sessionCode: s.sessionCode || "--",
+            sessionId: s.sessionId || null,
+
+            licensePlate: s.licensePlate || "--",
+            identifierLabel: getVehicleIdentifierLabel(vehicleTypeName),
+            identifierValue: formatPlateForDisplay(
+              s.licensePlate,
+              vehicleTypeName,
+            ),
+
+            entryTime: s.entryTime,
+            exitTime: s.exitTime,
+            zoneEntryTime: s.zoneEntryTime,
+            zoneExitTime: s.zoneExitTime,
+            sessionCreatedAt: s.sessionCreatedAt,
+
+            date: formatDateTimeText(s.entryTime),
+            exitDate: formatDateTimeText(s.exitTime),
+            zoneEntryDate: formatDateTimeText(s.zoneEntryTime),
+            zoneExitDate: formatDateTimeText(s.zoneExitTime),
+            registeredAt: formatDateTimeText(s.sessionCreatedAt),
+
+            zoneCode: s.zoneCode || "--",
+            zoneName: s.zoneName || "--",
+            floorName: s.floorName || "--",
+            building: s.buildingName || "Smart Parking",
+            buildingAddress: s.buildingAddress || "--",
+
+            vehicle: vehicleTypeName,
+            driverType: s.driverType || "--",
+            passType: s.passType || "Vãng lai / Đặt chỗ",
+            paymentStatus: getPaymentStatusLabel(s.paymentStatus),
+
+            entryMainGateName: s.entryMainGateName || "--",
+            exitMainGateName: s.exitMainGateName || "--",
+            entryZoneGateName: s.entryZoneGateName || "--",
+            exitZoneGateName: s.exitZoneGateName || "--",
+
+            cost: s.totalFee
+              ? `${Number(s.totalFee).toLocaleString("vi-VN")}đ`
+              : "0đ",
+
+            durationMinutes,
+            durationText: formatDurationText(durationMinutes),
+            status: getSessionStatusLabel(s.status),
+            notes: s.notes || "--",
+          };
+        });
     }
 
     try {
@@ -595,27 +749,27 @@ export default function DriverDashboard({ onLogout }) {
       currentSession: activeSession,
       currentBooking: activeReservation
         ? {
-            id: activeReservation.id || activeReservation.reservationId,
-            bookingCode: activeReservation.reservationCode,
-            licensePlate: activeReservation.licensePlate,
-            vehicleTypeId: activeReservation.vehicleTypeId,
-            vehicleType: activeReservation.vehicleTypeName,
-            floor: activeReservation.floorName,
-            zoneCode: activeReservation.zoneCode,
-            zoneName: activeReservation.zoneName,
-            status: String(activeReservation.status || "--").toUpperCase(),
-            createdTime: activeReservation.createdAt
-              ? new Date(activeReservation.createdAt).toLocaleTimeString(
-                  "vi-VN",
-                  {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  },
-                )
-              : "--",
-            reservedFrom: activeReservation.reservedFrom,
-            reservedTo: activeReservation.reservedTo,
-          }
+          id: activeReservation.id || activeReservation.reservationId,
+          bookingCode: activeReservation.reservationCode,
+          licensePlate: activeReservation.licensePlate,
+          vehicleTypeId: activeReservation.vehicleTypeId,
+          vehicleType: activeReservation.vehicleTypeName,
+          floor: activeReservation.floorName,
+          zoneCode: activeReservation.zoneCode,
+          zoneName: activeReservation.zoneName,
+          status: String(activeReservation.status || "--").toUpperCase(),
+          createdTime: activeReservation.createdAt
+            ? new Date(activeReservation.createdAt).toLocaleTimeString(
+              "vi-VN",
+              {
+                hour: "2-digit",
+                minute: "2-digit",
+              },
+            )
+            : "--",
+          reservedFrom: activeReservation.reservedFrom,
+          reservedTo: activeReservation.reservedTo,
+        }
         : null,
 
       reservations: reservations.map((reservation, idx) => ({
@@ -676,9 +830,9 @@ export default function DriverDashboard({ onLogout }) {
     if (!isValidVietnamLicensePlate(compactPlate, vehicleTypeName)) {
       alert(
         `Biển số không đúng định dạng cho ${vehicleTypeName || "loại xe đã chọn"}.\n\n` +
-          "Ví dụ xe máy: 51H1-2345, 59X1-123.45, 59AA-729.32\n" +
-          "Ví dụ ô tô: 30A-1234, 30A-123.45, 50AB-123.45\n" +
-          "Ví dụ xe tải: 51C-123.45, 60C-456.78",
+        "Ví dụ xe máy: 51H1-2345, 59X1-123.45, 59AA-729.32\n" +
+        "Ví dụ ô tô: 30A-1234, 30A-123.45, 50AB-123.45\n" +
+        "Ví dụ xe tải: 51C-123.45, 60C-456.78",
       );
       return false;
     }
@@ -733,31 +887,6 @@ export default function DriverDashboard({ onLogout }) {
       const errorMsg =
         err.response?.data?.message || err.message || "Lỗi xóa biển số xe";
       alert(`Xóa thất bại: ${errorMsg}`);
-    }
-  };
-
-  const handleVnPayCheckout = async () => {
-    if (!currentSession) return;
-    if (
-      !confirm("Bạn muốn chuyển sang VNPay sandbox để thanh toán phí ra bãi?")
-    )
-      return;
-
-    try {
-      const res = await staffApi.initiateVnPayCheckout({
-        sessionCode: currentSession.sessionCode,
-        licensePlate: currentSession.licensePlate,
-      });
-      const paymentUrl = res.data?.data?.paymentUrl;
-      if (!paymentUrl) {
-        throw new Error("Backend chưa trả về link thanh toán VNPay");
-      }
-      window.location.href = paymentUrl;
-    } catch (err) {
-      alert(
-        "❌ Không thể tạo thanh toán VNPay: " +
-          (err.response?.data?.message || err.message),
-      );
     }
   };
 
@@ -901,13 +1030,13 @@ export default function DriverDashboard({ onLogout }) {
 
   const qrPayload = currentSession
     ? JSON.stringify({
-        type: "SESSION",
-        sessionCode: currentSession.sessionCode,
-        licensePlate: currentSession.licensePlate,
-        vehicleType: currentSession.vehicle,
-        zoneCode: currentSession.zoneCode,
-        floor: currentSession.floor,
-      })
+      type: "SESSION",
+      sessionCode: currentSession.sessionCode,
+      licensePlate: currentSession.licensePlate,
+      vehicleType: currentSession.vehicle,
+      zoneCode: currentSession.zoneCode,
+      floor: currentSession.floor,
+    })
     : "";
 
   // Format Timer Seconds
@@ -976,6 +1105,32 @@ export default function DriverDashboard({ onLogout }) {
       .some((value) => String(value).toLowerCase().includes(keyword));
   });
 
+  const filteredHistory = history.filter((item) => {
+    const keyword = searchTerm.trim().toLowerCase();
+    if (!keyword) return true;
+
+    return [
+      item.sessionCode,
+      item.identifierValue,
+      item.licensePlate,
+      item.vehicle,
+      item.driverType,
+      item.passType,
+      item.paymentStatus,
+      item.status,
+      item.building,
+      item.buildingAddress,
+      item.floorName,
+      item.zoneCode,
+      item.zoneName,
+      item.entryMainGateName,
+      item.exitMainGateName,
+      item.notes,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword));
+  });
+
   return (
     <div
       ref={containerRef}
@@ -984,9 +1139,8 @@ export default function DriverDashboard({ onLogout }) {
       {/* Sidebar - Đồng bộ 100% với DriverMapping.jsx */}
       <DriverSosBanner />
       <aside
-        className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${
-          collapsed ? "w-20" : "w-72"
-        }`}
+        className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${collapsed ? "w-20" : "w-72"
+          }`}
       >
         <div className="flex items-center gap-3.5 px-6 py-6 border-b border-slate-800 overflow-hidden">
           <button
@@ -1010,11 +1164,10 @@ export default function DriverDashboard({ onLogout }) {
         <nav className="flex-1 space-y-1.5 px-4 py-6 overflow-x-hidden">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-              activeTab === "dashboard"
+            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "dashboard"
                 ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
                 : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
+              }`}
           >
             <span className="flex-shrink-0">
               <IconDashboard />
@@ -1058,11 +1211,10 @@ export default function DriverDashboard({ onLogout }) {
 
           <button
             onClick={() => setActiveTab("session")}
-            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-              activeTab === "session"
+            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "session"
                 ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
                 : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
+              }`}
           >
             <span className="flex-shrink-0">
               <IconSession />
@@ -1074,11 +1226,10 @@ export default function DriverDashboard({ onLogout }) {
 
           <button
             onClick={() => setActiveTab("reservations")}
-            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-              activeTab === "reservations"
+            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "reservations"
                 ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
                 : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
+              }`}
           >
             <span className="flex-shrink-0">
               <IconSession />
@@ -1090,11 +1241,10 @@ export default function DriverDashboard({ onLogout }) {
 
           <button
             onClick={() => setActiveTab("history")}
-            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-              activeTab === "history"
+            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "history"
                 ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
                 : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
+              }`}
           >
             <span className="flex-shrink-0">
               <IconHistory />
@@ -1106,11 +1256,10 @@ export default function DriverDashboard({ onLogout }) {
 
           <button
             onClick={() => setActiveTab("profile")}
-            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-              activeTab === "profile"
+            className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "profile"
                 ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
                 : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
+              }`}
           >
             <span className="flex-shrink-0">
               <IconProfile />
@@ -1123,21 +1272,19 @@ export default function DriverDashboard({ onLogout }) {
 
         {!collapsed && (
           <div
-            className={`mx-4 mb-4 rounded-2xl border p-4 shadow-lg ${
-              emergencyStatus.active
+            className={`mx-4 mb-4 rounded-2xl border p-4 shadow-lg ${emergencyStatus.active
                 ? "border-rose-500/60 bg-rose-950/70 shadow-rose-950/30"
                 : "border-slate-800 bg-slate-950/70"
-            }`}
+              }`}
           >
             <div className="flex items-center gap-2">
               <span
-                className={`h-2.5 w-2.5 rounded-full ${
-                  emergencyStatus.loading
+                className={`h-2.5 w-2.5 rounded-full ${emergencyStatus.loading
                     ? "bg-slate-500"
                     : emergencyStatus.active
                       ? "bg-rose-400 animate-pulse"
                       : "bg-emerald-400"
-                }`}
+                  }`}
               />
 
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
@@ -1146,9 +1293,8 @@ export default function DriverDashboard({ onLogout }) {
             </div>
 
             <p
-              className={`mt-2 text-xs font-black ${
-                emergencyStatus.active ? "text-rose-200" : "text-emerald-300"
-              }`}
+              className={`mt-2 text-xs font-black ${emergencyStatus.active ? "text-rose-200" : "text-emerald-300"
+                }`}
             >
               {emergencyStatus.loading
                 ? "Đang kiểm tra..."
@@ -1158,9 +1304,8 @@ export default function DriverDashboard({ onLogout }) {
             </p>
 
             <p
-              className={`mt-1 line-clamp-3 text-[10px] font-semibold leading-4 ${
-                emergencyStatus.active ? "text-rose-100" : "text-slate-500"
-              }`}
+              className={`mt-1 line-clamp-3 text-[10px] font-semibold leading-4 ${emergencyStatus.active ? "text-rose-100" : "text-slate-500"
+                }`}
             >
               {emergencyStatus.active
                 ? "Đang có cảnh báo khẩn cấp. Hệ thống tạm khóa tạo đặt chỗ mới cho tài xế."
@@ -1195,9 +1340,8 @@ export default function DriverDashboard({ onLogout }) {
 
       {/* Main Content */}
       <main
-        className={`main-content-area flex-1 min-h-screen flex flex-col pb-24 transition-all duration-300 md:pb-0 ${
-          collapsed ? "md:ml-20" : "md:ml-72"
-        }`}
+        className={`main-content-area flex-1 min-h-screen flex flex-col pb-24 transition-all duration-300 md:pb-0 ${collapsed ? "md:ml-20" : "md:ml-72"
+          }`}
       >
         {/* Header - Đồng bộ 100% với DriverMapping.jsx */}
         <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6 md:h-20 md:px-8 md:py-0">
@@ -1223,21 +1367,19 @@ export default function DriverDashboard({ onLogout }) {
                     ? "Hệ thống đang khẩn cấp"
                     : "Hệ thống bình thường"
                 }
-                className={`relative rounded-full p-2.5 transition-colors ${
-                  emergencyStatus.active
+                className={`relative rounded-full p-2.5 transition-colors ${emergencyStatus.active
                     ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
                     : "hover:bg-slate-100/80"
-                }`}
+                  }`}
               >
                 <IconBell />
                 <span
-                  className={`absolute right-2 top-2 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
-                    emergencyStatus.loading
+                  className={`absolute right-2 top-2 h-2.5 w-2.5 rounded-full ring-2 ring-white ${emergencyStatus.loading
                       ? "bg-slate-400"
                       : emergencyStatus.active
                         ? "bg-rose-500 animate-pulse"
                         : "bg-emerald-500"
-                  }`}
+                    }`}
                 />
               </button>
               <button className="rounded-full p-2.5 hover:bg-slate-100/80 transition-colors">
@@ -1424,7 +1566,7 @@ export default function DriverDashboard({ onLogout }) {
                           Chưa có lịch sử gửi xe nào.
                         </p>
                       ) : (
-                        history.slice(0, 2).map((item) => (
+                        history.slice(0, 3).map((item) => (
                           <div
                             key={item.id}
                             className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl"
@@ -1502,12 +1644,11 @@ export default function DriverDashboard({ onLogout }) {
 
                           <div className="flex items-center justify-between">
                             <span className="text-slate-450 font-bold">
-                              Biển số:
+                              {currentSession.identifierLabel || "Biển số"}:
                             </span>
-                            <LicensePlate
-                              plate={currentSession.licensePlate}
-                              vehicleTypeName={currentSession.vehicle}
-                            />
+                            <span className="font-mono font-black text-slate-800">
+                              {currentSession.identifierValue || "--"}
+                            </span>
                           </div>
 
                           <div className="flex items-center justify-between">
@@ -1689,115 +1830,6 @@ export default function DriverDashboard({ onLogout }) {
                           </div>
                         </div>
                       </div>
-
-                      {/* === THANH TOÁN CHUYỂN KHOẢN REALTIME === */}
-                      <div className="mt-6 pt-6 border-t border-slate-100">
-                        <div className="flex items-center gap-2 mb-4">
-                          <span className="text-lg">💳</span>
-                          <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
-                            Thanh toán khi ra bãi
-                          </h4>
-                        </div>
-
-                        {!data?.paymentConfirmed ? (
-                          <div className="space-y-4">
-                            {/* VietQR hiển thị */}
-                            <div className="flex flex-col items-center bg-indigo-50/50 rounded-2xl border border-indigo-100 p-5">
-                              <img
-                                src={`https://api.vietqr.io/image/970422-0974114657-compact.png?amount=${Math.round(realTimeFee)}&addInfo=${encodeURIComponent(currentSession?.licensePlate || "SMART PARKING")}&accountName=TRAN%20NGUYEN%20MINH%20AN`}
-                                alt="VietQR Payment"
-                                className="w-36 h-36 object-contain rounded-lg shadow-sm"
-                                onError={(e) => {
-                                  e.target.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`STK: 0974114657 | MB BANK | TRAN NGUYEN MINH AN | So tien: ${Math.round(realTimeFee)}`)}`;
-                                }}
-                              />
-                              <div className="text-center mt-3 space-y-1">
-                                <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                                  Quét QR để chuyển khoản
-                                </p>
-                                <p className="text-xs font-bold text-slate-700">
-                                  MB Bank -{" "}
-                                  <span className="font-mono">0974114657</span>
-                                </p>
-                                <p className="text-xs font-semibold text-slate-500">
-                                  TRAN NGUYEN MINH AN
-                                </p>
-                                <p className="text-sm font-black text-indigo-600 mt-1">
-                                  {Math.round(realTimeFee).toLocaleString(
-                                    "vi-VN",
-                                  )}
-                                  đ
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Nút thanh toán VNPay sandbox thật */}
-                            <button
-                              onClick={handleVnPayCheckout}
-                              className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-700 hover:to-cyan-600 text-white font-extrabold text-sm py-4 shadow-lg shadow-indigo-600/20 transition-all duration-200 active:scale-[0.97] cursor-pointer"
-                            >
-                              <span className="text-lg">💳</span>
-                              Thanh toán VNPay Sandbox
-                            </button>
-
-                            {/* Nút xác nhận đã chuyển khoản */}
-                            <button
-                              onClick={async () => {
-                                if (
-                                  !confirm(
-                                    "Bạn đã chuyển khoản thành công? Hệ thống sẽ xác nhận và tự động check-out xe cho bạn.",
-                                  )
-                                )
-                                  return;
-                                try {
-                                  await staffApi.confirmPayment({
-                                    sessionCode: currentSession?.sessionCode,
-                                    licensePlate: currentSession?.licensePlate,
-                                  });
-                                  // Cập nhật UI
-                                  setData((prev) => ({
-                                    ...prev,
-                                    paymentConfirmed: true,
-                                  }));
-                                  alert(
-                                    "✅ Thanh toán đã được xác nhận! Nhân viên bãi xe đã nhận thông báo. Xe của bạn sẽ được mở barrier tự động.",
-                                  );
-                                  // Reload dữ liệu
-                                  setTimeout(() => loadUserData(), 2000);
-                                } catch (err) {
-                                  alert(
-                                    "❌ Lỗi xác nhận thanh toán: " +
-                                      (err.response?.data?.message ||
-                                        err.message),
-                                  );
-                                }
-                              }}
-                              className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-4 shadow-lg shadow-emerald-600/20 transition-all duration-200 active:scale-[0.97] cursor-pointer"
-                            >
-                              <span className="text-lg">✅</span>
-                              Tôi đã chuyển khoản xong
-                            </button>
-
-                            <p className="text-[10px] text-slate-400 text-center font-medium leading-relaxed">
-                              Sau khi bạn bấm xác nhận, nhân viên bãi xe sẽ tự
-                              động nhận thông báo <strong>real-time</strong> và
-                              mở barrier cho xe ra.
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="text-center py-6 bg-emerald-50 rounded-2xl border border-emerald-100">
-                            <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-[10px] font-black tracking-widest text-emerald-600">
-                              OK
-                            </div>
-                            <h4 className="font-extrabold text-emerald-800 text-sm">
-                              Thanh toán thành công!
-                            </h4>
-                            <p className="text-xs text-emerald-600 mt-1">
-                              Barrier sẽ tự động mở khi bạn đến cổng ra.
-                            </p>
-                          </div>
-                        )}
-                      </div>
                     </div>
                   ) : (
                     <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-center py-16 flex flex-col items-center justify-center">
@@ -1842,47 +1874,59 @@ export default function DriverDashboard({ onLogout }) {
                         {currentSession.sessionCode || "--"}
                       </p>
 
-                      <div className="mt-6 space-y-3.5 border-t border-slate-100 pt-4 text-left text-xs font-semibold">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-450 font-bold">
-                            Chủ xe:
-                          </span>
-                          <span className="text-slate-800">{user.name}</span>
-                        </div>
+                      <div className="mt-6 border-t border-slate-100 pt-5 text-left">
+                        <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                          <InfoRow
+                            label="Mã phiên"
+                            value={currentSession.sessionCode || "--"}
+                            mono
+                          />
 
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-450 font-bold">
-                            Biển số:
-                          </span>
-                          <LicensePlate
-                            plate={currentSession.licensePlate}
-                            vehicleTypeName={currentSession.vehicle}
+                          <InfoRow label="Chủ xe" value={user.name || "--"} />
+
+                          <InfoRow
+                            label="Loại xe"
+                            value={currentSession.vehicle || "--"}
+                          />
+
+                          <InfoRow
+                            label={currentSession.identifierLabel || "Biển số"}
+                            value={currentSession.identifierValue || "--"}
+                            mono
+                          />
+
+                          <InfoRow
+                            label="Vị trí"
+                            value={`${currentSession.floor || "--"} - ${currentSession.zoneCode || "--"}`}
+                            mono
+                          />
+
+                          <InfoRow
+                            label="Tòa nhà"
+                            value={
+                              currentSession.buildingName || "Smart Parking"
+                            }
+                          />
+
+                          <InfoRow
+                            label="Thời điểm vào"
+                            value={currentSession.startTime || "--"}
+                          />
+
+                          <InfoRow
+                            label="Trạng thái"
+                            value={currentSession.status || "--"}
                           />
                         </div>
 
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-450 font-bold">
-                            Zone:
-                          </span>
-                          <span className="font-bold text-indigo-600 font-mono">
-                            {currentSession.floor} - {currentSession.zoneCode}
-                          </span>
-                        </div>
-
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-450 font-bold">
-                            Trạng thái:
-                          </span>
-                          <span className="text-emerald-600 font-extrabold">
-                            {currentSession.status}
-                          </span>
+                        <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+                          <p className="text-[10px] font-semibold leading-5 text-indigo-700">
+                            Xuất trình thông tin này cho Staff tại cổng khi cần
+                            kiểm tra phiên gửi xe.
+                          </p>
                         </div>
                       </div>
 
-                      <p className="text-[10px] text-slate-400 font-medium leading-relaxed mt-4 border-t border-slate-100 pt-3">
-                        Thông tin phiên gửi xe dùng để nhân viên kiểm tra tại
-                        cổng.
-                      </p>
                     </div>
                   ) : (
                     <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-center">
@@ -2076,6 +2120,7 @@ export default function DriverDashboard({ onLogout }) {
                     gửi xe tại hệ thống bãi đỗ.
                   </p>
                 </div>
+
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setActiveTab("dashboard")}
@@ -2086,90 +2131,149 @@ export default function DriverDashboard({ onLogout }) {
                 </div>
               </div>
 
-              {/* Lịch Sử Gửi Xe Expanded */}
               <div className="action-panel-item rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
                 <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center mb-6">
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="🔍 Tìm kiếm theo cơ sở hoặc vị trí đỗ (Ví dụ: FPT Landmark)..."
+                    placeholder="🔍 Tìm mã phiên, mã xe đạp, biển số, khu, tầng, loại xe, trạng thái..."
                     className="w-full md:max-w-md rounded-xl border border-slate-200 px-4 py-2.5 outline-none text-xs font-semibold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 transition-all bg-slate-50 text-slate-800"
                   />
+
                   <div className="text-[10px] font-black text-slate-500 bg-slate-100 px-3.5 py-2 rounded-xl">
                     TỔNG LƯỢT ĐỖ: {history.length} LƯỢT
                   </div>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className="min-w-[1200px] w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-150 text-slate-400 font-bold uppercase tracking-wider">
-                        <th className="pb-3 pl-2">Thời Gian Vào</th>
-                        <th className="pb-3">Cơ Sở</th>
-                        <th className="pb-3">Vị Trí Đỗ</th>
-                        <th className="pb-3">Phương Tiện</th>
-                        <th className="pb-3">Chi Phí</th>
-                        <th className="pb-3 text-right pr-2">Trạng Thái</th>
+                        <th className="pb-3 pl-2">Mã phiên</th>
+                        <th className="pb-3">Mã xe / Biển số</th>
+                        <th className="pb-3">Ngày giờ ra vào</th>
+                        <th className="pb-3">Vị trí / Cổng</th>
+                        <th className="pb-3">Thông tin xe</th>
+                        <th className="pb-3">Thanh toán</th>
+                        <th className="pb-3">Chi phí</th>
+                        <th className="pb-3 text-right pr-2">Trạng thái</th>
                       </tr>
                     </thead>
+
                     <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                      {history.filter(
-                        (item) =>
-                          item.building
-                            .toLowerCase()
-                            .includes(searchTerm.toLowerCase()) ||
-                          `${item.floorName} ${item.zoneCode} ${item.zoneName}`
-                            .toLowerCase()
-                            .includes(searchTerm.toLowerCase()),
-                      ).length === 0 ? (
+                      {filteredHistory.length === 0 ? (
                         <tr>
                           <td
-                            colSpan="6"
+                            colSpan="8"
                             className="py-8 text-center text-slate-400 font-bold italic"
                           >
                             Không tìm thấy dữ liệu đỗ xe phù hợp.
                           </td>
                         </tr>
                       ) : (
-                        history
-                          .filter(
-                            (item) =>
-                              item.building
-                                .toLowerCase()
-                                .includes(searchTerm.toLowerCase()) ||
-                              `${item.floorName} ${item.zoneCode} ${item.zoneName}`
-                                .toLowerCase()
-                                .includes(searchTerm.toLowerCase()),
-                          )
-                          .map((item) => (
-                            <tr
-                              key={item.id}
-                              className="hover:bg-slate-50 transition-colors duration-150"
-                            >
-                              <td className="py-4 pl-2 font-mono font-medium text-slate-500">
-                                {item.date}
-                              </td>
-                              <td className="py-4 font-bold text-slate-900">
-                                {item.building}
-                              </td>
-                              <td className="py-4 font-mono text-indigo-600 font-bold">
-                                {item.floorName}-{item.zoneCode}
-                              </td>
-                              <td className="py-4 text-slate-650">
-                                {item.vehicle || "Xe ô tô"}
-                              </td>
-                              <td className="py-4 font-bold text-slate-900">
-                                {item.cost}
-                              </td>
-                              <td className="py-4 text-right pr-2">
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[10px] font-black text-emerald-700 uppercase tracking-wider">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                  {item.status}
+                        filteredHistory.map((item) => (
+                          <tr
+                            key={item.id}
+                            className="hover:bg-slate-50 transition-colors duration-150 align-top"
+                          >
+                            <td className="py-4 pl-2">
+                              <p className="font-mono font-black text-slate-800">
+                                {item.sessionCode}
+                              </p>
+                              <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                                Tạo: {item.registeredAt}
+                              </p>
+                            </td>
+
+                            <td className="py-4">
+                              <p className="font-mono font-black text-indigo-700">
+                                {item.identifierValue}
+                              </p>
+                              <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                {item.identifierLabel}
+                              </p>
+                            </td>
+
+                            <td className="py-4 min-w-[190px]">
+                              <p>
+                                Vào bãi:{" "}
+                                <span className="font-bold">{item.date}</span>
+                              </p>
+                              <p className="mt-1 text-slate-500">
+                                Ra bãi:{" "}
+                                <span className="font-bold">
+                                  {item.exitDate}
                                 </span>
-                              </td>
-                            </tr>
-                          ))
+                              </p>
+                              <p className="mt-1 text-slate-500">
+                                Vào zone:{" "}
+                                <span className="font-bold">
+                                  {item.zoneEntryDate}
+                                </span>
+                              </p>
+                              <p className="mt-1 text-slate-500">
+                                Ra zone:{" "}
+                                <span className="font-bold">
+                                  {item.zoneExitDate}
+                                </span>
+                              </p>
+                              <p className="mt-1 text-[10px] font-black text-slate-400">
+                                Thời lượng: {item.durationText}
+                              </p>
+                            </td>
+
+                            <td className="py-4 min-w-[180px]">
+                              <p className="font-mono font-black text-indigo-600">
+                                {item.floorName}-{item.zoneCode}
+                              </p>
+                              <p className="mt-1 text-[10px] font-bold text-slate-500">
+                                {item.zoneName}
+                              </p>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                {item.building}
+                              </p>
+                              <p className="mt-2 text-[10px] text-slate-500">
+                                Cổng vào: {item.entryMainGateName}
+                              </p>
+                              <p className="mt-1 text-[10px] text-slate-500">
+                                Cổng ra: {item.exitMainGateName}
+                              </p>
+                            </td>
+
+                            <td className="py-4">
+                              <p className="font-black text-slate-800">
+                                {item.vehicle}
+                              </p>
+                              <p className="mt-1 text-[10px] font-bold text-slate-400">
+                                Loại khách: {item.driverType}
+                              </p>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                Ghi chú: {item.notes}
+                              </p>
+                            </td>
+
+                            <td className="py-4">
+                              <p className="font-bold text-slate-700">
+                                {item.passType}
+                              </p>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                {item.paymentStatus}
+                              </p>
+                            </td>
+
+                            <td className="py-4 font-black text-slate-900">
+                              {item.cost}
+                            </td>
+
+                            <td className="py-4 text-right pr-2">
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[10px] font-black text-emerald-700 uppercase tracking-wider">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                {item.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
                       )}
                     </tbody>
                   </table>
@@ -2294,13 +2398,13 @@ function DriverQrModal({ data, userName, onClose }) {
 
   const payload = isSession
     ? JSON.stringify({
-        type: "SESSION",
-        sessionCode: item.sessionCode,
-        licensePlate: item.licensePlate,
-        vehicleType: item.vehicle,
-        zoneCode: item.zoneCode,
-        floor: item.floor,
-      })
+      type: "SESSION",
+      sessionCode: item.sessionCode,
+      licensePlate: item.licensePlate,
+      vehicleType: item.vehicle,
+      zoneCode: item.zoneCode,
+      floor: item.floor,
+    })
     : "";
 
   const vehicleTypeName =
@@ -2345,11 +2449,15 @@ function DriverQrModal({ data, userName, onClose }) {
               <div className="mt-6 grid grid-cols-1 gap-3 text-left sm:grid-cols-2">
                 <InfoRow label="Tài xế" value={userName} />
                 <InfoRow
-                  label="Biển số"
-                  value={formatPlateForDisplay(
-                    item.licensePlate,
-                    vehicleTypeName,
-                  )}
+                  label={identifierLabel}
+                  value={
+                    isBicycleVehicleTypeName(vehicleTypeName)
+                      ? item.licensePlate || "--"
+                      : formatPlateForDisplay(
+                        item.licensePlate,
+                        vehicleTypeName,
+                      )
+                  }
                   mono
                 />
                 <InfoRow
@@ -2389,9 +2497,9 @@ function DriverQrModal({ data, userName, onClose }) {
                       isBicycleVehicleTypeName(vehicleTypeName)
                         ? item.licensePlate || "--"
                         : formatPlateForDisplay(
-                            item.licensePlate,
-                            vehicleTypeName,
-                          )
+                          item.licensePlate,
+                          vehicleTypeName,
+                        )
                     }
                     mono
                   />
@@ -2491,11 +2599,10 @@ function SideLink({ to, icon, label, active, collapsed }) {
   return (
     <Link
       to={to}
-      className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-        active
+      className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${active
           ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
           : "text-slate-400 hover:bg-slate-800 hover:text-white"
-      }`}
+        }`}
     >
       <span className="flex-shrink-0">{icon}</span>
       {!collapsed && <span className="whitespace-nowrap">{label}</span>}

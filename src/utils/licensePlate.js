@@ -29,7 +29,12 @@ export function getVehicleTypeKey(vehicleType = "CAR") {
     .replace(/đ/g, "d");
 
   if (text.includes("xe dap") || text.includes("bicycle")) return "BICYCLE";
-  if (text.includes("xe may") || text.includes("moto") || text.includes("motorbike")) return "MOTORBIKE";
+  if (
+    text.includes("xe may") ||
+    text.includes("moto") ||
+    text.includes("motorbike")
+  )
+    return "MOTORBIKE";
   if (text.includes("xe tai") || text.includes("truck")) return "TRUCK";
 
   return "CAR";
@@ -51,25 +56,51 @@ export function getLicensePlateValidationError(value, vehicleType = "ANY") {
   let type = "ANY";
   if (vehicleType) {
     const tStr = String(vehicleType).toLowerCase();
-    if (tStr.includes("máy") || tStr.includes("moto") || tStr.includes("motorbike") || tStr.includes("ebike")) {
+    if (
+      tStr.includes("máy") ||
+      tStr.includes("moto") ||
+      tStr.includes("motorbike") ||
+      tStr.includes("ebike")
+    ) {
       type = "MOTORBIKE";
-    } else if (tStr.includes("đạp") || tStr.includes("bicycle") || tStr.includes("bike")) {
+    } else if (
+      tStr.includes("đạp") ||
+      tStr.includes("bicycle") ||
+      tStr.includes("bike")
+    ) {
       type = "BICYCLE";
-    } else if (tStr.includes("oto") || tStr.includes("ô tô") || tStr.includes("car") || tStr.includes("tải") || tStr.includes("truck")) {
+    } else if (
+      tStr.includes("oto") ||
+      tStr.includes("ô tô") ||
+      tStr.includes("car") ||
+      tStr.includes("tải") ||
+      tStr.includes("truck")
+    ) {
       type = "CAR";
     }
   }
 
   const isBicycle = /^[A-Z0-9]{3,15}$/.test(plate);
-  
+
   const carSpecial = "LD|DA|MK|HC|TK|NG|NN|QT|CV|AT";
-  const provinceCode = "(?:1[124-9]|[23][0-9]|4[0137-9]|[5-7][0-9]|8[0-689]|9[02-57-9])";
+  const provinceCode =
+    "(?:1[124-9]|[23][0-9]|4[0137-9]|[5-7][0-9]|8[0-689]|9[02-57-9])";
   const tailPattern = "\\d{4,5}";
-  const carSeries = `(?:[A-Z]|${carSpecial})`;
+
+  // NOTE:
+  // Cho phép ô tô / xe tải có 1 hoặc 2 chữ cái sau mã tỉnh.
+  // Ví dụ hợp lệ theo UI: 30A12345, 49AB12345, 50AB12345.
+  const carSeries = `(?:[A-Z]{1,2}|${carSpecial})`;
+
+  // Xe máy vẫn cho các dạng phổ biến: 59X112345, 59AA72932, 29MD112345.
   const motoSeries = `(?:(?!(?:${carSpecial}))[A-Z]{2}|[A-Z][0-9]|MD[0-9]?)`;
 
-  const isCar = new RegExp(`^(${provinceCode}${carSeries}${tailPattern})$|^([A-Z]{2}${tailPattern})$`).test(plate);
-  const isMotorbike = new RegExp(`^(${provinceCode}${motoSeries}${tailPattern})$`).test(plate);
+  const isCar = new RegExp(
+    `^(${provinceCode}${carSeries}${tailPattern})$|^([A-Z]{2}${tailPattern})$`,
+  ).test(plate);
+  const isMotorbike = new RegExp(
+    `^(${provinceCode}${motoSeries}${tailPattern})$`,
+  ).test(plate);
 
   if (type === "CAR") {
     if (isCar) return null;
@@ -127,7 +158,8 @@ export function formatLicensePlate(value, vehicleType) {
     return clean;
   }
 
-  const formatTail = (tail) => tail.length === 5 ? tail.replace(/^(\d{3})(\d{2})$/, "$1.$2") : tail;
+  const formatTail = (tail) =>
+    tail.length === 5 ? tail.replace(/^(\d{3})(\d{2})$/, "$1.$2") : tail;
 
   // 1. Military (e.g. KA1234, KA12345)
   if (/^[A-Z]{2}\d{4,5}$/.test(clean)) {
@@ -137,33 +169,51 @@ export function formatLicensePlate(value, vehicleType) {
   // 2. Car Special (e.g. 29LD12345)
   const carSpecialReg = /^(\d{2})(LD|DA|MK|HC|TK|NG|NN|QT|CV|AT)(\d{4,5})$/;
   if (carSpecialReg.test(clean)) {
-    return clean.replace(carSpecialReg, (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`);
+    return clean.replace(
+      carSpecialReg,
+      (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`,
+    );
   }
 
-  const carReg = /^(\d{2})([A-Z])(\d{4,5})$/;
+  const carReg = /^(\d{2})([A-Z]{1,2})(\d{4,5})$/;
   const motoReg = /^(\d{2})([A-Z][0-9A-Z]|MD[0-9]?)(\d{4,5})$/;
 
   if (type === "MOTORBIKE" && motoReg.test(clean)) {
-    return clean.replace(motoReg, (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`);
+    return clean.replace(
+      motoReg,
+      (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`,
+    );
   }
 
   if (type === "CAR" && carReg.test(clean)) {
-    return clean.replace(carReg, (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`);
+    return clean.replace(
+      carReg,
+      (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`,
+    );
   }
 
   // Fallback for ANY or mismatched type
   if (carReg.test(clean) && motoReg.test(clean)) {
     // Ambiguous case like 29A12345 (8 chars)
     // Default to CAR format for 5-digit tails (29A-123.45) rather than Moto 4-digit (29A1-2345)
-    return clean.replace(carReg, (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`);
+    return clean.replace(
+      carReg,
+      (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`,
+    );
   }
 
   if (motoReg.test(clean)) {
-    return clean.replace(motoReg, (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`);
+    return clean.replace(
+      motoReg,
+      (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`,
+    );
   }
 
   if (carReg.test(clean)) {
-    return clean.replace(carReg, (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`);
+    return clean.replace(
+      carReg,
+      (_, p1, p2, p3) => `${p1}${p2}-${formatTail(p3)}`,
+    );
   }
 
   return clean;
