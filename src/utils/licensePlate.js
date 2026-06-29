@@ -221,3 +221,96 @@ export function formatLicensePlate(value, vehicleType) {
 
 export const LICENSE_PLATE_HINT =
   "Biển số không đúng định dạng. Ví dụ: 51H-123.45, 30A-999.88, 59X1-123.45. Xe đạp không nhập biển số; hệ thống tự sinh mã khi đặt chỗ.";
+
+/**
+ * Tự động nhận diện loại phương tiện (CAR, MOTORBIKE hoặc TRUCK) dựa trên chuỗi biển số đầu vào.
+ * Hỗ trợ nhận diện chuẩn xác định dạng biển số Việt Nam:
+ * - Ô tô 5 số (e.g. 29A-123.45) có định dạng phẳng là 8 ký tự (index 3 là số, index 2 là chữ).
+ * - Xe tải (e.g. 29C-123.45, 29H-123.45) sử dụng sê-ri C hoặc H.
+ * - Xe máy 4 số (e.g. 29A1-2345) có định dạng phẳng là 8 ký tự.
+ * - Phân biệt bằng cách kiểm tra cấu trúc định dạng có chứa dấu phân tách (như gạch ngang) 
+ *   hoặc dựa trên quy luật sê-ri biển số.
+ * @param {string} rawPlate - Chuỗi biển số xe (chưa hoặc đã chuẩn hóa)
+ * @returns {"CAR"|"MOTORBIKE"|"TRUCK"|"BICYCLE"|null} - Loại phương tiện tương ứng hoặc null nếu không nhận diện được
+ */
+export function detectVehicleTypeFromPlate(rawPlate) {
+  if (!rawPlate) return null;
+  const upper = rawPlate.toUpperCase().trim();
+  
+  // 0. Nhận diện Xe đạp (Bicycle) dựa trên quy ước (1 chữ + 3 số) hoặc từ khóa xe đạp
+  const clean = normalizeLicensePlate(rawPlate);
+  
+  if (/^[A-Z]\d{3}$/.test(clean)) {
+    return "BICYCLE";
+  }
+  
+  if (clean.startsWith("XD") || clean.startsWith("XEDAP") || clean.startsWith("BIKE") || clean.startsWith("BICYCLE")) {
+    return "BICYCLE";
+  }
+  
+  // 1. Phân loại dựa trên ký tự phân tách (dấu gạch ngang, khoảng trắng)
+  const cleanSeparators = upper.replace(/\./g, ""); // xóa dấu chấm để dễ regex
+  
+  // Regex xe máy dạng có phân tách: 29-K1-1234, 29 K1 1234, 29K1-1234, 29K1 12345...
+  const motoFormatted = /^\d{2}-?[A-Z]\d[- ]\d{4,5}$|^\d{2}-?[A-Z]{2}[- ]\d{4,5}$|^\d{2}-?MD\d?[- ]\d{4,5}$/;
+  if (motoFormatted.test(cleanSeparators)) {
+    return "MOTORBIKE";
+  }
+  
+  // Regex xe tải dạng có phân tách (sử dụng sê-ri C hoặc H)
+  const truckFormatted = /^\d{2}[CH][- ]\d{4,5}$/;
+  if (truckFormatted.test(cleanSeparators)) {
+    return "TRUCK";
+  }
+  
+  // Regex ô tô dạng có phân tách: 29A-12345, 29A 12345, 29LD-12345...
+  const carFormatted = /^\d{2}[A-Z][- ]\d{4,5}$|^\d{2}(LD|DA|MK|HC|TK|NG|NN|QT|CV|AT)[- ]\d{4,5}$/;
+  if (carFormatted.test(cleanSeparators)) {
+    return "CAR";
+  }
+  
+  // 2. Nếu là chuỗi phẳng đã normalized (VD: 29A12345, 29K11234)
+  
+  // Kiểm tra độ dài:
+  if (clean.length === 7) {
+    // 29C1234 -> Xe tải 4 số cũ, 29A1234 -> Ô tô 4 số cũ
+    if (/^\d{2}[CH]\d{4}$/.test(clean)) {
+      return "TRUCK";
+    }
+    return "CAR";
+  }
+  
+  if (clean.length === 9) {
+    // 29K112345 -> 29K1-123.45 (Xe máy 5 số) hoặc 29LD12345 (Ô tô LD 5 số)
+    if (/^\d{2}(LD|DA|MK|HC|TK|NG|NN|QT|CV|AT)\d{5}$/.test(clean)) {
+      return "CAR";
+    }
+    return "MOTORBIKE";
+  }
+  
+  if (clean.length === 8) {
+    // Trường hợp mập mờ (VD: 29A12345 hoặc 29C12345 hoặc 29AA1234)
+    
+    // Nếu có dạng 2 chữ cái sau mã tỉnh (VD: 29AA1234 hoặc 29LD1234)
+    if (/^\d{2}[A-Z]{2}\d{4}$/.test(clean)) {
+      // Nếu 2 chữ cái này nằm trong danh sách đặc chủng ô tô (LD, DA...) -> Ô TÔ
+      if (/^\d{2}(LD|DA|MK|HC|TK|NG|NN|QT|CV|AT)\d{4}$/.test(clean)) {
+        return "CAR";
+      }
+      // Ngược lại (VD: AA, AB, AC...) -> XE MÁY
+      return "MOTORBIKE";
+    }
+    
+    // Nếu sê-ri (ký tự thứ 3) là C hoặc H (VD: 29C12345, 29H12345) -> XE TẢI
+    if (/^\d{2}[CH]\d{5}$/.test(clean)) {
+      return "TRUCK";
+    }
+    
+    // Nếu dạng 1 chữ cái + 1 số + 4 số đuôi (VD: 29A12345 có thể là ô tô 29A-123.45 hoặc xe máy 29A1-2345)
+    // Thực tế ô tô 5 số (VD: 29A-123.45) chiếm đa số tuyệt đối so với xe máy 4 số cũ (VD: 29A1-2345)
+    // Nên ưu tiên là Ô TÔ (CAR)
+    return "CAR";
+  }
+  
+  return null;
+}
