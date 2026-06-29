@@ -12,13 +12,21 @@ import StaffCheckOut from "../pages/staff/StaffCheckOut";
 import StaffMapping from "../pages/staff/StaffMapping";
 import StaffZoneEntry from "../pages/staff/StaffZoneEntry";
 
-import ManagerDashboard from "../pages/manager/ManagerDashboard";
+import ManagerLayout from "../pages/manager/ManagerLayout";
+import DashboardPage from "../pages/manager/DashboardPage";
+import RevenuePage from "../pages/manager/RevenuePage";
+import CapacityPage from "../pages/manager/CapacityPage";
+import VehicleTrafficPage from "../pages/manager/VehicleTrafficPage";
+import PaymentPage from "../pages/manager/PaymentPage";
+import PricingPage from "../pages/manager/PricingPage";
+import GateMonitoringPage from "../pages/manager/GateMonitoringPage";
 import AdminDashboard from "../pages/admin/AdminDashboard";
 import SecurityDashboard from "../pages/security/SecurityDashboard";
 
 import StaffHistory from "../pages/staff/StaffHistory";
 import ParkingTwin3DPage from "../pages/shared/ParkingTwin3DPage";
 import StaffLayout from "../pages/staff/StaffLayout";
+import SecurityPage from "../pages/manager/SecurityPage";
 
 function AppRoutes({ userRole, onLogin, onLogout }) {
   if (!userRole) {
@@ -87,10 +95,19 @@ function AppRoutes({ userRole, onLogin, onLogout }) {
     return (
       <Routes>
         <Route
-          path="/manager/dashboard"
-          element={<ManagerDashboard onLogout={onLogout} />}
-        />
-        <Route path="*" element={<Navigate to="/manager/dashboard" replace />} />
+        path="/manager/*"
+        element={<ManagerLayout onLogout={onLogout} />}
+      >
+        <Route index element={<DashboardPage />} />
+        <Route path="revenue" element={<RevenuePage />} />
+        <Route path="capacity" element={<CapacityPage />} />
+        <Route path="traffic" element={<VehicleTrafficPage />} />
+        <Route path="payments" element={<PaymentPage />} />
+        <Route path="pricing" element={<PricingPage />} />
+        <Route path="gates" element={<GateMonitoringPage />} />
+        <Route path="security" element={<SecurityPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/manager" replace />} />
       </Routes>
     );
   }
