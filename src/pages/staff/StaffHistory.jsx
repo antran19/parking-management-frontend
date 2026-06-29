@@ -26,10 +26,19 @@ const getTicketTypeLabel = (driverType, passType) => {
   return "Vé lượt";
 };
 
+const formatDuration = (minutes) => {
+  if (!minutes) return '0 phút';
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes} phút` : `${hours}h`;
+};
+
 export default function StaffHistory() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("checkin_desc");
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [historyList, setHistoryList] = useState([]);
   const [vehicleTypes, setVehicleTypes] = useState([]);
@@ -68,6 +77,9 @@ export default function StaffHistory() {
         id: item.sessionCode || `PS-${item.sessionId?.slice(0, 6).toUpperCase()}`,
         plate: item.licensePlate,
         type: item.vehicleType || "Không rõ",
+        rawEntryTime: item.entryTime ? new Date(item.entryTime).getTime() : 0,
+        rawExitTime: item.exitTime ? new Date(item.exitTime).getTime() : Number.MAX_SAFE_INTEGER,
+        rawFee: item.totalFee || 0,
         inTime: item.entryTime
           ? new Date(item.entryTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
             " • " +
@@ -87,6 +99,7 @@ export default function StaffHistory() {
         paymentMethod: item.status === "ACTIVE" ? "--" : (item.paymentMethod === "BANK_TRANSFER" ? "VietQR CK" : "Tiền mặt"),
         driverType: item.driverType,
         passType: item.passType,
+        durationMinutes: item.durationMinutes || (item.entryTime ? Math.floor((new Date(item.exitTime || Date.now()).getTime() - new Date(item.entryTime).getTime()) / 60000) : 0),
       }));
       setHistoryList(formattedData);
       fetchDashboardStats();
@@ -112,15 +125,97 @@ export default function StaffHistory() {
   const filteredHistory = historyList.filter((item) => {
     const keyword = search.toLowerCase();
     const matchSearch =
-      item.plate.toLowerCase().includes(keyword) ||
-      item.id.toLowerCase().includes(keyword) ||
-      item.slot.toLowerCase().includes(keyword);
+      (item.plate || "").toLowerCase().includes(keyword) ||
+      (item.id || "").toLowerCase().includes(keyword) ||
+      (item.slot || "").toLowerCase().includes(keyword);
 
     const matchStatus = statusFilter === "all" || item.status === statusFilter;
     const matchType = typeFilter === "all" || item.type === typeFilter;
 
     return matchSearch && matchStatus && matchType;
+  }).sort((a, b) => {
+    switch (sortOrder) {
+      case "checkin_desc": 
+        return b.rawEntryTime - a.rawEntryTime;
+      case "checkin_asc": 
+        return a.rawEntryTime - b.rawEntryTime;
+      case "checkout_desc":
+        if (a.rawExitTime === Number.MAX_SAFE_INTEGER && b.rawExitTime === Number.MAX_SAFE_INTEGER) return b.rawEntryTime - a.rawEntryTime;
+        if (a.rawExitTime === Number.MAX_SAFE_INTEGER) return 1;
+        if (b.rawExitTime === Number.MAX_SAFE_INTEGER) return -1;
+        return b.rawExitTime - a.rawExitTime;
+      case "fee_desc":
+        return b.rawFee - a.rawFee;
+      case "duration_desc":
+        return b.durationMinutes - a.durationMinutes;
+      default:
+        return 0;
+    }
   });
+
+  const handlePrint = () => {
+    if (!selectedReceipt) return;
+    const printWindow = window.open("", "_blank", "width=600,height=600");
+    if (!printWindow) {
+      alert("Vui lòng cho phép trình duyệt mở popup để in hóa đơn!");
+      return;
+    }
+
+    const ticketType = getTicketTypeLabel(selectedReceipt.driverType, selectedReceipt.passType);
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Hóa đơn thanh toán - #${selectedReceipt.id}</title>
+          <style>
+            body { font-family: Consolas, 'Courier New', monospace; text-align: center; padding: 20px; color: #333; background: #fff; }
+            .ticket-container { border: 2px dashed #444; padding: 20px; display: inline-block; width: 280px; }
+            .header { font-size: 18px; font-weight: bold; margin-bottom: 5px; letter-spacing: 2px; }
+            .subtitle { font-size: 11px; margin-bottom: 15px; text-transform: uppercase; font-weight: 600; }
+            .info-row { display: flex; justify-content: space-between; font-size: 12px; margin: 5px 0; border-bottom: 1px dotted #bbb; padding-bottom: 3px; font-weight: 600; }
+            .info-value { font-weight: 600; }
+            .total-section { margin-top: 15px; border-top: 2px dashed #444; padding-top: 10px; }
+            .total-label { font-size: 11px; font-weight: bold; color: #555; text-transform: uppercase; }
+            .total-fee { font-size: 20px; font-weight: 900; margin: 8px 0; color: #111; }
+            .footer { font-size: 10px; margin-top: 15px; border-top: 1px dashed #444; padding-top: 10px; }
+          </style>
+        </head>
+        <body>
+          <div class="ticket-container">
+            <div class="header">SMART PARKING TICKET</div>
+            <div class="subtitle">Hóa đơn thanh toán / In lại</div>
+            
+            <div class="info-row"><span>Mã phiên:</span><span class="info-value">#${selectedReceipt.id}</span></div>
+            <div class="info-row"><span>Biển số xe:</span><span class="info-value">${formatLicensePlate(selectedReceipt.plate, selectedReceipt.type) || "---"}</span></div>
+            <div class="info-row"><span>Phương tiện:</span><span class="info-value">${selectedReceipt.type || "---"}</span></div>
+            <div class="info-row"><span>Vị trí đỗ:</span><span class="info-value">${selectedReceipt.slot}</span></div>
+            <div class="info-row"><span>Loại vé:</span><span class="info-value">${ticketType}</span></div>
+            <div class="info-row"><span>Thời gian vào:</span><span class="info-value">${selectedReceipt.inTime}</span></div>
+            ${selectedReceipt.status !== "parked" ? '<div class="info-row"><span>Thời gian ra:</span><span class="info-value">' + selectedReceipt.outTime + '</span></div>' : ''}
+            <div class="info-row"><span>Thời gian gửi:</span><span class="info-value">${formatDuration(selectedReceipt.durationMinutes)}</span></div>
+            <div class="info-row"><span>Hình thức:</span><span class="info-value">${selectedReceipt.status === "parked" ? "--" : selectedReceipt.paymentMethod}</span></div>
+            
+            <div class="total-section">
+              <div class="total-label">${selectedReceipt.status === "parked" ? "Phí tạm tính" : "Tổng tiền thanh toán"}</div>
+              <div class="total-fee">${selectedReceipt.fee}</div>
+            </div>
+            
+            <div class="footer">
+              Cảm ơn và chúc quý khách thượng lộ bình an!<br/>
+              Hẹn gặp lại quý khách!
+            </div>
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
   return (
     <section className="flex-1 space-y-6 p-5">
@@ -128,33 +223,33 @@ export default function StaffHistory() {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Tổng doanh thu hôm nay"
-          value={`${Number(stats.todayRevenue || 0).toLocaleString("vi-VN")}đ`}
+          value={`${Number(stats?.todayRevenue || 0).toLocaleString("vi-VN")}đ`}
           sub="Tính từ 00:00"
           color="indigo"
         />
         <MetricCard
           title="Tổng số lượt gửi xe"
-          value={`${stats.todayCheckIn || 0} lượt`}
+          value={`${stats?.todayCheckIn || 0} lượt`}
           sub="Đã xử lý trong ngày"
           color="blue"
         />
         <MetricCard
           title="Lượt xe đang đỗ"
-          value={`${stats.activeSessions || 0} xe`}
+          value={`${stats?.activeSessions || 0} xe`}
           sub="Hiện diện trong bãi"
           color="emerald"
         />
         <MetricCard
           title="Công suất hoạt động"
-          value={`${stats.occupancyPercent || 0}%`}
+          value={`${stats?.occupancyPercent || 0}%`}
           sub="Tối ưu hóa vị trí"
           color="purple"
         />
       </div>
 
       {/* Search and Filter Panel */}
-      <div className="action-panel-item grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-12">
-        <div className="md:col-span-6">
+      <div className="action-panel-item grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-2 lg:grid-cols-4">
+        <div>
           <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
             Tìm kiếm thông tin
           </label>
@@ -166,7 +261,7 @@ export default function StaffHistory() {
           />
         </div>
 
-        <div className="md:col-span-3">
+        <div>
           <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
             Trạng thái đỗ
           </label>
@@ -181,7 +276,24 @@ export default function StaffHistory() {
           </select>
         </div>
 
-        <div className="md:col-span-3">
+        <div>
+          <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
+            Sắp xếp theo
+          </label>
+          <select
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 outline-none text-sm font-semibold text-slate-700 focus:border-indigo-500 transition-all"
+          >
+            <option value="checkin_desc">Xe vào mới nhất</option>
+            <option value="checkout_desc">Xe ra mới nhất</option>
+            <option value="checkin_asc">Xe vào cũ nhất</option>
+            <option value="duration_desc">Đỗ lâu nhất</option>
+            <option value="fee_desc">Phí đỗ cao nhất</option>
+          </select>
+        </div>
+
+        <div>
           <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
             Loại phương tiện
           </label>
@@ -285,7 +397,7 @@ export default function StaffHistory() {
       {/* Receipt Detail Modal */}
       {selectedReceipt && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl flex flex-col gap-4 border-t-8 border-t-indigo-600 animate-scale-in">
+          <div className="relative w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl flex flex-col gap-4 border-t-8 border-t-indigo-600 animate-scale-in">
             {/* Punch hole trang trí */}
             <div className="absolute left-0 top-[110px] -ml-2.5 w-5 h-5 rounded-full bg-[#111827] border-r border-slate-200/80 z-10"></div>
             <div className="absolute right-0 top-[110px] -mr-2.5 w-5 h-5 rounded-full bg-[#111827] border-l border-slate-200/80 z-10"></div>
@@ -355,6 +467,12 @@ export default function StaffHistory() {
                 </div>
               )}
               <div className="flex justify-between">
+                <span>Thời gian gửi:</span>
+                <span className="text-slate-600 font-extrabold">
+                  {formatDuration(selectedReceipt.durationMinutes)}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span>Hình thức:</span>
                 <span className="text-slate-600 font-black">
                   {selectedReceipt.status === "parked" ? "--" : selectedReceipt.paymentMethod}
@@ -387,10 +505,7 @@ export default function StaffHistory() {
               </button>
 
               <button
-                onClick={() => {
-                  alert("Đang in biên lai gửi xe...");
-                  setSelectedReceipt(null);
-                }}
+                onClick={handlePrint}
                 className="flex-1 rounded-xl bg-slate-900 py-2.5 font-bold text-white hover:bg-slate-800 text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
               >
                 🖨️ In lại hóa đơn

@@ -101,19 +101,33 @@ export default function StaffDashboard() {
 
       setRecentExceptions(formattedBackend.slice(0, 5));
 
-      // 4. Đồng bộ hàng đợi đặt trước (Reservations Queue) từ LocalStorage đang test
-      const storedBooking = JSON.parse(localStorage.getItem("driver_booking") || "null");
-      if (storedBooking && (storedBooking.status === "CONFIRMED" || !storedBooking.status || storedBooking.status === "PENDING")) {
-        const userRes = {
-          licensePlate: storedBooking.licensePlate || "30A-123.45",
-          customerName: storedBooking.fullName || "Khách đặt trước",
-          zoneName: storedBooking.zoneCode || "Zone A",
-          status: "PRE_BOOKED",
-          countdown: "Còn 30p"
-        };
-        setUpcomingReservations([userRes]);
-      } else {
-        setUpcomingReservations([]);
+      // 4. Đồng bộ hàng đợi đặt trước (Reservations Queue) từ Backend
+      try {
+        const reservationsRes = await staffApi.getStaffUpcomingReservations();
+        const activeReservations = reservationsRes.data.data || [];
+        const mappedReservations = activeReservations.map(res => {
+          const reservedTo = new Date(res.reservedTo).getTime();
+          const now = Date.now();
+          const diffMins = Math.max(0, Math.floor((reservedTo - now) / 60000));
+          let countdownStr = "Hết hạn";
+          if (diffMins > 0) {
+            if (diffMins > 60) {
+              countdownStr = `Còn ${Math.floor(diffMins / 60)}h ${diffMins % 60}p`;
+            } else {
+              countdownStr = `Còn ${diffMins}p`;
+            }
+          }
+          return {
+            licensePlate: res.licensePlate || "Không rõ",
+            customerName: res.customerName || "Khách đặt trước",
+            zoneName: res.zoneName || "Khu vực chung",
+            status: res.status === "CONFIRMED" ? "VIP" : "PRE_BOOKED",
+            countdown: countdownStr
+          };
+        });
+        setUpcomingReservations(mappedReservations);
+      } catch (resErr) {
+        console.warn("Lỗi tải danh sách đặt trước:", resErr);
       }
 
     } catch (err) {
@@ -123,10 +137,7 @@ export default function StaffDashboard() {
     }
   };
 
-  const handleResolveException = (id, index) => {
-    setRecentExceptions(prev => prev.filter((_, i) => i !== index));
-    alert("Đã gửi lệnh xử lý và tắt cảnh báo ngoại lệ thành công!");
-  };
+
 
   // Thiết lập interval tự động cập nhật dữ liệu sau mỗi 2 giây
   useEffect(() => {
@@ -222,9 +233,9 @@ export default function StaffDashboard() {
                 <div key={zone.id} className="space-y-2 border-b border-slate-100/40 pb-3.5 last:border-0 last:pb-0">
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">
-                      <span className="text-xs font-extrabold text-slate-800">{zone.zoneName} ({zone.zoneCode})</span>
+                      <span className="text-xs font-extrabold text-slate-800">Tầng {zone.floorName || (zone.floor && zone.floor.floorName) || "?"} - Khu {zone.zoneName} ({zone.zoneCode})</span>
                       <span className="text-[10px] text-slate-500 font-bold mt-0.5">
-                        Chứa: {occupied}/{total} xe ({zone.vehicleType?.name || 'Ô tô'})
+                        Chứa: {occupied}/{total} xe • Loại: {zone.vehicleType?.name || 'Không rõ'}
                       </span>
                     </div>
                   </div>
@@ -282,13 +293,6 @@ export default function StaffDashboard() {
                   {ex.licensePlate && (
                     <div className="flex justify-between items-center pt-2 border-t border-black/5">
                       <span className="font-extrabold text-[10px] font-mono tracking-wider bg-slate-900 text-white px-2 py-0.5 rounded-md select-none">{formatLicensePlate(ex.licensePlate, ex.vehicleType)}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleResolveException(ex.id, idx)}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg border border-black/10 text-[8px] font-black uppercase text-slate-700 cursor-pointer shadow-xs active:scale-95 transition-all duration-100"
-                      >
-                        Giải quyết
-                      </button>
                     </div>
                   )}
                 </div>
@@ -304,46 +308,7 @@ export default function StaffDashboard() {
           </div>
         </div>
 
-        {/* Cột 3: Pre-booked Arrivals Queue */}
-        <div className="rounded-3xl border border-slate-200/70 bg-white p-6 shadow-sm flex flex-col space-y-5 h-[420px] overflow-hidden">
-          <div className="flex justify-between items-center shrink-0">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">🎫 Hàng đợi Đặt chỗ trước</h3>
-            <span className="text-[9px] font-extrabold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100">Hôm nay</span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 scrollbar-thin">
-            {upcomingReservations.map((res, idx) => (
-              <div key={idx} className="p-4 rounded-2xl border border-slate-100 hover:border-indigo-100/50 bg-white hover:bg-slate-50/10 transition-all duration-200 flex flex-col space-y-2.5 relative overflow-hidden shadow-xs">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500" />
-
-                <div className="flex justify-between items-start pl-1.5">
-                  <div className="flex flex-col">
-                    <span className="text-xs font-black text-slate-800 font-mono tracking-wider">{formatLicensePlate(res.licensePlate, res.licensePlate.includes("A") || res.licensePlate.includes("G") ? "CAR" : "MOTORBIKE")}</span>
-                    <span className="text-[9px] text-slate-500 font-extrabold mt-0.5">{res.customerName}</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${res.status === "VIP"
-                    ? "bg-amber-50 border-amber-100 text-amber-700"
-                    : "bg-indigo-50 border-indigo-100 text-indigo-700"
-                    }`}>
-                    {res.status === "VIP" ? "VIP Pass" : "Đặt chỗ"}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center pt-2 border-t border-slate-100/50 text-[10px] pl-1.5">
-                  <span className="text-slate-500 font-semibold">Phân khu: <strong className="text-indigo-600 font-extrabold">{res.zoneName}</strong></span>
-                  <span className="text-slate-500 font-mono font-bold text-rose-500 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100/40">
-                    {res.countdown}
-                  </span>
-                </div>
-              </div>
-            ))}
-            {upcomingReservations.length === 0 && (
-              <div className="text-center py-16 text-slate-400 text-xs font-bold">
-                Không có đặt chỗ nào sắp đến.
-              </div>
-            )}
-          </div>
-        </div>
+        
 
       </div>
     </section>

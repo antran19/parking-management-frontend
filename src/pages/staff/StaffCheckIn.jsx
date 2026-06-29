@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { staffApi } from "../../api/parkingApi";
-import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate } from "../../utils/licensePlate";
+import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
+import { getCloudinaryFolder, uploadToCloudinary } from "../../utils/cloudinary";
 
 const IconPrinter = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
@@ -19,6 +20,13 @@ export default function StaffCheckIn() {
   const [checkInResult, setCheckInResult] = useState(null);
   const [ticketCode, setTicketCode] = useState("");
 
+  // States for change zone popup (Stage 1.5)
+  const [isChangingZone, setIsChangingZone] = useState(false);
+  const [eligibleZones, setEligibleZones] = useState([]);
+  const [selectedZoneId, setSelectedZoneId] = useState("");
+  const [isUpdatingZone, setIsUpdatingZone] = useState(false);
+  const [showAllZones, setShowAllZones] = useState(false);
+
   // States for face camera
   const [isFaceCameraOn, setIsFaceCameraOn] = useState(false);
   const [faceStream, setFaceStream] = useState(null);
@@ -36,6 +44,10 @@ export default function StaffCheckIn() {
   const [ocrResult, setOcrResult] = useState("Camera biển số sẵn sàng");
   const plateVideoRef = useRef(null);
   const canvasRef = useRef(null);
+
+  // States for blobs to defer upload
+  const [faceBlob, setFaceBlob] = useState(null);
+  const [plateBlob, setPlateBlob] = useState(null);
 
   // Config bãi xe tải từ Backend
   const [vehicleTypes, setVehicleTypes] = useState([]);
@@ -155,47 +167,10 @@ export default function StaffCheckIn() {
       }
       const localUrl = URL.createObjectURL(blob);
       setPreviewFaceUrl(localUrl);
+      setFaceBlob(blob);
+      setUploadedFaceUrl(""); // Xóa kết quả upload cũ
       stopFaceCamera();
-      uploadFaceToCloudinary(blob);
     }, "image/jpeg", 0.6);
-  };
-
-  const uploadFaceToCloudinary = async (blob) => {
-    try {
-      setFaceUploading(true);
-      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
-      const hasCloudinary = cloudName && uploadPreset &&
-        cloudName !== "tên_cloud_name_của_bạn" &&
-        uploadPreset !== "tên_unsigned_preset_của_bạn";
-
-      if (!hasCloudinary) {
-        console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
-        setUploadedFaceUrl(URL.createObjectURL(blob));
-        return;
-      }
-
-      const uploadData = new FormData();
-      uploadData.append("file", blob, "captured_face.jpg");
-      uploadData.append("upload_preset", uploadPreset.trim());
-
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
-        { method: "POST", body: uploadData }
-      );
-
-      if (!response.ok) {
-        throw new Error("Lỗi tải ảnh lên Cloudinary!");
-      }
-
-      const resData = await response.json();
-      setUploadedFaceUrl(resData.secure_url || resData.url);
-    } catch (err) {
-      console.error("Lỗi upload face:", err);
-    } finally {
-      setFaceUploading(false);
-    }
   };
 
   const handleDoubleUpload = async (e) => {
@@ -255,38 +230,10 @@ export default function StaffCheckIn() {
 
     // 1. Process Face File
     if (faceFile) {
-      setFaceUploading(true);
       const localUrl = URL.createObjectURL(faceFile);
       setPreviewFaceUrl(localUrl);
-
-      if (!hasCloudinary) {
-        console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
-        setUploadedFaceUrl(localUrl);
-        setFaceUploading(false);
-      } else {
-        try {
-          const uploadData = new FormData();
-          uploadData.append("file", faceFile);
-          uploadData.append("upload_preset", uploadPreset.trim());
-
-          const response = await fetch(
-            `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
-            { method: "POST", body: uploadData }
-          );
-
-          if (response.ok) {
-            const resData = await response.json();
-            setUploadedFaceUrl(resData.secure_url || resData.url);
-          } else {
-            throw new Error("Lỗi upload Cloudinary cho ảnh mặt");
-          }
-        } catch (err) {
-          console.error("Lỗi upload face:", err);
-          setApiError(prev => prev ? prev + " | Lỗi upload ảnh mặt" : "Lỗi upload ảnh mặt");
-        } finally {
-          setFaceUploading(false);
-        }
-      }
+      setFaceBlob(faceFile);
+      setUploadedFaceUrl("");
     }
 
     // 2. Process Plate File
@@ -295,6 +242,8 @@ export default function StaffCheckIn() {
       setOcrResult("Đang xử lý ảnh biển số xe...");
       const localUrl = URL.createObjectURL(plateFile);
       setPreviewPlateUrl(localUrl);
+      setPlateBlob(plateFile);
+      setUploadedPlateUrl("");
 
       let detectedPlate = "";
       try {
@@ -347,36 +296,8 @@ export default function StaffCheckIn() {
       } catch (err) {
         console.error("Lỗi khi nhận diện biển số:", err);
         setOcrResult("❌ Lỗi kết nối dịch vụ OCR.");
-      }
-
-      if (!hasCloudinary) {
-        setUploadedPlateUrl(localUrl);
-        setOcrResult(prev => prev + " - Hoàn tất (Demo Cloud)");
+      } finally {
         setPlateScanning(false);
-      } else {
-        try {
-          const uploadData = new FormData();
-          uploadData.append("file", plateFile);
-          uploadData.append("upload_preset", uploadPreset.trim());
-
-          const response = await fetch(
-            `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
-            { method: "POST", body: uploadData }
-          );
-
-          if (response.ok) {
-            const resData = await response.json();
-            setUploadedPlateUrl(resData.secure_url || resData.url);
-            setOcrResult(prev => prev + " - Tải ảnh thành công.");
-          } else {
-            throw new Error("Lỗi upload Cloudinary cho ảnh biển số");
-          }
-        } catch (err) {
-          console.error("Lỗi upload plate:", err);
-          setOcrResult(prev => prev + " ❌ Lỗi lưu ảnh.");
-        } finally {
-          setPlateScanning(false);
-        }
       }
     }
 
@@ -434,16 +355,16 @@ export default function StaffCheckIn() {
       }
       const localUrl = URL.createObjectURL(blob);
       setPreviewPlateUrl(localUrl);
+      setPlateBlob(blob);
+      setUploadedPlateUrl(""); // Clear
       stopPlateCamera();
 
-      // 1. Gửi Plate Recognizer OCR trước
-      let detectedPlate = "";
       try {
         const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
         const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
 
         if (!hasOcr) {
-          console.warn("Chưa cấu hình Plate Recognizer Token. Bỏ qua OCR.");
+          console.warn("Chưa cấu hình Plate Recognizer Token.");
           setOcrResult("⚠️ Chưa cấu hình Token OCR.");
         } else {
           const ocrData = new FormData();
@@ -461,8 +382,7 @@ export default function StaffCheckIn() {
           if (ocrResponse.ok) {
             const ocrRes = await ocrResponse.json();
             if (ocrRes.results && ocrRes.results.length > 0) {
-              detectedPlate = ocrRes.results[0].plate.toUpperCase();
-
+              const detectedPlate = ocrRes.results[0].plate.toUpperCase();
               const cleanPlate = normalizeLicensePlate(detectedPlate);
 
               // Tự động gợi ý loại xe dựa trên chuỗi trơn
@@ -495,44 +415,6 @@ export default function StaffCheckIn() {
       } catch (err) {
         console.error("Lỗi khi nhận diện biển số:", err);
         setOcrResult("❌ Lỗi kết nối dịch vụ OCR.");
-      }
-
-      // 2. Upload lên Cloudinary
-      try {
-        setOcrResult(prev => prev + " (Đang tải ảnh lên Cloudinary...)");
-        const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-        const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
-        const hasCloudinary = cloudName && uploadPreset &&
-          cloudName !== "tên_cloud_name_của_bạn" &&
-          uploadPreset !== "tên_unsigned_preset_của_bạn";
-
-        if (!hasCloudinary) {
-          console.warn("Chưa cấu hình Cloudinary. Demo: Lưu ảnh cục bộ.");
-          setUploadedPlateUrl(URL.createObjectURL(blob));
-          setOcrResult(prev => prev + " - Hoàn tất (Demo Cloud)");
-          return;
-        }
-
-        const uploadData = new FormData();
-        uploadData.append("file", blob, "captured_plate.jpg");
-        uploadData.append("upload_preset", uploadPreset.trim());
-
-        const response = await fetch(
-          `https://api.cloudinary.com/v1_1/${cloudName.trim()}/image/upload`,
-          { method: "POST", body: uploadData }
-        );
-
-        if (response.ok) {
-          const resData = await response.json();
-          setUploadedPlateUrl(resData.secure_url || resData.url);
-          setOcrResult(prev => prev + " - Tải ảnh thành công.");
-        } else {
-          throw new Error("Lỗi upload.");
-        }
-      } catch (err) {
-        console.error("Lỗi upload plate:", err);
-        setOcrResult(prev => prev + " ❌ Lỗi lưu ảnh.");
       } finally {
         setPlateScanning(false);
       }
@@ -632,8 +514,9 @@ export default function StaffCheckIn() {
 
     const currentVehicleType = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
 
-    if (!isValidVietnamLicensePlate(normalizedPlate, currentVehicleType)) {
-      setApiError(LICENSE_PLATE_HINT);
+    const plateError = getLicensePlateValidationError(normalizedPlate, currentVehicleType);
+    if (plateError) {
+      setApiError(plateError);
       return;
     }
 
@@ -649,7 +532,8 @@ export default function StaffCheckIn() {
     setApiError('');
 
     try {
-      const res = await staffApi.checkIn({
+      // Gọi API tạo Session trước mà chưa có URL ảnh
+      const requestData = {
         licensePlate: normalizedPlate,
         vehicleTypeId: formData.vehicleTypeId,
         gateEntryId: formData.gateEntryId,
@@ -658,12 +542,52 @@ export default function StaffCheckIn() {
         notes: formData.notes || null,
         entryPlateImageUrl: uploadedPlateUrl || null,
         entryFaceImageUrl: uploadedFaceUrl || null,
-      });
+      };
 
+      const res = await staffApi.checkIn(requestData);
       const backendSession = res.data.data;
       setCheckInResult(backendSession);
       setTicketCode(backendSession.sessionCode);
       setIsSuccess(true);
+
+      // SAU KHI THÀNH CÔNG: Upload ảnh lên Cloudinary (chạy song song)
+      let finalFaceUrl = uploadedFaceUrl;
+      let finalPlateUrl = uploadedPlateUrl;
+      let needUpdate = false;
+
+      const uploadTasks = [];
+
+      if (faceBlob && !finalFaceUrl) {
+        const faceUploadTask = uploadToCloudinary(faceBlob, true, false)
+          .then(url => {
+            if (url) { finalFaceUrl = url; setUploadedFaceUrl(url); needUpdate = true; }
+          })
+          .catch(err => console.error("Lỗi upload ảnh mặt:", err));
+        uploadTasks.push(faceUploadTask);
+      }
+      
+      if (plateBlob && !finalPlateUrl) {
+        const plateUploadTask = uploadToCloudinary(plateBlob, true, true)
+          .then(url => {
+            if (url) { finalPlateUrl = url; setUploadedPlateUrl(url); needUpdate = true; }
+          })
+          .catch(err => console.error("Lỗi upload ảnh biển số:", err));
+        uploadTasks.push(plateUploadTask);
+      }
+
+      // Đợi cả 2 ảnh upload xong cùng lúc
+      if (uploadTasks.length > 0) {
+        await Promise.all(uploadTasks);
+      }
+
+      // Gọi API cập nhật ảnh nếu có thay đổi
+      if (needUpdate) {
+        await staffApi.updateSessionImages(backendSession.sessionId, {
+           plateUrl: finalPlateUrl,
+           faceUrl: finalFaceUrl,
+           isEntry: true
+        }).catch(err => console.error("Lỗi gọi API cập nhật Session Images:", err));
+      }
 
       // Đồng bộ thông tin lưu trữ local cho tab Driver lập tức để tiện demo
       if (backendSession) {
@@ -708,6 +632,84 @@ export default function StaffCheckIn() {
     }
   };
 
+  const handleOpenChangeZone = async () => {
+    if (!checkInResult?.sessionId) return;
+    setIsChangingZone(true);
+    setShowAllZones(false);
+    setApiError('');
+    try {
+      const res = await staffApi.getEligibleZones(checkInResult.sessionId);
+      const zones = res.data.data || [];
+      setEligibleZones(zones);
+      if (zones.length > 0) {
+        setSelectedZoneId(zones[0].zoneId || "");
+      }
+    } catch (err) {
+      console.error("Lỗi lấy danh sách phân khu khả dụng:", err);
+      const errorMsg = err.response?.data?.message || err.message || "Không thể lấy danh sách phân khu.";
+      setApiError(`Lỗi: ${errorMsg}`);
+      setIsChangingZone(false);
+    }
+  };
+
+  const handleConfirmChangeZone = async () => {
+    if (!checkInResult?.sessionId || !selectedZoneId) return;
+    setIsUpdatingZone(true);
+    setApiError('');
+    try {
+      const res = await staffApi.changeZone(checkInResult.sessionId, selectedZoneId);
+      const updatedSession = res.data.data;
+
+      setCheckInResult(updatedSession);
+      setTicketCode(updatedSession.sessionCode);
+
+      if (updatedSession) {
+        const realSlot = (updatedSession.floorName && updatedSession.zoneCode)
+          ? `${updatedSession.floorName}-ZONE-${updatedSession.zoneCode}`
+          : `ZONE-${updatedSession.sessionCode || "UNKNOWN"}`;
+        const realFloor = updatedSession.floorName
+          ? `Tầng ${updatedSession.floorName}`
+          : "Tầng chưa xác định";
+
+        const sessionData = {
+          slot: realSlot,
+          floor: realFloor,
+          area: updatedSession.zoneName || "Khu vực đỗ xe",
+          vehicle: updatedSession.vehicleType || "Phương tiện",
+          startTime: new Date(updatedSession.entryTime || Date.now()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) + " hôm nay",
+          estimatedFee: updatedSession.totalFee || 35000,
+          status: "Đang gửi xe",
+          buildingName: "Tòa Nhà FPT Landmark",
+          licensePlate: updatedSession.licensePlate,
+          createdTimestamp: updatedSession.entryTime ? new Date(updatedSession.entryTime).getTime() : Date.now()
+        };
+
+        localStorage.setItem("driver_session", JSON.stringify(sessionData));
+
+        const storedBooking = JSON.parse(localStorage.getItem("driver_booking") || "null");
+        if (storedBooking) {
+          localStorage.setItem("driver_booking", JSON.stringify({
+            ...storedBooking,
+            slot: realSlot,
+            floor: realFloor,
+            status: "Đã đỗ xe thành công"
+          }));
+        }
+      }
+
+      setIsChangingZone(false);
+      setShowAllZones(false);
+    } catch (err) {
+      console.error("Lỗi thay đổi phân khu:", err);
+      const errorMsg = err.response?.data?.message || err.message || "Không thể thay đổi phân khu.";
+      setApiError(`Thay đổi phân khu thất bại: ${errorMsg}`);
+    } finally {
+      setIsUpdatingZone(false);
+    }
+  };
+
+
+
   const getVehicleLabel = (typeId) => {
     const vt = vehicleTypes.find(v => v.id === typeId);
     return vt ? vt.name : 'Không xác định';
@@ -722,20 +724,44 @@ export default function StaffCheckIn() {
 
     const activeGateName = gates.find(g => g.id === formData.gateEntryId)?.gateName || "Cổng vào";
 
+    const resCode = checkInResult?.reservationCode || formData.reservationCode;
+    const resCodeRow = resCode ? `
+      <div class="info-row" style="color: #4f46e5;">
+        <span>Mã đặt chỗ:</span>
+        <span class="info-value">${resCode}</span>
+      </div>
+    ` : '';
+
+    const customerName = checkInResult?.customerName;
+    const customerRow = customerName ? `
+      <div class="info-row">
+        <span>Khách hàng:</span>
+        <span class="info-value">${customerName}</span>
+      </div>
+    ` : '';
+
+    const ticketType = checkInResult
+      ? (checkInResult.driverType === "SUBSCRIBER"
+        ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
+        : checkInResult.driverType === "PRE_BOOKED"
+          ? "Vé đặt trước"
+          : "Vé lượt")
+      : "---";
+
     const ticketHtml = `
       <html>
         <head>
           <title>In Vé Xe - SmartParking</title>
           <style>
             body {
-              font-family: 'Courier New', Courier, monospace;
+              font-family:  Consolas, 'Courier New', monospace;
               text-align: center;
               padding: 20px;
-              color: #000;
+              color: #333;
               background: #fff;
             }
             .ticket-container {
-              border: 2px dashed #000;
+              border: 2px dashed #444; /* Viền nét đứt màu xám đậm */
               padding: 20px;
               display: inline-block;
               width: 280px;
@@ -750,35 +776,40 @@ export default function StaffCheckIn() {
               font-size: 11px;
               margin-bottom: 15px;
               text-transform: uppercase;
+              font-weight: 600;
             }
             .qr-code {
               margin: 15px auto;
               width: 150px;
               height: 150px;
+              opacity: 0.9; /* Giảm độ tương phản của QR code một chút */
             }
             .info-row {
               display: flex;
               justify-content: space-between;
               font-size: 12px;
               margin: 5px 0;
-              border-bottom: 1px dotted #ccc;
+              border-bottom: 1px dotted #bbb;
               padding-bottom: 3px;
+              font-weight: 600;
             }
             .info-value {
-              font-weight: bold;
+              font-weight: 600;
             }
             .footer {
               font-size: 10px;
               margin-top: 15px;
-              border-top: 1px dashed #000;
+              border-top: 1px dashed #444;
               padding-top: 10px;
+             
             }
           </style>
         </head>
         <body>
           <div class="ticket-container">
-            <div class="header">SMART PARKING</div>
+            <div class="header">SMART PARKING TICKET</div>
             <div class="subtitle">Vé gửi xe vào</div>
+            <div class="subtitle" style="margin-top: -10px;">Cổng: ${checkInResult?.gateEntryName || activeGateName}</div>
             <img class="qr-code" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${ticketCode}" />
             <div class="info-row">
               <span>Mã vé:</span>
@@ -789,36 +820,23 @@ export default function StaffCheckIn() {
               <span class="info-value">${formatLicensePlate(checkInResult?.licensePlate || formData.plateNumber, checkInResult?.vehicleType || getVehicleLabel(formData.vehicleTypeId)) || "---"}</span>
             </div>
             <div class="info-row">
-              <span>Loại phương tiện:</span>
+              <span>Phương tiện:</span>
               <span class="info-value">${checkInResult?.vehicleType || getVehicleLabel(formData.vehicleTypeId)}</span>
             </div>
             <div class="info-row">
-              <span>Hình thức gửi:</span>
-              <span class="info-value">${checkInResult
-        ? (checkInResult.driverType === "SUBSCRIBER"
-          ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
-          : checkInResult.driverType === "PRE_BOOKED"
-            ? "Đặt trước online"
-            : "Vé lượt")
-        : (formData.driverType === "SUBSCRIBER"
-          ? "Vé tháng (Premium)"
-          : formData.driverType === "PRE_BOOKED"
-            ? "Đặt trước online"
-            : "Vé lượt")
-      }</span>
+              <span>Loại vé:</span>
+              <span class="info-value">${ticketType}</span>
             </div>
+            ${resCodeRow}
             <div class="info-row">
-              <span>Vị trí gợi ý:</span>
-              <span class="info-value">${checkInResult ? `${checkInResult.zoneName} (${checkInResult.floorName})` : "(Sẽ phân bổ sau)"}</span>
+              <span>Vị trí đỗ:</span>
+              <span class="info-value">${checkInResult ? `${checkInResult.floorName} - ${checkInResult.zoneName}` : "(Sẽ phân bổ sau)"}</span>
             </div>
             <div class="info-row">
               <span>Thời gian vào:</span>
               <span class="info-value">${new Date(checkInResult?.entryTime || Date.now()).toLocaleString("vi-VN")}</span>
             </div>
-            <div class="info-row">
-              <span>Khách hàng:</span>
-              <span class="info-value">${checkInResult?.customerName || "--"}</span>
-            </div>
+            ${customerRow}
             <div class="footer">
               Cảm ơn quý khách đã sử dụng dịch vụ!<br/>
               Hotline hỗ trợ: 1900 8888<br/>
@@ -902,7 +920,7 @@ export default function StaffCheckIn() {
                 </div>
 
                 {/* Điều khiển Cột 1 */}
-                <div className="bg-slate-50 p-5 flex flex-col gap-2 mt-auto min-h-[110px] justify-center">
+                <div className="bg-slate-50 p-3 flex flex-col gap-2 mt-auto min-h-[80px] justify-center">
                   <div className="flex gap-1 justify-center">
                     <button
                       type="button"
@@ -984,7 +1002,7 @@ export default function StaffCheckIn() {
                 </div>
 
                 {/* Điều khiển Cột 2 */}
-                <div className="bg-slate-50 p-5 flex flex-col gap-2 mt-auto min-h-[110px] justify-center">
+                <div className="bg-slate-50 p-3 flex flex-col gap-2 mt-auto min-h-[80px] justify-center">
                   <div className="flex gap-1 justify-center">
                     <button
                       type="button"
@@ -1085,19 +1103,115 @@ export default function StaffCheckIn() {
         </div>
 
         {/* Cột phải (Vé thanh toán) - chiếm 3 cột (25%) */}
-        <div className="space-y-3 lg:col-span-3 flex flex-col">
+        <div className="space-y-2 lg:col-span-3 flex flex-col">
 
           {/* Vị trí đỗ gợi ý luôn hiển thị */}
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-2.5 shadow-xs flex-shrink-0">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-2.5 shadow-xs flex-shrink-0 relative">
             <p className="font-bold text-emerald-900 flex items-center justify-between text-xs">
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Vị trí đỗ đề xuất:
+                Vị trí đề xuất:
+                <span className="font-black text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded ml-1">
+                  {checkInResult ? `${checkInResult.floorName} - ${checkInResult.zoneName}` : "Chờ Check-in..."}
+                </span>
               </span>
-              <span className="font-black text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                {checkInResult ? `${checkInResult.floorName} - ${checkInResult.zoneName}` : "Chờ Check-in..."}
-              </span>
+              {isSuccess && checkInResult && !isChangingZone && (
+                <button
+                  type="button"
+                  onClick={handleOpenChangeZone}
+                  className="text-xs font-black text-yellow-600 hover:text-yellow-800 bg-white hover:bg-yellow-200 border border-yellow-300 px-2 py-1.5 rounded transition-all cursor-pointer shadow-sm"
+                >
+                  Đổi
+                </button>
+              )}
             </p>
+
+            {/* Dropdown panel positioned absolutely, overlaying on top of the ticket below */}
+            {isChangingZone && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl border border-slate-200 shadow-lg p-3 z-30 flex flex-col gap-2.5 animate-fade-in">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-600 mb-2">Chọn phân khu đỗ xe</label>
+                  {eligibleZones.length === 0 ? (
+                    <div className="text-center py-2 text-xs font-bold text-slate-455 bg-slate-50 rounded border border-slate-200">
+                      Đang tải...
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      {(showAllZones ? eligibleZones : eligibleZones.slice(0, 3)).map((zone) => {
+                        const capacity = zone.capacity || 0;
+                        const current = zone.currentCount || 0;
+                        const reserved = zone.reservedCount || 0;
+                        const occupied = current + reserved;
+                        const percent = capacity > 0 ? Math.round((occupied * 100) / capacity) : 0;
+                        const isSelected = selectedZoneId === zone.zoneId;
+
+                        let percentBadgeColor = "text-emerald-600 bg-emerald-50 border-emerald-100";
+                        if (percent >= 90) {
+                          percentBadgeColor = "text-rose-600 bg-rose-50 border-rose-100";
+                        } else if (percent >= 75) {
+                          percentBadgeColor = "text-amber-600 bg-amber-50 border-amber-100";
+                        }
+
+                        return (
+                          <button
+                            key={zone.zoneId}
+                            type="button"
+                            onClick={() => setSelectedZoneId(zone.zoneId)}
+                            className={`w-full flex items-center justify-between p-1 rounded-lg border text-left transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-indigo-100 border-indigo-700 text-indigo-950 font-black shadow-xs"
+                                : "bg-white hover:bg-slate-50 border-slate-200 text-slate-700"
+                            }`}
+                          >
+                            <span className="flex items-center gap-1">
+                              <span className="inline-flex items-center justify-center text-slate-700 text-[15px] font-black px-1 rounded-sm">
+                                #{zone.priority}
+                              </span>
+                              <span className="font-semibold text-[13px]">
+                                {zone.floorName} - {zone.zoneName}
+                              </span>
+                            </span>
+                            <span className={`text-[11px] font-bold px-1 py-1 rounded border ${percentBadgeColor}`}>
+                              {percent}% ({occupied}/{capacity})
+                            </span>
+                          </button>
+                        );
+                      })}
+
+                      {eligibleZones.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllZones(!showAllZones)}
+                          className="mt-1 w-full text-center py-0.5 text-[9px] font-bold text-slate-500 hover:text-indigo-800 bg-indigo-50/30 hover:bg-indigo-50 rounded transition-all cursor-pointer"
+                        >
+                          {showAllZones ? "Thu gọn ▲" : `Xem thêm ▼`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 justify-end border-t border-slate-100 ">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsChangingZone(false);
+                      setShowAllZones(false);
+                    }}
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-300 text-slate-700 text-[11px] font-bold rounded cursor-pointer transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmChangeZone}
+                    disabled={isUpdatingZone || eligibleZones.length === 0}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {isUpdatingZone ? "Lưu..." : "Xác nhận"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* VÉ ĐIỆN TỬ CHECK-IN */}
@@ -1110,7 +1224,7 @@ export default function StaffCheckIn() {
             <div className="text-center border-b border-dashed border-slate-200 pb-2.5">
               <h4 className="font-extrabold text-xs text-slate-800 tracking-wider">SMART PARKING TICKET</h4>
               <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                CỔNG VÀO: {gates.find(g => g.id === formData.gateEntryId)?.gateName.toUpperCase() || "CHƯA CHỌN CỔNG"}
+                CỔNG VÀO: {gates.find(g => g.id === formData.gateEntryId)?.gateName?.toUpperCase() || "CHƯA CHỌN CỔNG"}
               </p>
             </div>
 
@@ -1138,42 +1252,38 @@ export default function StaffCheckIn() {
               </div>
 
               <div className="flex justify-between">
-                <span>Loại phương tiện:</span>
+                <span>Phương tiện:</span>
                 <span className="text-slate-600 font-extrabold">
                   {checkInResult ? checkInResult.vehicleType : (formData.vehicleTypeId ? getVehicleLabel(formData.vehicleTypeId) : "---")}
                 </span>
               </div>
 
               <div className="flex justify-between">
-                <span>Hình thức gửi:</span>
+                <span>Loại vé:</span>
                 <span className="text-slate-600 font-extrabold">
                   {checkInResult
                     ? (checkInResult.driverType === "SUBSCRIBER"
                       ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
                       : checkInResult.driverType === "PRE_BOOKED"
-                        ? "Đặt trước online"
+                        ? "Vé đặt trước"
                         : "Vé lượt")
-                    : (formData.driverType === "SUBSCRIBER"
-                      ? "Vé tháng (Premium)"
-                      : formData.driverType === "PRE_BOOKED"
-                        ? "Đặt trước online"
-                        : "Vé lượt")}
+                    : "---"}
                 </span>
               </div>
 
-              {formData.reservationCode && !checkInResult && (
+              {(checkInResult?.reservationCode || formData.reservationCode) && (
                 <div className="flex justify-between text-indigo-600 font-extrabold">
                   <span>Mã đặt chỗ:</span>
-                  <span>{formData.reservationCode}</span>
+                  <span>{checkInResult?.reservationCode || formData.reservationCode}</span>
                 </div>
               )}
 
               <div className="flex justify-between">
-                <span>Vị trí gợi ý:</span>
+                <span>Vị trí đỗ:</span>
                 <span className="text-slate-600 font-extrabold">
                   {checkInResult
-                    ? `${checkInResult.zoneName} (${checkInResult.floorName})`
-                    : "(Sẽ phân bổ sau)"}
+                    ? `${checkInResult.floorName} - ${checkInResult.zoneName}`
+                    : "---"}
                 </span>
               </div>
 
@@ -1182,14 +1292,16 @@ export default function StaffCheckIn() {
                 <span className="text-slate-600 font-mono text-[10px] font-bold">
                   {checkInResult
                     ? new Date(checkInResult.entryTime).toLocaleString("vi-VN")
-                    : `${liveDate} - ${liveTime}`}
+                    : "---"}
                 </span>
               </div>
 
-              <div className="flex justify-between">
-                <span>Khách hàng:</span>
-                <span className="text-slate-600 font-extrabold">{checkInResult?.customerName || "--"}</span>
-              </div>
+              {checkInResult?.customerName && (
+                <div className="flex justify-between">
+                  <span>Khách hàng:</span>
+                  <span className="text-slate-600 font-extrabold">{checkInResult.customerName}</span>
+                </div>
+              )}
               <div className="border-t border-dashed border-slate-200 pt-2.5 text-center text-[9px] text-slate-400 font-medium leading-normal mt-1">
                 Cảm ơn quý khách đã sử dụng dịch vụ!
                 <br />
@@ -1216,7 +1328,7 @@ export default function StaffCheckIn() {
                   <button
                     type="button"
                     onClick={handlePrintTicket}
-                    className="flex-1 bg-white text-emerald-700 border border-transparent font-bold text-xs py-2 rounded-lg cursor-pointer hover:bg-emerald-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm font-sans"
+                    className="flex-1 bg-white text-emerald-700 border border-transparent font-bold text-xm py-2 rounded-lg cursor-pointer hover:bg-emerald-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm font-sans"
                   >
                     <IconPrinter /> In Vé
                   </button>
@@ -1231,6 +1343,8 @@ export default function StaffCheckIn() {
                       setPreviewFaceUrl("");
                       setUploadedPlateUrl("");
                       setUploadedFaceUrl("");
+                      setFaceBlob(null);
+                      setPlateBlob(null);
                     }}
                     className="flex-1 bg-emerald-700/80 hover:bg-emerald-800 text-white font-bold text-xs py-2 rounded-lg cursor-pointer active:scale-[0.98] transition-all font-sans"
                   >
@@ -1258,6 +1372,7 @@ export default function StaffCheckIn() {
 
         </div>
       </div>
+
     </section>
   );
 }

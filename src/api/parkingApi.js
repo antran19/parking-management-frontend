@@ -34,6 +34,21 @@ export const staffApi = {
     return axiosClient.post("/staff/sessions/zone-entry", data);
   },
 
+  // Lấy danh sách phân khu khả dụng để thay đổi gợi ý
+  getEligibleZones(sessionId) {
+    return axiosClient.get(`/staff/sessions/${sessionId}/eligible-zones`);
+  },
+
+  // Thay đổi phân khu đỗ xe chỉ định cho session
+  changeZone(sessionId, zoneId) {
+    return axiosClient.put(`/staff/sessions/${sessionId}/change-zone?zoneId=${zoneId}`);
+  },
+
+  // Cập nhật URL ảnh lên Cloudinary sau khi check-in/out thành công
+  updateSessionImages(sessionId, data) {
+    return axiosClient.put(`/staff/sessions/${sessionId}/images`, data);
+  },
+
   // === Tác vụ của Tài xế (Driver) / Tra cứu session ===
   // Tra cứu session đang hoạt động
   getActiveSession(licensePlate) {
@@ -97,6 +112,10 @@ export const staffApi = {
     return axiosClient.post(`/driver/parking-passes/${passId}/pay`);
   },
 
+  cancelDriverPass(passId) {
+  return axiosClient.delete(`/driver/parking-passes/${passId}/cancel`);
+},
+
   getVnPayPassReturn(queryString) {
     return axiosClient.get(`/driver/payments/vnpay-return${queryString}`);
   },
@@ -147,6 +166,10 @@ export const staffApi = {
 
   deleteGate(id) {
     return axiosClient.delete(`/admin/gates/${id}`);
+  },
+
+  controlBarrier(id, state) {
+    return axiosClient.put(`/admin/gates/${id}/barrier`, { state });
   },
 
   createPricingRule(data) {

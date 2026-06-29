@@ -159,7 +159,7 @@ export default function StaffLayout({ onLogout }) {
         <div className={`border-t border-indigo-950/40 overflow-hidden ${collapsed ? "p-2" : "p-4"}`}>
           <button
             onClick={onLogout}
-            className={`flex w-full items-center rounded-xl py-3 font-semibold text-rose-350 hover:bg-rose-950/30 hover:text-rose-200 transition-all duration-200 cursor-pointer ${collapsed ? "justify-center px-0" : "gap-3 px-4"}`}
+            className={`flex w-full items-center rounded-xl py-3 font-semibold text-rose-400 hover:bg-rose-950 hover:text-rose-200 transition-all duration-200 cursor-pointer ${collapsed ? "justify-center px-0" : "gap-3 px-4"}`}
           >
             <IconLogout />
             {!collapsed && <span className="whitespace-nowrap">Đăng xuất</span>}
