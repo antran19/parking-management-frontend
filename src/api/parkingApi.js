@@ -280,8 +280,10 @@ export const managerApi = {
 
   // An ninh
   getSecuritySummary(params) {
-    // params: { from, to }
     return axiosClient.get("/manager/security/summary", { params });
+  },
+  getBlacklist() {
+    return axiosClient.get("/manager/blacklist");
   },
 
   // === CRUD TÀI NGUYÊN (Zone, PricingRule, Gate) ===
@@ -317,4 +319,7 @@ export const managerApi = {
   deleteGate(id) {
     return axiosClient.delete(`/manager/gate/${id}`);
   }
+
+
+
 };
