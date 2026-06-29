@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { staffApi } from "../../api/parkingApi";
-import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError, getVehicleTypeKey } from "../../utils/licensePlate";
+import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError, getVehicleTypeKey, detectVehicleTypeFromPlate } from "../../utils/licensePlate";
 import { getCloudinaryFolder, uploadToCloudinary } from "../../utils/cloudinary";
 
 const IconPrinter = () => (
@@ -391,13 +391,9 @@ export default function StaffCheckIn() {
             const ocrRes = await ocrResponse.json();
             if (ocrRes.results && ocrRes.results.length > 0) {
               const detectedPlate = ocrRes.results[0].plate.toUpperCase();
-              const cleanPlate = normalizeLicensePlate(detectedPlate);
+              const detectedKey = detectVehicleTypeFromPlate(detectedPlate);
 
-              // Tự động gợi ý loại xe dựa trên chuỗi trơn
-              let targetType = "ô tô";
-              if (cleanPlate.includes("A1") || cleanPlate.includes("B1") || cleanPlate.includes("E1") || cleanPlate.includes("F1")) {
-                targetType = "máy";
-              }
+              let targetType = detectedKey === "MOTORBIKE" ? "máy" : (detectedKey === "TRUCK" ? "tải" : (detectedKey === "BICYCLE" ? "đạp" : "ô tô"));
               const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetType));
 
               // Định dạng biển số xe theo loại xe
@@ -485,8 +481,9 @@ export default function StaffCheckIn() {
         if (config.vehicleTypes?.length > 0) {
           setFormData(prev => ({ ...prev, vehicleTypeId: config.vehicleTypes[0].id }));
         }
-        if (entryGates.length > 0) {
-          setFormData(prev => ({ ...prev, gateEntryId: entryGates[0].id }));
+        const firstActiveGate = entryGates.find(g => g.isActive) || entryGates[0];
+        if (firstActiveGate) {
+          setFormData(prev => ({ ...prev, gateEntryId: firstActiveGate.id }));
         }
         setConfigLoaded(true);
       } catch (err) {
@@ -652,7 +649,12 @@ export default function StaffCheckIn() {
       const zones = res.data.data || [];
       setEligibleZones(zones);
       if (zones.length > 0) {
-        setSelectedZoneId(zones[0].zoneId || "");
+        const firstSelectable = zones.find(z => z.isSelectable);
+        if (firstSelectable) {
+          setSelectedZoneId(firstSelectable.zoneId || "");
+        } else {
+          setSelectedZoneId(zones[0].zoneId || "");
+        }
       }
     } catch (err) {
       console.error("Lỗi lấy danh sách phân khu khả dụng:", err);
@@ -1043,10 +1045,34 @@ export default function StaffCheckIn() {
                     <input
                       placeholder="Nhập biển số..."
                       value={formData.plateNumber}
-                      onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const detectedKey = detectVehicleTypeFromPlate(val);
+                        let matchedTypeId = formData.vehicleTypeId;
+                        if (detectedKey) {
+                          const targetSearch = detectedKey === "MOTORBIKE" ? "máy" : (detectedKey === "TRUCK" ? "tải" : (detectedKey === "BICYCLE" ? "đạp" : "ô tô"));
+                          const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetSearch));
+                          if (vt) matchedTypeId = vt.id;
+                        }
+                        setFormData({ ...formData, plateNumber: val, vehicleTypeId: matchedTypeId });
+                      }}
                       onBlur={(e) => {
-                        const currentVehicleType = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
-                        setFormData({ ...formData, plateNumber: formatLicensePlate(e.target.value, currentVehicleType) });
+                        const val = e.target.value;
+                        const detectedKey = detectVehicleTypeFromPlate(val);
+                        let matchedTypeId = formData.vehicleTypeId;
+                        let targetTypeName = "";
+                        if (detectedKey) {
+                          const targetSearch = detectedKey === "MOTORBIKE" ? "máy" : (detectedKey === "TRUCK" ? "tải" : (detectedKey === "BICYCLE" ? "đạp" : "ô tô"));
+                          const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetSearch));
+                          if (vt) {
+                            matchedTypeId = vt.id;
+                            targetTypeName = vt.name;
+                          }
+                        }
+                        if (!targetTypeName) {
+                          targetTypeName = vehicleTypes.find(v => v.id === matchedTypeId)?.name || "";
+                        }
+                        setFormData({ ...formData, plateNumber: formatLicensePlate(val, targetTypeName), vehicleTypeId: matchedTypeId });
                       }}
                       className="flex-1 rounded border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
                     />
@@ -1094,7 +1120,9 @@ export default function StaffCheckIn() {
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
                 >
                   {gates.map(g => (
-                    <option key={g.id} value={g.id}>{g.gateName}</option>
+                    <option key={g.id} value={g.id} disabled={!g.isActive}>
+                      {g.gateName}{g.isActive ? "" : " (BẢO TRÌ)"}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1147,42 +1175,52 @@ export default function StaffCheckIn() {
                     </div>
                   ) : (
                     <div className="flex flex-col gap-1">
-                      {(showAllZones ? eligibleZones : eligibleZones.slice(0, 3)).map((zone) => {
+                       {(showAllZones ? eligibleZones : eligibleZones.slice(0, 3)).map((zone) => {
                         const capacity = zone.capacity || 0;
                         const current = zone.currentCount || 0;
                         const reserved = zone.reservedCount || 0;
                         const occupied = current + reserved;
                         const percent = capacity > 0 ? Math.round((occupied * 100) / capacity) : 0;
                         const isSelected = selectedZoneId === zone.zoneId;
+                        const isMaintenance = zone.isMaintenance;
+                        const isSelectable = zone.isSelectable;
 
                         let percentBadgeColor = "text-emerald-600 bg-emerald-50 border-emerald-100";
-                        if (percent >= 90) {
+                        if (isMaintenance) {
+                          percentBadgeColor = "text-slate-500 bg-slate-100 border-slate-200";
+                        } else if (percent >= 90) {
                           percentBadgeColor = "text-rose-600 bg-rose-50 border-rose-100";
                         } else if (percent >= 75) {
                           percentBadgeColor = "text-amber-600 bg-amber-50 border-amber-100";
+                        }
+
+                        let buttonStyles = "bg-white hover:bg-slate-50 border-slate-200 text-slate-700";
+                        if (isMaintenance) {
+                          buttonStyles = "bg-slate-50 border-slate-200 text-slate-400 opacity-60 cursor-not-allowed";
+                        } else if (isSelected) {
+                          buttonStyles = "bg-indigo-100 border-indigo-700 text-indigo-950 font-black shadow-xs";
+                        } else if (!isSelectable) {
+                          buttonStyles = "bg-white border-slate-200 text-slate-400 opacity-60 cursor-not-allowed";
                         }
 
                         return (
                           <button
                             key={zone.zoneId}
                             type="button"
-                            onClick={() => setSelectedZoneId(zone.zoneId)}
-                            className={`w-full flex items-center justify-between p-1 rounded-lg border text-left transition-all cursor-pointer ${
-                              isSelected
-                                ? "bg-indigo-100 border-indigo-700 text-indigo-950 font-black shadow-xs"
-                                : "bg-white hover:bg-slate-50 border-slate-200 text-slate-700"
-                            }`}
+                            onClick={() => isSelectable && !isMaintenance && setSelectedZoneId(zone.zoneId)}
+                            disabled={!isSelectable || isMaintenance}
+                            className={`w-full flex items-center justify-between p-1.5 rounded-lg border text-left transition-all ${buttonStyles}`}
                           >
                             <span className="flex items-center gap-1">
-                              <span className="inline-flex items-center justify-center text-slate-700 text-[15px] font-black px-1 rounded-sm">
+                              <span className="inline-flex items-center justify-center text-slate-750 text-[13px] font-black px-1 rounded-sm">
                                 #{zone.priority}
                               </span>
                               <span className="font-semibold text-[13px]">
-                                {zone.floorName} - {zone.zoneName}
+                                {zone.floorName} - {zone.zoneName} {isMaintenance ? "(BẢO TRÌ/HỎNG CỔNG)" : ""}
                               </span>
                             </span>
-                            <span className={`text-[11px] font-bold px-1 py-1 rounded border ${percentBadgeColor}`}>
-                              {percent}% ({occupied}/{capacity})
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${percentBadgeColor}`}>
+                              {isMaintenance ? "BẢO TRÌ" : `${percent}% (${occupied}/${capacity})`}
                             </span>
                           </button>
                         );
@@ -1214,7 +1252,7 @@ export default function StaffCheckIn() {
                   <button
                     type="button"
                     onClick={handleConfirmChangeZone}
-                    disabled={isUpdatingZone || eligibleZones.length === 0}
+                    disabled={isUpdatingZone || eligibleZones.length === 0 || !eligibleZones.find(z => z.zoneId === selectedZoneId)?.isSelectable}
                     className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     {isUpdatingZone ? "Lưu..." : "Xác nhận"}
@@ -1355,6 +1393,9 @@ export default function StaffCheckIn() {
                       setUploadedFaceUrl("");
                       setFaceBlob(null);
                       setPlateBlob(null);
+                      setIsChangingZone(false);
+                      setEligibleZones([]);
+                      setSelectedZoneId("");
                     }}
                     className="flex-1 bg-emerald-700/80 hover:bg-emerald-800 text-white font-bold text-xs py-2 rounded-lg cursor-pointer active:scale-[0.98] transition-all font-sans"
                   >
