@@ -35,18 +35,19 @@ export default function StaffZoneEntry() {
         const zoneGates = (config.gates || [])
           .filter(g => g.gateType === 'ZONE_ENTRY' )
           .map(g => {
+            const maintenanceLabel = g.isActive ? "" : " (BẢO TRÌ)";
             if (g.zoneId) {
               const z = zones.find(zone => zone.id === g.zoneId);
               if (z) {
                 return {
                   ...g,
-                  displayName: `${z.floorName} - ${z.zoneName}  (${g.gateName})`
+                  displayName: `${z.floorName} - ${z.zoneName} (${g.gateName})${maintenanceLabel}`
                 };
               }
             }
             return {
               ...g,
-              displayName: `${g.gateName} (Chưa gán)`
+              displayName: `${g.gateName} (Chưa gán)${maintenanceLabel}`
             };
           });
 
@@ -71,8 +72,9 @@ export default function StaffZoneEntry() {
         });
 
         setGates(zoneGates);
-        if (zoneGates.length > 0) {
-          setSelectedGateId(zoneGates[0].id);
+        const firstActiveGate = zoneGates.find(g => g.isActive) || zoneGates[0];
+        if (firstActiveGate) {
+          setSelectedGateId(firstActiveGate.id);
         }
         setConfigLoaded(true);
       } catch (err) {
@@ -384,7 +386,7 @@ export default function StaffZoneEntry() {
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
                 >
                   {gates.map(g => (
-                    <option key={g.id} value={g.id}>
+                    <option key={g.id} value={g.id} disabled={!g.isActive}>
                       {g.displayName}
                     </option>
                   ))}

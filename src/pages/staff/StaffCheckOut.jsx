@@ -953,7 +953,8 @@ export default function StaffCheckOut() {
         const exits = (config.gates || []).filter(g => g.gateType === 'MAIN_EXIT' || g.gateType === 'MAIN_BOTH');
         if (exits && exits.length > 0) {
           setExitGates(exits);
-          setSelectedGateId(exits[0].id);
+          const firstActiveGate = exits.find(g => g.isActive) || exits[0];
+          setSelectedGateId(firstActiveGate.id);
         }
       } catch (err) {
         console.warn('Failed to load dynamic config, keeping fallback gates:', err);
@@ -1349,7 +1350,9 @@ export default function StaffCheckOut() {
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
               >
                 {exitGates.map(g => (
-                  <option key={g.id} value={g.id}>{g.gateName}</option>
+                  <option key={g.id} value={g.id} disabled={!g.isActive}>
+                    {g.gateName}{g.isActive ? "" : " (BẢO TRÌ)"}
+                  </option>
                 ))}
               </select>
             </div>
