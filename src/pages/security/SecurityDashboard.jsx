@@ -22,14 +22,6 @@ import ParkingDigitalTwin3D from "./ParkingDigitalTwin3D";
  * 5. WebSocket listeners: /topic/emergency, /topic/blacklist
  */
 
-// Danh sách 5 cổng barrier mặc định dùng khi backend chưa trả về đủ gate
-const DEFAULT_GATES = [
-  { id: "gate-1", gateName: "Tầng A1", gateCode: "BASEMENT_A1", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
-  { id: "gate-2", gateName: "Tầng A2", gateCode: "BASEMENT_A2", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
-  { id: "gate-3", gateName: "Tầng B1", gateCode: "BASEMENT_B1", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
-  { id: "gate-4", gateName: "Tầng B2", gateCode: "BASEMENT_B2", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
-  { id: "gate-5", gateName: "Tầng C", gateCode: "BASEMENT_C", gateType: "BOTH", isActive: true, barrier: "CLOSED", buildingId: "BLD_1" },
-];
 
 // ==============================================================
 // ICONS — SVG inline, giống hệt project cũ
@@ -180,7 +172,7 @@ export default function SecurityDashboard({ onLogout }) {
       const fetchedGates = configRes.status === "fulfilled" ? (configRes.value.data.data?.gates || []) : [];
 
       setOverviewStats({
-        gates: fetchedGates.length > 0 ? fetchedGates : DEFAULT_GATES,
+        gates: fetchedGates,
         zones: configRes.status === "fulfilled" ? (configRes.value.data.data?.zones || []) : [],
         blacklistCount:
           blacklistRes.status === "fulfilled"
@@ -444,8 +436,8 @@ export default function SecurityDashboard({ onLogout }) {
                 {fullName.charAt(0).toUpperCase()}
               </div>
               {/* Nút Đăng xuất trên Mobile (do Sidebar bị ẩn) */}
-              <button 
-                onClick={onLogout} 
+              <button
+                onClick={onLogout}
                 className="md:hidden flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-rose-500 hover:bg-rose-50 transition-colors"
                 title="Đăng xuất"
               >
@@ -552,11 +544,11 @@ export default function SecurityDashboard({ onLogout }) {
 
           {/* ──────────── TAB: BẢN ĐỒ 3D ──────────── */}
           {activeTab === "map3d" && (
-            <ParkingDigitalTwin3D 
+            <ParkingDigitalTwin3D
               zones={overviewStats.zones}
               gates={overviewStats.gates}
-              floors={[]} 
-              sessions={[]} 
+              floors={[]}
+              sessions={[]}
               onRefresh={fetchOverview}
             />
           )}
@@ -592,9 +584,8 @@ export default function SecurityDashboard({ onLogout }) {
           <button
             key={key}
             onClick={() => setActiveTab(key)}
-            className={`flex flex-col items-center justify-center w-full py-3 gap-1 relative transition-colors ${
-              activeTab === key ? "text-red-600" : "text-slate-400 hover:text-slate-600"
-            }`}
+            className={`flex flex-col items-center justify-center w-full py-3 gap-1 relative transition-colors ${activeTab === key ? "text-red-600" : "text-slate-400 hover:text-slate-600"
+              }`}
           >
             <span className="relative">
               <Icon />

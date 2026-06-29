@@ -364,10 +364,10 @@ export default function StaffHistory() {
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                         row.status === "checked_out"
                           ? "bg-slate-100 text-slate-755 border-slate-200"
-                          : "bg-emerald-50 text-emerald-700 border-emerald-100 animate-pulse"
+                          : "bg-emerald-50 text-emerald-700 border-emerald-100 "
                       }`}
                     >
-                      <span className={`h-1.5 w-1.5 rounded-full ${row.status === "checked_out" ? "bg-slate-400" : "bg-emerald-500"}`} />
+                      <span className={`h-1.5 w-1.5 rounded-full ${row.status === "checked_out" ? "bg-slate-500" : "bg-emerald-500"}`} />
                       {row.status === "checked_out" ? "Đã ra" : "Đang đỗ"}
                     </span>
                   </td>
@@ -508,7 +508,7 @@ export default function StaffHistory() {
                 onClick={handlePrint}
                 className="flex-1 rounded-xl bg-slate-900 py-2.5 font-bold text-white hover:bg-slate-800 text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
               >
-                🖨️ In lại hóa đơn
+                In lại hóa đơn
               </button>
             </div>
           </div>

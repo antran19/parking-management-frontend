@@ -52,7 +52,7 @@ export default function EmergencyOverlay({ userRole }) {
         oscillator.stop(ctx.currentTime + delay / 1000 + 0.13);
       });
 
-      window.setTimeout(() => ctx.close().catch(() => {}), 1300);
+      window.setTimeout(() => ctx.close().catch(() => { }), 1300);
     } catch (err) {
       console.warn("Cannot play emergency alarm:", err);
     }

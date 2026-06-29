@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { staffApi } from "../../api/parkingApi";
-import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
+import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError, getVehicleTypeKey } from "../../utils/licensePlate";
 import { getCloudinaryFolder, uploadToCloudinary } from "../../utils/cloudinary";
 
 const IconPrinter = () => (
@@ -19,6 +19,14 @@ export default function StaffCheckIn() {
   const [apiError, setApiError] = useState("");
   const [checkInResult, setCheckInResult] = useState(null);
   const [ticketCode, setTicketCode] = useState("");
+
+  // Tự động ẩn thông báo lỗi sau 10 giây
+  useEffect(() => {
+    if (apiError) {
+      const timer = setTimeout(() => setApiError(""), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [apiError]);
 
   // States for change zone popup (Stage 1.5)
   const [isChangingZone, setIsChangingZone] = useState(false);
@@ -506,22 +514,26 @@ export default function StaffCheckIn() {
 
   // Xử lý gửi API Check-in lên Java Spring Boot Backend
   const handleCheckIn = async () => {
-    const normalizedPlate = normalizeLicensePlate(formData.plateNumber);
-    if (!normalizedPlate) {
+    const currentVehicleType = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+    // Sử dụng hàm getVehicleTypeKey đã chuẩn hóa để phát hiện đúng loại xe đạp (hỗ trợ cả tiếng Anh và tiếng Việt)
+    const isBicycle = getVehicleTypeKey(currentVehicleType) === "BICYCLE";
+
+    const normalizedPlate = formData.plateNumber ? normalizeLicensePlate(formData.plateNumber) : "";
+
+    if (!isBicycle && !normalizedPlate) {
       setApiError('Vui lòng cung cấp biển số xe');
       return;
     }
 
-    const currentVehicleType = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
-
-    const plateError = getLicensePlateValidationError(normalizedPlate, currentVehicleType);
-    if (plateError) {
-      setApiError(plateError);
-      return;
+    if (!isBicycle) {
+      const plateError = getLicensePlateValidationError(normalizedPlate, currentVehicleType);
+      if (plateError) {
+        setApiError(plateError);
+        return;
+      }
+      // Tự động định dạng lại hiển thị trong ô nhập liệu
+      setFormData(prev => ({ ...prev, plateNumber: formatLicensePlate(formData.plateNumber, currentVehicleType) }));
     }
-
-    // Tự động định dạng lại hiển thị trong ô nhập liệu
-    setFormData(prev => ({ ...prev, plateNumber: formatLicensePlate(formData.plateNumber, currentVehicleType) }));
 
     if (!formData.vehicleTypeId || !formData.gateEntryId) {
       setApiError('Vui lòng chọn loại xe và cổng vào tương ứng');
@@ -539,9 +551,7 @@ export default function StaffCheckIn() {
         gateEntryId: formData.gateEntryId,
         reservationCode: formData.reservationCode || null,
         driverType: formData.driverType,
-        notes: formData.notes || null,
-        entryPlateImageUrl: uploadedPlateUrl || null,
-        entryFaceImageUrl: uploadedFaceUrl || null,
+        notes: formData.notes || null
       };
 
       const res = await staffApi.checkIn(requestData);
@@ -858,13 +868,13 @@ export default function StaffCheckIn() {
 
   return (
     <section className="flex-1 space-y-6 p-1">
-      {/* Thông báo lỗi hiển thị đầu trang nội dung */}
+      {/* Thông báo lỗi hiển thị nổi */}
       {apiError && (
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 border border-rose-200 px-4 py-3 text-xs font-bold text-rose-700 shadow-sm w-full animate-pulse">
+        <div className="fixed top-17 left-1/2 -translate-x-1/2 z-[100] flex items-center justify-between gap-3 rounded-3xl bg-rose-50 border border-rose-200 px-6 py-3 text-sm font-bold text-rose-700 shadow-2xl min-w-[400px] max-w-[90vw] animate-pulse">
           <span className="flex items-center gap-2">⚠️ {apiError}</span>
           <button
             onClick={() => setApiError("")}
-            className="text-rose-400 hover:text-rose-600 transition-colors font-bold text-base leading-none cursor-pointer"
+            className="text-rose-450 hover:text-rose-600 transition-colors font-bold text-xl leading-none cursor-pointer ml-4"
           >
             &times;
           </button>

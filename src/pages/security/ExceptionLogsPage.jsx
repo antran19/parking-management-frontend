@@ -69,6 +69,10 @@ export default function ExceptionLogsPage({ showToast, user }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // Danh sách loại phương tiện tải từ API thực (không hardcode)
+  const [vehicleTypes, setVehicleTypes] = useState([]);
+  const [loadingConfig, setLoadingConfig] = useState(true);
+
   // State lưu danh sách file ảnh đang chờ upload
   const [selectedFiles, setSelectedFiles] = useState([]);
 
@@ -82,19 +86,27 @@ export default function ExceptionLogsPage({ showToast, user }) {
   const [searchText, setSearchText] = useState("");
 
   // Form ghi nhận sự cố mới
+  // vehicleTypeId/vehicleTypeName sẽ được set sau khi tải config từ API
   const [form, setForm] = useState({
     exceptionType: "LOST_TICKET",
     description: "",
     sessionId: "",
     licensePlate: "",
-    vehicleType: "MOTORBIKE", // Mặc định xe máy
+    vehicleTypeId: "",
+    vehicleTypeName: "",
   });
 
+  // Helper: kiểm tra loại xe hiện tại có phải xe đạp không (dùng name từ API)
+  const isBicycle = () => {
+    const name = (form.vehicleTypeName || "").toLowerCase();
+    return name.includes("đạp") || name.includes("bicycle");
+  };
+
   const handleLicensePlateBlur = () => {
-    const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleType);
+    const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleTypeName);
 
     // Kiểm tra ngay khi rời chuột (blur)
-    if (form.vehicleType !== "BICYCLE" && formattedPlate.trim()) {
+    if (!isBicycle() && formattedPlate.trim()) {
       if (!isValidVietnamLicensePlate(formattedPlate)) {
         showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
         setForm(prev => ({ ...prev, licensePlate: "" }));
@@ -122,7 +134,31 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
+  // Tải cấu hình bãi xe (danh sách loại phương tiện thực từ backend)
   useEffect(() => {
+    const fetchConfig = async () => {
+      setLoadingConfig(true);
+      try {
+        const res = await staffApi.getParkingConfig();
+        const config = res.data.data || {};
+        const types = config.vehicleTypes || [];
+        setVehicleTypes(types);
+        // Mặc định chọn loại phương tiện đầu tiên từ API
+        if (types.length > 0) {
+          setForm(prev => ({
+            ...prev,
+            vehicleTypeId: types[0].id,
+            vehicleTypeName: types[0].name,
+          }));
+        }
+      } catch (err) {
+        console.error("Fetch parking config error:", err);
+        showToast("Không thể tải cấu hình loại phương tiện từ máy chủ.", "error");
+      } finally {
+        setLoadingConfig(false);
+      }
+    };
+    fetchConfig();
     fetchLogs();
   }, []);
 
@@ -222,8 +258,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
       showToast("Vui lòng nhập mô tả sự cố", "error");
       return;
     }
-    if (form.vehicleType !== "BICYCLE" && form.licensePlate.trim()) {
-      const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleType);
+    if (!isBicycle() && form.licensePlate.trim()) {
+      const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleTypeName);
       if (!isValidVietnamLicensePlate(formattedPlate)) {
         showToast("Biển số xe không đúng định dạng. Vui lòng nhập lại!", "error");
         setForm(prev => ({ ...prev, licensePlate: "" }));
@@ -266,13 +302,13 @@ export default function ExceptionLogsPage({ showToast, user }) {
         description: form.description.trim(),
         sessionId: form.sessionId || null,
         // Gửi biển số đã được format
-        ...(form.licensePlate.trim() && { licensePlate: formatLicensePlate(form.licensePlate.trim(), form.vehicleType) }),
+        ...(form.licensePlate.trim() && { licensePlate: formatLicensePlate(form.licensePlate.trim(), form.vehicleTypeName) }),
         handledByUserId: user.id,
         // Gửi kèm danh sách URL ảnh minh chứng lên BE
         ...(uploadedUrls.length > 0 && { imageUrls: uploadedUrls }),
       });
-      // Reset form sau khi ghi nhận thành công
-      setForm({ exceptionType: "LOST_TICKET", description: "", sessionId: "", licensePlate: "", vehicleType: "MOTORBIKE" });
+      // Reset form - giữ lại vehicleTypeId/vehicleTypeName mặc định (loại đầu tiên từ API)
+      setForm(prev => ({ ...prev, exceptionType: "LOST_TICKET", description: "", sessionId: "", licensePlate: "" }));
       selectedFiles.forEach(f => URL.revokeObjectURL(f.preview));
       setSelectedFiles([]); // Xóa danh sách ảnh chờ
       showToast("✅ Đã ghi nhận sự cố an ninh", "success");
@@ -303,33 +339,43 @@ export default function ExceptionLogsPage({ showToast, user }) {
           {/* Biển số xe & Loại phương tiện */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Loại phương tiện">
-              <select
-                value={form.vehicleType}
-                onChange={(e) => {
-                  const newType = e.target.value;
-                  setForm({ 
-                    ...form, 
-                    vehicleType: newType, 
-                    licensePlate: newType === "BICYCLE" ? "" : formatLicensePlate(form.licensePlate, newType) 
-                  });
-                }}
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-500/10 transition-all outline-none"
-              >
-                <option value="MOTORBIKE">🏍️ Xe Máy</option>
-                <option value="CAR">🚗 Xe Ô tô</option>
-                <option value="ELECTRIC_BIKE">🚲 Xe Điện</option>
-                <option value="BICYCLE">🚲 Xe Đạp</option>
-              </select>
+              {loadingConfig ? (
+                <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+                  Đang tải danh sách loại xe...
+                </div>
+              ) : vehicleTypes.length === 0 ? (
+                <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-500">
+                  ⚠️ Không tải được cấu hình loại xe từ server
+                </div>
+              ) : (
+                <select
+                  value={form.vehicleTypeId}
+                  onChange={(e) => {
+                    const selected = vehicleTypes.find(v => String(v.id) === String(e.target.value));
+                    setForm({
+                      ...form,
+                      vehicleTypeId: e.target.value,
+                      vehicleTypeName: selected?.name || "",
+                      licensePlate: "", // Xóa biển số khi đổi loại để nhập lại
+                    });
+                  }}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-500/10 transition-all outline-none"
+                >
+                  {vehicleTypes.map(vt => (
+                    <option key={vt.id} value={vt.id}>{vt.name}</option>
+                  ))}
+                </select>
+              )}
             </Field>
 
             <Field label="Biển số xe (tự động format)">
               <input
                 type="text"
-                placeholder="VD: 59A1-123.45"
+                placeholder={isBicycle() ? "Không yêu cầu nhập cho xe đạp" : "VD: 59A1-123.45"}
                 value={form.licensePlate}
                 onChange={(e) => setForm({ ...form, licensePlate: e.target.value })}
                 onBlur={handleLicensePlateBlur}
-                disabled={form.vehicleType === "BICYCLE"}
+                disabled={isBicycle()}
                 className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-500/10 transition-all outline-none uppercase disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </Field>

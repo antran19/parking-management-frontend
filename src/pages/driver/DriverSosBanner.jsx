@@ -68,8 +68,8 @@ export default function DriverSosBanner() {
       </span>
 
       <span>
-  🚨 SOS đang bật — tạm khóa đặt chỗ, thanh toán và thao tác bãi xe
-    </span>
+        🚨 SOS đang bật — tạm khóa đặt chỗ, thanh toán và thao tác bãi xe
+      </span>
 
       <span className="hidden text-rose-100 sm:inline">
         Bấm để về Dashboard →
