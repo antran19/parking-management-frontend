@@ -5,7 +5,7 @@ import { formatLicensePlate, isValidVietnamLicensePlate } from "../../utils/lice
 // ==============================================================
 // CONSTANTS — Labels nhãn cho lý do blacklist
 // ==============================================================
-export const REASON_LABELS = {
+const REASON_LABELS = {
   STOLEN: "Xe trộm cắp",
   DISTURBANCE: "Gây rối / nguy cơ an ninh",
   UNPAID_FEE: "Nợ phí / chưa thanh toán",
@@ -14,13 +14,13 @@ export const REASON_LABELS = {
 };
 
 // Định dạng thời gian sang tiếng Việt
-export const formatTime = (value) => {
+const formatTime = (value) => {
   if (!value) return "—";
   return new Date(value).toLocaleString("vi-VN");
 };
 
 // Component hiển thị biển số xe (giống project cũ)
-export const LicensePlate = ({ plate }) => (
+const LicensePlate = ({ plate }) => (
   <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1 font-mono text-xs font-black tracking-widest text-slate-900 shadow-sm">
     <span className="mr-1.5 h-2 w-2 rounded-full bg-blue-600" />
     {plate || "—"}
@@ -28,7 +28,7 @@ export const LicensePlate = ({ plate }) => (
 );
 
 // Panel container dùng chung
-export function Panel({ title, children, className }) {
+function Panel({ title, children, className }) {
   return (
     <div className={`action-panel-item rounded-3xl border border-slate-200 bg-white p-6 shadow-sm ${className || ""}`}>
       <h3 className="mb-5 text-base font-bold text-slate-900">{title}</h3>
@@ -38,7 +38,7 @@ export function Panel({ title, children, className }) {
 }
 
 // Field label wrapper cho form
-export function Field({ label, children }) {
+function Field({ label, children }) {
   return (
     <label className="block">
       <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
@@ -48,7 +48,7 @@ export function Field({ label, children }) {
 }
 
 // Empty state placeholder
-export function Empty({ text }) {
+function Empty({ text }) {
   return (
     <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm font-semibold text-slate-400">
       {text}
@@ -70,7 +70,7 @@ export default function BlacklistPage({ showToast, user }) {
 
   // State quản lý ảnh đính kèm
   const [selectedFiles, setSelectedFiles] = useState([]);
-  
+
   // State và Ref cho tính năng Webcam
   const [showWebcam, setShowWebcam] = useState(false);
   const videoRef = useRef(null);
@@ -84,11 +84,19 @@ export default function BlacklistPage({ showToast, user }) {
     licensePlate: "",
     reason: "STOLEN",
     description: "",
+    existingImages: [],
   });
 
   // State filter/search để lọc danh sách
   const [searchText, setSearchText] = useState("");
   const [filterActive, setFilterActive] = useState("all"); // "all" | "active" | "removed"
+
+  // State cho modal chi tiết và ảnh
+  const [viewingImage, setViewingImage] = useState(null);
+  const [viewingBlacklistDetail, setViewingBlacklistDetail] = useState(null);
+
+  // State cho chức năng chỉnh sửa
+  const [editingId, setEditingId] = useState(null); // null = đang thêm mới, uuid = đang sửa
 
   // Tải cấu hình bãi xe (danh sách loại phương tiện thực từ backend)
   useEffect(() => {
@@ -98,13 +106,15 @@ export default function BlacklistPage({ showToast, user }) {
         const res = await staffApi.getParkingConfig();
         const config = res.data.data || {};
         const types = config.vehicleTypes || [];
-        setVehicleTypes(types);
+        // Lọc bỏ xe đạp
+        const filteredTypes = types.filter(v => !v.name.toLowerCase().includes("đạp") && !v.name.toLowerCase().includes("bicycle"));
+        setVehicleTypes(filteredTypes);
         // Mặc định chọn loại phương tiện đầu tiên từ API
-        if (types.length > 0) {
+        if (filteredTypes.length > 0) {
           setBlacklistForm(prev => ({
             ...prev,
-            vehicleTypeId: types[0].id,
-            vehicleTypeName: types[0].name,
+            vehicleTypeId: filteredTypes[0].id,
+            vehicleTypeName: filteredTypes[0].name,
           }));
         }
       } catch (err) {
@@ -116,6 +126,18 @@ export default function BlacklistPage({ showToast, user }) {
     };
     fetchConfig();
   }, []);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    if (viewingImage || viewingBlacklistDetail) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [viewingImage, viewingBlacklistDetail]);
 
   // Lấy danh sách blacklist từ backend
   const fetchBlacklist = async () => {
@@ -135,10 +157,102 @@ export default function BlacklistPage({ showToast, user }) {
     fetchBlacklist();
   }, []);
 
-  // Helper: kiểm tra loại xe hiện tại có phải xe đạp không (dùng name từ API)
-  const isBicycle = () => {
-    const name = (blacklistForm.vehicleTypeName || "").toLowerCase();
-    return name.includes("đạp") || name.includes("bicycle");
+  // Nhấn Sửa — nạp dữ liệu cũ vào form và kích hoạt chế độ edit
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    let defaultVt = vehicleTypes[0];
+    
+    // Format lại biển số
+    let formattedPlate = item.licensePlate || "";
+    if (formattedPlate && defaultVt) {
+      formattedPlate = formatLicensePlate(formattedPlate, defaultVt.name);
+    }
+    setBlacklistForm({
+      vehicleTypeId: defaultVt?.id || "",
+      vehicleTypeName: defaultVt?.name || "",
+      licensePlate: formattedPlate,
+      reason: item.reason || "STOLEN",
+      description: item.description || "",
+      existingImages: item.imageUrls ? [...item.imageUrls] : [],
+    });
+    setSelectedFiles([]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setBlacklistForm(prev => ({
+      ...prev,
+      licensePlate: "",
+      reason: "STOLEN",
+      description: "",
+      existingImages: [],
+    }));
+    setSelectedFiles([]);
+  };
+
+  // Lưu chỉnh sửa
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingId) return;
+
+    let finalLicensePlate = blacklistForm.licensePlate;
+    if (!finalLicensePlate.trim()) {
+      showToast("Vui lòng nhập biển số", "error");
+      return;
+    }
+    finalLicensePlate = formatLicensePlate(finalLicensePlate, blacklistForm.vehicleTypeName);
+    if (!isValidVietnamLicensePlate(finalLicensePlate)) {
+      showToast("Biển số xe không đúng định dạng!", "error");
+      return;
+    }
+
+    setSubmittingBlacklist(true);
+    let uploadedUrls = [];
+
+    try {
+      // 1. Nếu có ảnh MỚI, upload lên Cloudinary TRƯỚC
+      if (selectedFiles.length > 0) {
+        showToast("Đang tải ảnh mới lên Cloudinary...", "warning");
+        for (const file of selectedFiles) {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_PRESET_BLACKLIST); // preset smartparking-blacklist
+          formData.append("folder", "smartparking_blacklist"); // lưu vào folder riêng
+
+          const res = await fetch(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME_BLACKLIST}/image/upload`,
+            { method: "POST", body: formData }
+          );
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData?.error?.message || "Cloudinary upload failed");
+          }
+          const data = await res.json();
+          uploadedUrls.push(data.secure_url);
+        }
+      }
+
+      // Kết hợp ảnh cũ và ảnh mới tải lên
+      const finalImageUrls = [...(blacklistForm.existingImages || []), ...uploadedUrls];
+
+      await staffApi.updateBlacklistPlate(editingId, {
+        licensePlate: finalLicensePlate.trim().toUpperCase(),
+        reason: blacklistForm.reason,
+        description: blacklistForm.description,
+        imageUrls: finalImageUrls,
+        addedByUserId: user.id,
+      });
+      showToast("Đã cập nhật blacklist thành công!", "success");
+      cancelEdit();
+      fetchBlacklist();
+    } catch (err) {
+      console.error("Update blacklist failed:", err);
+      showToast(err.response?.data?.message || "Cập nhật thất bại", "error");
+    } finally {
+      setSubmittingBlacklist(false);
+    }
   };
 
   // Thêm biển số vào blacklist
@@ -147,30 +261,19 @@ export default function BlacklistPage({ showToast, user }) {
 
     let finalLicensePlate = blacklistForm.licensePlate;
 
-    if (isBicycle()) {
-      // Đối với xe đạp không có biển số, tự tạo một mã định danh giả duy nhất (< 20 ký tự)
-      finalLicensePlate = `XEDAP-${Date.now().toString().slice(-8)}`;
-    } else {
-      if (!finalLicensePlate.trim()) {
-        showToast("Vui lòng nhập biển số", "error");
-        return;
-      }
-      finalLicensePlate = formatLicensePlate(finalLicensePlate, blacklistForm.vehicleTypeName);
-      if (!isValidVietnamLicensePlate(finalLicensePlate)) {
-        showToast("Biển số xe không đúng định dạng. Vui lòng nhập lại!", "error");
-        setBlacklistForm(prev => ({ ...prev, licensePlate: "" }));
-        return;
-      }
+    if (!finalLicensePlate.trim()) {
+      showToast("Vui lòng nhập biển số", "error");
+      return;
+    }
+    finalLicensePlate = formatLicensePlate(finalLicensePlate, blacklistForm.vehicleTypeName);
+    if (!isValidVietnamLicensePlate(finalLicensePlate)) {
+      showToast("Biển số xe không đúng định dạng. Vui lòng nhập lại!", "error");
+      setBlacklistForm(prev => ({ ...prev, licensePlate: "" }));
+      return;
     }
 
     if (!user?.id) {
       showToast("Thiếu thông tin người dùng, vui lòng đăng nhập lại.", "error");
-      return;
-    }
-
-    // Yêu cầu bắt buộc có ảnh đối với xe đạp (tuỳ chọn với xe máy/ô tô)
-    if (isBicycle() && selectedFiles.length === 0) {
-      showToast("Vui lòng đính kèm ít nhất 1 ảnh nhận diện hoặc ảnh người vi phạm cho Xe Đạp", "error");
       return;
     }
 
@@ -215,6 +318,7 @@ export default function BlacklistPage({ showToast, user }) {
         licensePlate: "",
         reason: "STOLEN",
         description: "",
+        existingImages: [],
       }));
       setSelectedFiles([]);
       showToast("Đã thêm biển số vào blacklist", "success");
@@ -280,7 +384,7 @@ export default function BlacklistPage({ showToast, user }) {
       canvas.height = videoRef.current.videoHeight;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      
+
       canvas.toBlob((blob) => {
         if (blob) {
           const file = new File([blob], `webcam_${Date.now()}.jpg`, { type: "image/jpeg" });
@@ -305,6 +409,14 @@ export default function BlacklistPage({ showToast, user }) {
       URL.revokeObjectURL(newFiles[indexToRemove].preview);
       newFiles.splice(indexToRemove, 1);
       return newFiles;
+    });
+  };
+
+  const handleRemoveExistingImage = (indexToRemove) => {
+    setBlacklistForm(prev => {
+      const newExisting = [...prev.existingImages];
+      newExisting.splice(indexToRemove, 1);
+      return { ...prev, existingImages: newExisting };
     });
   };
 
@@ -346,9 +458,15 @@ export default function BlacklistPage({ showToast, user }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-        {/* ── Form thêm blacklist ── */}
-        <Panel title="➕ Thêm biển số blacklist">
-          <form onSubmit={addBlacklist} className="space-y-4">
+        {/* ── Form thêm / sửa blacklist ── */}
+        <Panel title={editingId ? "✏️ Chỉnh sửa blacklist" : "➕ Thêm biển số blacklist"}>
+          {editingId && (
+            <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3">
+              <p className="text-xs font-bold text-amber-700">✏️ Đang chỉnh sửa bản ghi blacklist. Sửa biển số, lý do và mô tả bên dưới.</p>
+              <button type="button" onClick={cancelEdit} className="shrink-0 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-200 transition-colors">✕ Hủy</button>
+            </div>
+          )}
+          <form onSubmit={editingId ? saveEdit : addBlacklist} className="space-y-4">
             {/* Mobile: 1 cột full-width; Desktop: 2 cột */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Loại phương tiện">
@@ -374,7 +492,7 @@ export default function BlacklistPage({ showToast, user }) {
                     }}
                     className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                   >
-                    {vehicleTypes.map(vt => (
+                    {vehicleTypes.filter(vt => vt.name !== 'Xe đạp').map(vt => (
                       <option key={vt.id} value={vt.id}>{vt.name}</option>
                     ))}
                   </select>
@@ -386,21 +504,18 @@ export default function BlacklistPage({ showToast, user }) {
                   value={blacklistForm.licensePlate}
                   onChange={(e) => setBlacklistForm({ ...blacklistForm, licensePlate: e.target.value.toUpperCase() })}
                   onBlur={() => {
-                    if (!isBicycle()) {
-                      const formattedPlate = formatLicensePlate(blacklistForm.licensePlate, blacklistForm.vehicleTypeName);
-                      if (formattedPlate.trim()) {
-                        if (!isValidVietnamLicensePlate(formattedPlate)) {
-                          showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
-                          setBlacklistForm(prev => ({ ...prev, licensePlate: "" }));
-                          return;
-                        }
+                    const formattedPlate = formatLicensePlate(blacklistForm.licensePlate, blacklistForm.vehicleTypeName);
+                    if (formattedPlate.trim()) {
+                      if (!isValidVietnamLicensePlate(formattedPlate)) {
+                        showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
+                        setBlacklistForm(prev => ({ ...prev, licensePlate: "" }));
+                        return;
                       }
-                      setBlacklistForm({ ...blacklistForm, licensePlate: formattedPlate });
                     }
+                    setBlacklistForm({ ...blacklistForm, licensePlate: formattedPlate });
                   }}
-                  disabled={isBicycle()}
-                  placeholder={isBicycle() ? "Không yêu cầu nhập cho xe đạp" : "VD: 59A1-123.45"}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono font-bold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+                  placeholder="VD: 59A1-123.45"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono font-bold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 uppercase disabled:opacity-50 min-w-0"
                 />
               </Field>
             </div>
@@ -428,13 +543,13 @@ export default function BlacklistPage({ showToast, user }) {
             </Field>
 
             {/* Khu vực đính kèm ảnh sự cố */}
-            <Field label="Đính kèm ảnh minh chứng (Bắt buộc cho xe đạp)">
+            <Field label={editingId ? "Tải lên ảnh mới (Bắt buộc cho xe đạp nếu xóa hết ảnh cũ)" : "Đính kèm ảnh minh chứng (Bắt buộc cho xe đạp)"}>
               <div className="flex flex-col gap-3">
                 <div className="flex gap-3">
                   {/* Cách 1: Chụp trực tiếp bằng Webcam trên máy tính/laptop */}
-                  <button 
-                    type="button" 
-                    onClick={startWebcam} 
+                  <button
+                    type="button"
+                    onClick={startWebcam}
                     disabled={submittingBlacklist || showWebcam}
                     className="flex-1 cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-center transition-colors hover:bg-slate-100 hover:border-slate-400 disabled:opacity-50"
                   >
@@ -452,24 +567,24 @@ export default function BlacklistPage({ showToast, user }) {
                 {showWebcam && (
                   <div className="mt-2 flex flex-col gap-3">
                     <div className="relative rounded-xl overflow-hidden border-2 border-slate-800 bg-black aspect-video flex flex-col shadow-lg">
-                      <video 
-                        ref={videoRef} 
-                        autoPlay 
-                        playsInline 
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
                         className="w-full h-full object-cover"
                       ></video>
                     </div>
                     {/* Hai nút điều khiển nằm bên ngoài để dễ bấm */}
                     <div className="flex justify-center gap-3 md:gap-4">
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={stopWebcam}
                         className="rounded-xl bg-slate-200 text-slate-700 px-6 py-3.5 text-sm font-bold shadow-sm hover:bg-slate-300 transition-all flex-1"
                       >
                         Hủy thao tác
                       </button>
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={captureImage}
                         className="rounded-xl bg-red-600 text-white px-6 py-3.5 text-sm font-bold shadow-md hover:bg-red-700 transition-all flex-1"
                       >
@@ -484,7 +599,7 @@ export default function BlacklistPage({ showToast, user }) {
                   <div className="mt-2 flex flex-wrap gap-2">
                     {selectedFiles.map((file, idx) => (
                       <div key={idx} className="relative inline-block rounded-lg overflow-hidden border border-slate-200 shadow-sm">
-                        <img src={file.preview} alt={`Preview ${idx+1}`} className="h-24 w-auto object-cover" />
+                        <img src={file.preview} alt={`Preview ${idx + 1}`} className="h-24 w-auto object-cover" />
                         <button
                           type="button"
                           onClick={() => handleRemoveImage(idx)}
@@ -500,13 +615,42 @@ export default function BlacklistPage({ showToast, user }) {
                     ))}
                   </div>
                 )}
+
+                {/* Hiển thị danh sách ảnh cũ đã có từ trước khi sửa */}
+                {blacklistForm.existingImages && blacklistForm.existingImages.length > 0 && selectedFiles.length === 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs font-semibold text-slate-500 mb-2">Ảnh hiện tại của blacklist:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {blacklistForm.existingImages.map((url, idx) => (
+                        <div key={idx} className="relative inline-block rounded-lg overflow-hidden border border-slate-200 shadow-sm">
+                          <img src={url} alt={`Existing ${idx+1}`} className="h-24 w-auto object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveExistingImage(idx)}
+                            disabled={submittingBlacklist}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors z-10 flex items-center justify-center disabled:opacity-50"
+                            title="Xóa ảnh này"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </Field>
             <button
               disabled={submittingBlacklist}
-              className="w-full rounded-xl bg-red-600 py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg shadow-red-600/20 hover:bg-red-700 disabled:opacity-60 transition-colors"
+              className={`w-full rounded-xl py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors disabled:opacity-60 ${
+                editingId
+                  ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20"
+                  : "bg-red-600 hover:bg-red-700 shadow-red-600/20"
+              }`}
             >
-              {submittingBlacklist ? "Đang lưu..." : "Thêm vào blacklist"}
+              {submittingBlacklist ? "Đang lưu..." : editingId ? "Lưu chỉnh sửa" : "Thêm vào blacklist"}
             </button>
           </form>
         </Panel>
@@ -532,94 +676,172 @@ export default function BlacklistPage({ showToast, user }) {
             </select>
           </div>
 
+          {!loading && (
+            <p className="mb-3 text-xs text-slate-400 font-semibold">
+              Hiển thị {filteredBlacklist.length}/{blacklist.length} biển số
+            </p>
+          )}
+
           {loading ? (
             <div className="py-8 text-center text-sm text-slate-400">Đang tải danh sách đen...</div>
+          ) : !filteredBlacklist.length ? (
+            <Empty text={searchText ? "Không tìm thấy biển số phù hợp." : "Chưa có biển số nào trong blacklist."} />
           ) : (
-            <>
-              {/* Desktop-only: table layout */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-500">
-                    <tr>
-                      <th className="p-3">Biển số</th>
-                      <th className="p-3">Lý do</th>
-                      <th className="p-3">Ngày thêm</th>
-                      <th className="p-3">Trạng thái</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredBlacklist.map((item) => (
-                      <tr
-                        key={item.id}
-                        className={`hover:bg-slate-50/50 transition-colors ${item.isActive === false ? "opacity-45" : ""}`}
-                      >
-                        <td className="p-3"><LicensePlate plate={item.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : item.licensePlate} /></td>
-                        <td className="p-3">
-                          <p className="font-bold text-slate-900">{REASON_LABELS[item.reason] || item.reason}</p>
-                          <p className="mt-1 max-w-xs text-xs text-slate-500">{item.description}</p>
-                          {item.imageUrls && item.imageUrls.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {item.imageUrls.map((url, i) => (
-                                <a key={i} href={url} target="_blank" rel="noreferrer">
-                                  <img src={url} alt="Minh chứng" className="h-10 w-14 object-cover rounded border border-slate-200 hover:opacity-80" />
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3 text-xs font-semibold text-slate-500">{formatTime(item.addedAt)}</td>
-                        <td className="p-3">
-                          <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${item.isActive === false ? "bg-slate-100 text-slate-500 border border-slate-200" : "bg-red-50 text-red-700 border border-red-100"}`}>
-                            {item.isActive === false ? "Đã gỡ" : "Đang chặn"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {!filteredBlacklist.length && (
-                  <Empty text={searchText ? "Không tìm thấy biển số phù hợp." : "Chưa có biển số nào trong blacklist."} />
-                )}
-              </div>
+            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+              {filteredBlacklist.map((item) => {
+                const isActive = item.isActive !== false;
+                return (
+                  <div key={item.id} onClick={() => setViewingBlacklistDetail(item)} className={`cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col gap-2 ${!isActive ? "opacity-60" : ""}`}>
+                    {/* Header Row */}
+                    <div className="flex items-start justify-between">
+                      <div className="flex gap-2 items-center flex-wrap">
+                        <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-black tracking-widest text-slate-900 shadow-sm">
+                          <LicensePlate plate={item.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : item.licensePlate} />
+                        </span>
 
-              {/* Mobile-only: card list dạng cuộn dọc */}
-              <div className="md:hidden space-y-3 max-h-[480px] overflow-y-auto pr-1">
-                {filteredBlacklist.length === 0 ? (
-                  <Empty text={searchText ? "Không tìm thấy biển số phù hợp." : "Chưa có biển số nào trong blacklist."} />
-                ) : (
-                  filteredBlacklist.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 transition-colors ${item.isActive === false ? "opacity-50" : ""}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <LicensePlate plate={item.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : item.licensePlate} />
-                        <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase flex-shrink-0 ${item.isActive === false ? "bg-slate-100 text-slate-500 border border-slate-200" : "bg-red-50 text-red-700 border border-red-100"}`}>
-                          {item.isActive === false ? "Đã gỡ" : "Đang chặn"}
+                        {/* Trạng thái Badge */}
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${!isActive ? "bg-slate-100 text-slate-500 border-slate-200" : "bg-red-50 text-red-700 border-red-200"}`}>
+                          {!isActive ? "Đã gỡ" : "Đang chặn"}
                         </span>
                       </div>
-                      <p className="mt-2 font-bold text-sm text-slate-900">{REASON_LABELS[item.reason] || item.reason}</p>
-                      {item.description && (
-                        <p className="mt-1 text-xs text-slate-500">{item.description}</p>
-                      )}
-                      {item.imageUrls && item.imageUrls.length > 0 && (
-                        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                          {item.imageUrls.map((url, i) => (
-                            <a key={i} href={url} target="_blank" rel="noreferrer" className="flex-shrink-0">
-                              <img src={url} alt="Minh chứng" className="h-12 w-16 object-cover rounded-md border border-slate-200" />
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                      <p className="mt-2 text-[11px] font-semibold text-slate-400">{formatTime(item.addedAt)}</p>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2">
+                        {isActive && (
+                          <button onClick={(e) => { e.stopPropagation(); handleEdit(item); }} className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
+                            Sửa
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  ))
-                )}
-              </div>
-            </>
+
+                    {/* Body */}
+                    <p className="text-sm font-bold text-slate-900 mt-1">{REASON_LABELS[item.reason] || item.reason}</p>
+                    {item.description && <p className="text-sm font-medium leading-relaxed text-slate-700 my-1">{item.description}</p>}
+
+                    {/* Image Thumbnails */}
+                    {item.imageUrls && item.imageUrls.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {item.imageUrls.map((url, idx) => (
+                          <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
+                            <img src={url} alt="Sự cố" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">Không có ảnh</p>
+                    )}
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 border-t border-slate-200 pt-2 mt-1">
+                      <span>Tạo: {formatTime(item.addedAt)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </Panel>
       </div>
+
+      {/* ── MODAL: Xem ảnh phóng to ── */}
+      {viewingImage && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm transition-all" onClick={() => setViewingImage(null)}>
+          <div className="relative max-h-full max-w-5xl flex items-center justify-center">
+            <button onClick={() => setViewingImage(null)} className="absolute -top-12 right-0 text-white hover:text-slate-300">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <img src={viewingImage} alt="Phóng to" className="max-h-[85vh] w-auto rounded-xl shadow-2xl ring-1 ring-white/20" onClick={(e) => e.stopPropagation()} />
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: Xem chi tiết Blacklist ── */}
+      {viewingBlacklistDetail && (
+        <div className="fixed inset-0 z-[9990] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm transition-all" onClick={() => setViewingBlacklistDetail(null)}>
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-slate-900 px-8 py-5 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-xl font-black text-white tracking-tight">Chi tiết danh sách đen</h3>
+                <p className="text-sm font-semibold text-slate-400 mt-1">Thông tin chi tiết về việc chặn phương tiện</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-slate-800 flex items-center justify-center text-2xl shadow-inner border border-slate-700">
+                🚫
+              </div>
+            </div>
+            
+            <div className="p-8 overflow-y-auto space-y-8 bg-slate-50/50 flex-1">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Lý do</span>
+                  <span className="inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border bg-slate-100 text-slate-600 border-slate-200">
+                    {REASON_LABELS[viewingBlacklistDetail.reason] || viewingBlacklistDetail.reason}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Trạng thái</span>
+                  <span className={`inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border ${viewingBlacklistDetail.isActive === false ? "bg-slate-100 text-slate-500 border-slate-200" : "bg-red-50 text-red-700 border-red-200"}`}>
+                    {viewingBlacklistDetail.isActive === false ? "Đã gỡ" : "Đang chặn"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Vehicle info */}
+              <div className="grid grid-cols-2 gap-4">
+                {viewingBlacklistDetail.licensePlate && (
+                  <div>
+                    <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
+                    <span className="inline-flex items-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm">
+                      <LicensePlate plate={viewingBlacklistDetail.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : viewingBlacklistDetail.licensePlate} />
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Description */}
+              <div>
+                <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
+                <p className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-5 leading-relaxed shadow-inner">
+                  {viewingBlacklistDetail.description || "Không có mô tả chi tiết."}
+                </p>
+              </div>
+
+              {/* Images */}
+              {viewingBlacklistDetail.imageUrls?.length > 0 && (
+                <div>
+                  <span className="block text-xs font-bold uppercase text-slate-500 mb-3">Hình ảnh minh chứng</span>
+                  <div className="flex flex-wrap gap-3">
+                    {viewingBlacklistDetail.imageUrls.map((url, idx) => (
+                      <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:border-slate-400">
+                        <img src={url} alt="Minh chứng" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer info */}
+              <div className="pt-6 mt-4 border-t border-slate-100 flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-bold text-slate-700">Thời gian thêm:</span>
+                  <span className="font-medium text-slate-600">{formatTime(viewingBlacklistDetail.addedAt)}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="shrink-0 border-t border-slate-200 flex justify-end p-6 bg-white">
+              <button onClick={() => setViewingBlacklistDetail(null)} className="rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-8 py-3.5 transition-colors active:scale-95 shadow-sm">
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

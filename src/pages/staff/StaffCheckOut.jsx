@@ -739,7 +739,7 @@ export default function StaffCheckOut() {
           .catch(err => console.error("Lỗi upload ảnh mặt:", err));
         uploadTasks.push(faceUploadTask);
       }
-      
+
       if (plateBlob && !finalPlateUrl) {
         const plateUploadTask = uploadToCloudinary(plateBlob, false, true)
           .then(url => {
@@ -756,9 +756,9 @@ export default function StaffCheckOut() {
 
       if (needUpdate) {
         await staffApi.updateSessionImages(backendSession.sessionId, {
-           plateUrl: finalPlateUrl,
-           faceUrl: finalFaceUrl,
-           isEntry: false
+          plateUrl: finalPlateUrl,
+          faceUrl: finalFaceUrl,
+          isEntry: false
         }).catch(err => console.error("Lỗi gọi API cập nhật Session Images:", err));
       }
 
@@ -1361,7 +1361,7 @@ export default function StaffCheckOut() {
             {sessionData?.notes && (
               <div className="w-1/2 p-2.5 rounded-xl border-2 border-amber-300 bg-amber-50 animate-pulse-slow flex flex-col justify-center">
                 <div className="flex items-center gap-1.5 mb-0.5 text-amber-700">
-                  <AlertTriangleIcon className="w-3.5 h-3.5" /> 
+                  <AlertTriangleIcon className="w-3.5 h-3.5" />
                   <span className="font-black text-[10px] uppercase tracking-wider">
                     GHI CHÚ LÚC VÀO
                   </span>
@@ -1378,7 +1378,7 @@ export default function StaffCheckOut() {
         {/* Cột phải (Vé thanh toán) - chiếm 3 cột (25%) */}
         <div className="space-y-2 lg:col-span-3 flex flex-col">
 
-          
+
 
           {/* VÉ ĐIỆN TỬ THANH TOÁN */}
           <div className="relative rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm overflow-hidden flex flex-col gap-2 border-t-4 border-t-indigo-600">
@@ -1424,7 +1424,7 @@ export default function StaffCheckOut() {
                 <span className="text-slate-600 font-extrabold">{sessionData?.vehicleType || "---"}</span>
               </div>
 
-            <div className="flex justify-between">
+              <div className="flex justify-between">
                 <span>Loại vé:</span>
                 <span className="text-slate-600 font-extrabold text-indigo-600">
                   {sessionData ? getTicketTypeLabel(sessionData.driverType, sessionData.passType) : "---"}
@@ -1454,7 +1454,7 @@ export default function StaffCheckOut() {
                 </span>
               </div>
 
-              
+
 
               <div className="flex justify-between">
                 <span>Thời gian gửi:</span>
@@ -1625,7 +1625,7 @@ export default function StaffCheckOut() {
                         }}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-100 hover:border-indigo-200 rounded-xl transition-all duration-150 cursor-pointer"
                       >
-                        
+
                         Xem biên lai
                       </button>
                     </td>
@@ -1768,7 +1768,7 @@ export default function StaffCheckOut() {
                 onClick={handlePrint}
                 className="flex-1 rounded-xl bg-slate-800 py-1 font-bold text-white hover:bg-slate-800 text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
               >
-               In hóa đơn
+                In hóa đơn
               </button>
 
               <button

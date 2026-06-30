@@ -70,7 +70,7 @@ export default function ParkingTwin3DPage() {
   // Detect which role's dashboard to go back to
   const goBack = () => {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
-    const role = user.role || "staff";
+    const role = String(user.role || "staff").toLowerCase();
     navigate(`/${role}/dashboard`);
   };
 

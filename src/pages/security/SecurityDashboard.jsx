@@ -6,9 +6,11 @@ import { staffApi } from "../../api/parkingApi";
 import BlacklistPage from "./BlacklistPage";
 
 gsap.config({ nullTargetWarn: false });
+import { useNavigate } from "react-router-dom";
 import EmergencyPage from "./EmergencyPage";
 import ExceptionLogsPage from "./ExceptionLogsPage";
-import ParkingDigitalTwin3D from "./ParkingDigitalTwin3D";
+import ParkingDigitalTwin3D from "../manager/ParkingDigitalTwin3D";
+import VehicleSearchPage from "./VehicleSearchPage";
 
 
 /**
@@ -41,6 +43,12 @@ const IconBlacklist = () => (
 const IconLogs = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+  </svg>
+);
+
+const IconSearch = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
   </svg>
 );
 
@@ -103,6 +111,7 @@ export default function SecurityDashboard({ onLogout }) {
 
   const containerRef = useRef(null);
   const stompClientRef = useRef(null);
+  const navigate = useNavigate();
 
   // State giao diện chính
   const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
@@ -247,7 +256,7 @@ export default function SecurityDashboard({ onLogout }) {
   // Kết nối WebSocket để nhận cảnh báo real-time
   useEffect(() => {
     const client = new Client({
-      webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+      webSocketFactory: () => new SockJS(`http://${window.location.hostname}:8080/ws`),
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
@@ -295,6 +304,7 @@ export default function SecurityDashboard({ onLogout }) {
   const NAV_TABS = [
     { key: "overview", label: "Giám sát an ninh", Icon: IconOverview },
     { key: "map3d", label: "Bản đồ 3D", Icon: IconMap3D },
+    { key: "search", label: "Tra cứu xe", Icon: IconSearch },
     { key: "exception", label: "Sự cố an ninh", Icon: IconLogs },
     { key: "emergency", label: "SOS Khẩn cấp", Icon: IconSOS },
     { key: "blacklist", label: "Danh sách đen", Icon: IconBlacklist },
@@ -386,7 +396,13 @@ export default function SecurityDashboard({ onLogout }) {
           {NAV_TABS.map(({ key, label, Icon }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key)}
+              onClick={() => {
+                if (key === "map3d") {
+                  navigate("/security/3d-map");
+                } else {
+                  setActiveTab(key);
+                }
+              }}
               className={`nav-link-item flex items-center gap-3 w-full rounded-xl px-4 py-3 text-left font-semibold transition-all duration-200 ${activeTab === key ? "bg-slate-800 text-red-400 border border-slate-700 shadow-inner" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
             >
               <span className="flex-shrink-0"><Icon /></span>
@@ -486,7 +502,7 @@ export default function SecurityDashboard({ onLogout }) {
                       Backend chưa trả về gate nào.
                     </div>
                   ) : (
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-2 max-h-[360px] overflow-y-auto pr-2 custom-scrollbar">
                       {overviewStats.gates.map((gate) => {
                         const isSosOpen = emergencyStatus.active;
                         return (
@@ -543,14 +559,11 @@ export default function SecurityDashboard({ onLogout }) {
           )}
 
           {/* ──────────── TAB: BẢN ĐỒ 3D ──────────── */}
-          {activeTab === "map3d" && (
-            <ParkingDigitalTwin3D
-              zones={overviewStats.zones}
-              gates={overviewStats.gates}
-              floors={[]}
-              sessions={[]}
-              onRefresh={fetchOverview}
-            />
+          {/* Note: Map 3D now navigates to /security/3d-map */}
+
+          {/* ──────────── TAB: TRA CỨU XE ──────────── */}
+          {activeTab === "search" && (
+            <VehicleSearchPage showToast={showToast} user={user} />
           )}
 
           {/* ──────────── TAB: SỰ CỐ AN NINH ──────────── */}
@@ -578,12 +591,28 @@ export default function SecurityDashboard({ onLogout }) {
 
       {/* ============================================================
           BOTTOM NAVIGATION (CHỈ HIỂN THỊ TRÊN MOBILE)
+          
+          GIẢI THÍCH CHO HỘI ĐỒNG (BẢN MOBILE VIEW):
+          - md:hidden : Ở màn hình máy tính (md trở lên), thanh này sẽ bị ẩn đi.
+          - fixed bottom-0 left-0 right-0 : Gắn chặt thanh menu vào sát mép dưới cùng của điện thoại.
+          - pb-safe : Hỗ trợ hiển thị an toàn trên các thiết bị "tai thỏ" hoặc có thanh điều hướng ở đáy (như iPhone vuốt từ dưới lên).
+          - flex items-center justify-around : Dàn đều khoảng cách giữa các nút bấm (Tab) theo chiều ngang màn hình.
       ============================================================ */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around bg-white border-t border-slate-200 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
         {NAV_TABS.map(({ key, label, Icon }) => (
           <button
             key={key}
-            onClick={() => setActiveTab(key)}
+            onClick={() => {
+              // GIẢI THÍCH CHO HỘI ĐỒNG (BẢN MOBILE):
+              // Thanh menu dưới đáy màn hình điện thoại cần bắt riêng sự kiện của nút "Bản đồ 3D".
+              // Vì 3D Map là một trang full-màn hình nặng, nên ta dùng lệnh navigate để chuyển hẳn sang URL /security/3d-map,
+              // thay vì chỉ render dưới dạng component Tab thông thường như các nút khác.
+              if (key === "map3d") {
+                navigate("/security/3d-map");
+              } else {
+                setActiveTab(key);
+              }
+            }}
             className={`flex flex-col items-center justify-center w-full py-3 gap-1 relative transition-colors ${activeTab === key ? "text-red-600" : "text-slate-400 hover:text-slate-600"
               }`}
           >
@@ -594,7 +623,7 @@ export default function SecurityDashboard({ onLogout }) {
               )}
             </span>
             <span className={`text-[10px] font-bold ${activeTab === key ? "text-red-600" : "font-semibold"}`}>
-              {key === "overview" ? "Giám sát" : key === "map3d" ? "Bản đồ" : key === "exception" ? "Sự cố" : key === "emergency" ? "SOS" : "Blacklist"}
+              {key === "overview" ? "Giám sát" : key === "map3d" ? "Bản đồ" : key === "search" ? "Tra cứu" : key === "exception" ? "Sự cố" : key === "emergency" ? "SOS" : "Blacklist"}
             </span>
             {activeTab === key && (
               <span className="absolute top-0 inset-x-0 mx-auto h-[3px] w-8 bg-red-600 rounded-b-md" />

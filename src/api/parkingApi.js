@@ -214,8 +214,8 @@ export const staffApi = {
   },
 
   // === Quản lý toàn bộ phiên gửi xe dành cho Staff/Manager — Lưu DB ===
-  getAllSessionsHistory() {
-    return axiosClient.get("/staff/sessions/history");
+  getAllSessionsHistory(params) {
+    return axiosClient.get("/staff/sessions/history", { params });
   },
 
   // === Quản lý Exception Logs dành cho Security & Admin — Lưu DB thật ===
@@ -225,6 +225,19 @@ export const staffApi = {
 
   getSecurityExceptions() {
     return axiosClient.get("/security/exceptions");
+  },
+
+  updateSecurityException(id, data) {
+    return axiosClient.put(`/security/exceptions/${id}`, data);
+  },
+
+  resolveSecurityException(id, data) {
+    return axiosClient.put(`/security/exceptions/${id}/resolve`, data);
+  },
+
+  // === Phiên đỗ xe của Staff ===
+  getActiveSessionByPlate(licensePlate) {
+    return axiosClient.get(`/staff/sessions/active?plate=${encodeURIComponent(licensePlate)}`);
   },
 
   // === Emergency SOS Mode — Security/Manager/Admin ===
@@ -263,6 +276,10 @@ export const staffApi = {
 
   removeBlacklistPlate(id, data) {
     return axiosClient.delete(`/security/blacklist/${id}`, { data });
+  },
+
+  updateBlacklistPlate(id, data) {
+    return axiosClient.put(`/security/blacklist/${id}`, data);
   },
 };
 

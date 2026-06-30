@@ -1,9 +1,18 @@
 import axios from "axios";
 
+// Lấy cấu hình URL mặc định từ file .env (thường là localhost)
+let defaultBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+
+// CƠ CHẾ ĐÁP ỨNG THIẾT BỊ DI ĐỘNG (MOBILE/CROSS-DEVICE SUPPORT)
+// Giải thích cho hội đồng: Nếu ứng dụng được mở từ điện thoại (ví dụ truy cập IP 192.168.1.xxx)
+// thì biến window.location.hostname sẽ chứa IP thật thay vì 'localhost'.
+// Đoạn code này tự động thay thế 'localhost' thành IP thật để điện thoại gọi API đúng máy chủ.
+if (defaultBaseUrl.includes("localhost") && typeof window !== "undefined" && window.location.hostname !== "localhost") {
+  defaultBaseUrl = defaultBaseUrl.replace("localhost", window.location.hostname);
+}
+
 const axiosClient = axios.create({
-  baseURL:
-    import.meta.env.VITE_API_BASE_URL ||
-    "http://localhost:8080/api/v1",
+  baseURL: defaultBaseUrl,
   headers: {
     "Content-Type": "application/json",
   },

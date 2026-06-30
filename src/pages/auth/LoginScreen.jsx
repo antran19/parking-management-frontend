@@ -559,7 +559,10 @@ export function LoginScreen({ onLogin }) {
   useEffect(() => {
     const fetchPublicInfo = async () => {
       try {
-        const baseURL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+        let baseURL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+        if (baseURL.includes("localhost") && window.location.hostname !== "localhost") {
+          baseURL = baseURL.replace("localhost", window.location.hostname);
+        }
         const res = await axios.get(`${baseURL}/public/parking-info`);
         setPublicInfo(res.data.data);
       } catch (err) {
