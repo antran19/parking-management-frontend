@@ -179,6 +179,68 @@ export default function AdminDashboard({ onLogout }) {
   const [passForm, setPassForm] = useState({ id: "", owner: "", userId: "", plate: "", type: "Xe máy", vehicleTypeId: "", buildingId: "", start: "", end: "", status: "active", passType: "MONTHLY", fee: 0 });
   const [isEditingPass, setIsEditingPass] = useState(false);
 
+  // Blacklist state & functions
+  const [exceptionsSubTab, setExceptionsSubTab] = useState("logs");
+  const [blacklist, setBlacklist] = useState([]);
+  const [loadingBlacklist, setLoadingBlacklist] = useState(false);
+  const [submittingBlacklist, setSubmittingBlacklist] = useState(false);
+  const [isBlacklistModalOpen, setIsBlacklistModalOpen] = useState(false);
+  const [blacklistForm, setBlacklistForm] = useState({
+    licensePlate: "",
+    reason: "STOLEN",
+    description: "",
+  });
+
+  const fetchBlacklist = async () => {
+    setLoadingBlacklist(true);
+    try {
+      const res = await staffApi.getBlacklist();
+      setBlacklist(res.data.data || []);
+    } catch (err) {
+      console.warn("Failed to fetch blacklist for Admin Dashboard:", err);
+    } finally {
+      setLoadingBlacklist(false);
+    }
+  };
+
+  const handleSaveBlacklist = async (e) => {
+    e.preventDefault();
+    if (!blacklistForm.licensePlate.trim()) {
+      showToast("Vui lòng nhập biển số xe", "warning");
+      return;
+    }
+    setSubmittingBlacklist(true);
+    try {
+      await staffApi.addBlacklistPlate({
+        licensePlate: blacklistForm.licensePlate.trim().toUpperCase(),
+        reason: blacklistForm.reason,
+        description: blacklistForm.description || blacklistForm.reason,
+        addedByUserId: user.id || "00000000-0000-0000-0000-000000000000",
+      });
+      setIsBlacklistModalOpen(false);
+      setBlacklistForm({ licensePlate: "", reason: "STOLEN", description: "" });
+      showToast("Đã thêm biển số vào blacklist thành công!");
+      fetchBlacklist();
+    } catch (err) {
+      showToast(err.response?.data?.message || "Thêm vào blacklist thất bại", "warning");
+    } finally {
+      setSubmittingBlacklist(false);
+    }
+  };
+
+  const handleRemoveBlacklist = async (id, plate) => {
+    if (!window.confirm(`Gỡ biển số ${plate} khỏi danh sách đen?`)) return;
+    try {
+      await staffApi.removeBlacklistPlate(id, {
+        removedByUserId: user.id || "00000000-0000-0000-0000-000000000000",
+      });
+      showToast(`Đã gỡ biển số ${plate} khỏi danh sách đen`);
+      fetchBlacklist();
+    } catch (err) {
+      showToast(err.response?.data?.message || "Gỡ cấm thất bại", "warning");
+    }
+  };
+
   const fetchLogs = async () => {
     try {
       const res = await staffApi.getSecurityExceptions();
@@ -186,8 +248,8 @@ export default function AdminDashboard({ onLogout }) {
       const mappedLogs = backendLogs.map(l => ({
         id: l.id ? l.id.toString().substring(0, 8).toUpperCase() : "EX-DB",
         time: l.resolvedAt ? new Date(l.resolvedAt).toLocaleString("vi-VN") : "—",
-        plate: l.session?.licensePlate || "KHÔNG RÕ BIỂN",
-        handler: l.handledBy?.fullName || "Phạm Văn Bảo Vệ",
+        plate: l.licensePlate || l.session?.licensePlate || "KHÔNG RÕ BIỂN",
+        handler: l.handledBy || "Phạm Văn Bảo Vệ",
         issue: l.exceptionType === "LOST_TICKET" ? "Mất thẻ QR vãng lai" : l.exceptionType === "WRONG_PLATE" ? "AI đọc lệch biển số" : "Sự cố an ninh",
         severity: l.description?.includes("severity: high") || l.description?.includes("severity: \"high\"") || l.description?.includes("Mức độ: high") ? "high" : "medium",
         action: l.description || "Đã giải quyết"
@@ -274,6 +336,7 @@ export default function AdminDashboard({ onLogout }) {
     fetchConfig();
     fetchSettings();
     fetchLogs();
+    fetchBlacklist();
     fetchSessions();
     fetchPayments();
 
@@ -282,6 +345,7 @@ export default function AdminDashboard({ onLogout }) {
       fetchAdminUsers();
       fetchPasses();
       fetchLogs();
+      fetchBlacklist();
       fetchSessions();
       fetchPayments();
     }, 5000);
@@ -1398,48 +1462,162 @@ export default function AdminDashboard({ onLogout }) {
           {/* TAB 7: EXCEPTIONS LOGS */}
           {activeTab === "exceptions" && (
             <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
-              <div className="text-left border-b border-slate-100 pb-5">
-                <h3 className="font-extrabold text-slate-900 text-base">🚨 Log an ninh & Nhật ký giải quyết sự cố</h3>
-                <p className="text-xs text-slate-450 mt-1">Tổng hợp ngoại lệ xử lý thủ công (AI nhận sai biển, mất thẻ, override barrier) do lực lượng bảo an khai báo.</p>
+              <div className="flex justify-between items-center text-left border-b border-slate-100 pb-5">
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">🚨 Log an ninh & Danh sách chặn (Blacklist)</h3>
+                  <p className="text-xs text-slate-400 mt-1">Quản lý các sự cố an ninh và kiểm soát các phương tiện nằm trong danh sách đen của tòa nhà.</p>
+                </div>
+                {exceptionsSubTab === "blacklist" && (
+                  <button onClick={() => {
+                    setBlacklistForm({ licensePlate: "", reason: "STOLEN", description: "" });
+                    setIsBlacklistModalOpen(true);
+                  }} className="rounded-xl bg-red-600 hover:bg-red-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-red-500/10">
+                    ➕ Thêm biển số blacklist
+                  </button>
+                )}
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
-                  <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
-                    <tr>
-                      <th className="p-4">Mã Log</th>
-                      <th className="p-4">Thời gian</th>
-                      <th className="p-4">Biển số</th>
-                      <th className="p-4">Bảo an xử lý</th>
-                      <th className="p-4">Chi tiết sự cố</th>
-                      <th className="p-4">Mức độ nguy cấp</th>
-                      <th className="p-4">Giải pháp xử lý</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-150 font-medium text-slate-600">
-                    {logs.map(l => (
-                      <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 font-mono font-bold text-slate-400">{l.id}</td>
-                        <td className="p-4 text-slate-550 font-mono">{l.time}</td>
-                        <td className="p-4">
-                          <LicensePlate plate={l.plate} />
-                        </td>
-                        <td className="p-4 text-slate-800 font-extrabold">{l.handler}</td>
-                        <td className="p-4 text-slate-700 font-semibold">{l.issue}</td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-block ${l.severity === "high" ? "bg-red-50 text-red-700 border border-red-200 animate-pulse" :
-                            l.severity === "medium" ? "bg-amber-50 text-amber-700 border border-amber-200" :
-                              "bg-blue-50 text-blue-700 border border-blue-200"
-                            }`}>
-                            {l.severity === "high" ? "Khẩn cấp" : l.severity === "medium" ? "Cần lưu ý" : "Thấp"}
-                          </span>
-                        </td>
-                        <td className="p-4 font-bold text-emerald-600">{l.action}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/* Sub tabs navigation */}
+              <div className="flex gap-1 border-b border-slate-200">
+                {[
+                  { id: "logs", label: "Nhật ký sự cố" },
+                  { id: "blacklist", label: "Danh sách cấm (Blacklist)" }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setExceptionsSubTab(tab.id)}
+                    className={`px-4 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${exceptionsSubTab === tab.id
+                      ? "border-red-600 text-red-600"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                      }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
+
+              {exceptionsSubTab === "logs" && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm border-collapse">
+                    <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                      <tr>
+                        <th className="p-4">Mã Log</th>
+                        <th className="p-4">Thời gian</th>
+                        <th className="p-4">Biển số</th>
+                        <th className="p-4">Bảo an xử lý</th>
+                        <th className="p-4">Chi tiết sự cố</th>
+                        <th className="p-4">Mức độ nguy cấp</th>
+                        <th className="p-4">Giải pháp xử lý</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150 font-medium text-slate-600">
+                      {logs.map(l => (
+                        <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-4 font-mono font-bold text-slate-400">{l.id}</td>
+                          <td className="p-4 text-slate-550 font-mono">{l.time}</td>
+                          <td className="p-4">
+                            <LicensePlate plate={l.plate} />
+                          </td>
+                          <td className="p-4 text-slate-800 font-extrabold">{l.handler}</td>
+                          <td className="p-4 text-slate-700 font-semibold">{l.issue}</td>
+                          <td className="p-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-block ${l.severity === "high" ? "bg-red-50 text-red-700 border border-red-200 animate-pulse" :
+                              l.severity === "medium" ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                                "bg-blue-50 text-blue-700 border border-blue-200"
+                              }`}>
+                              {l.severity === "high" ? "Khẩn cấp" : l.severity === "medium" ? "Cần lưu ý" : "Thấp"}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold text-emerald-600">{l.action}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {logs.length === 0 && (
+                    <p className="text-center text-sm text-slate-400 py-8">Chưa có nhật ký sự cố nào.</p>
+                  )}
+                </div>
+              )}
+
+              {exceptionsSubTab === "blacklist" && (
+                <div className="space-y-4">
+                  {/* Summary badges */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="rounded-full bg-red-50 border border-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                      🚫 Đang chặn: {blacklist.filter(item => item.isActive !== false).length}
+                    </span>
+                    <span className="rounded-full bg-slate-100 border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500">
+                      ✅ Đã gỡ: {blacklist.filter(item => item.isActive === false).length}
+                    </span>
+                    <span className="rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-xs font-bold text-blue-600">
+                      📋 Tổng cộng: {blacklist.length}
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm border-collapse">
+                      <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                        <tr>
+                          <th className="p-4">Biển số</th>
+                          <th className="p-4">Lý do cấm</th>
+                          <th className="p-4">Người thêm</th>
+                          <th className="p-4">Ngày thêm</th>
+                          <th className="p-4">Trạng thái</th>
+                          <th className="p-4 text-center">Hành động</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-semibold text-slate-600">
+                        {blacklist.map((item) => (
+                          <tr
+                            key={item.id}
+                            className={`hover:bg-slate-50/50 transition-colors ${item.isActive === false ? "opacity-45" : ""}`}
+                          >
+                            <td className="p-4">
+                              <LicensePlate plate={item.licensePlate} />
+                            </td>
+                            <td className="p-4">
+                              <p className="font-bold text-slate-900">
+                                {item.reason === "STOLEN" ? "Xe trộm cắp" :
+                                 item.reason === "DISTURBANCE" ? "Gây rối / nguy cơ an ninh" :
+                                 item.reason === "UNPAID_FEE" ? "Nợ phí / chưa thanh toán" :
+                                 item.reason === "SECURITY_RISK" ? "Rủi ro an ninh" : "Lý do khác"}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-400 font-medium">{item.description}</p>
+                            </td>
+                            <td className="p-4 font-bold text-slate-800">{item.addedBy || "Hệ thống"}</td>
+                            <td className="p-4 text-slate-500 font-mono text-xs">
+                              {item.addedAt ? new Date(item.addedAt).toLocaleString("vi-VN") : "—"}
+                            </td>
+                            <td className="p-4">
+                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${item.isActive !== false ? "bg-red-50 text-red-700 border border-red-200" : "bg-slate-150 text-slate-500 border border-slate-200"}`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${item.isActive !== false ? "bg-red-500" : "bg-slate-400"}`} />
+                                {item.isActive !== false ? "Đang chặn" : "Đã gỡ"}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex justify-center">
+                                {item.isActive !== false ? (
+                                  <button
+                                    onClick={() => handleRemoveBlacklist(item.id, item.licensePlate)}
+                                    className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 cursor-pointer transition-colors"
+                                  >
+                                    🔓 Gỡ chặn
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-slate-400 font-semibold">—</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {blacklist.length === 0 && (
+                      <p className="text-center text-sm text-slate-400 py-8">Chưa có biển số nào bị cấm.</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2274,6 +2452,69 @@ export default function AdminDashboard({ onLogout }) {
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsPassModalOpen(false)} className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer">Hủy</button>
                 <button type="submit" className="flex-1 rounded-xl bg-purple-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors">{isEditingPass ? "Lưu lại" : "Cấp vé"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 6. BLACKLIST MODAL */}
+      {isBlacklistModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-6 text-left border border-slate-200">
+            <h3 className="font-extrabold text-slate-900 text-base">Thêm biển số xe vào Blacklist</h3>
+            <form onSubmit={handleSaveBlacklist} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Biển số xe</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="VD: 30A-12345"
+                  value={blacklistForm.licensePlate}
+                  onChange={e => setBlacklistForm({ ...blacklistForm, licensePlate: e.target.value.toUpperCase() })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none uppercase font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Lý do cấm</label>
+                <select
+                  value={blacklistForm.reason}
+                  onChange={e => setBlacklistForm({ ...blacklistForm, reason: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white"
+                >
+                  <option value="STOLEN">Xe trộm cắp</option>
+                  <option value="DISTURBANCE">Gây rối / nguy cơ an ninh</option>
+                  <option value="UNPAID_FEE">Nợ phí / chưa thanh toán</option>
+                  <option value="SECURITY_RISK">Rủi ro an ninh</option>
+                  <option value="OTHER">Lý do khác</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Mô tả chi tiết</label>
+                <textarea
+                  rows="3"
+                  placeholder="Nhập thông tin chi tiết sự cố, biên bản hoặc hình thức xử phạt..."
+                  value={blacklistForm.description}
+                  onChange={e => setBlacklistForm({ ...blacklistForm, description: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-800 focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBlacklistModalOpen(false)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
+                  disabled={submittingBlacklist}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-red-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors shadow-lg shadow-red-500/10"
+                  disabled={submittingBlacklist}
+                >
+                  {submittingBlacklist ? "Đang lưu..." : "Thêm vào blacklist"}
+                </button>
               </div>
             </form>
           </div>
