@@ -41,6 +41,15 @@ const PaymentPage = () => {
     setPaymentDetail(null);
   };
 
+  const formatDateTime = (value) => {
+    if (!value) return "—";
+    try {
+      return new Date(value).toLocaleString("vi-VN");
+    } catch {
+      return String(value);
+    }
+  };
+
   return (
     <section className="flex-1 space-y-8 p-8">
       <div className="space-y-6 fade-up-element">
@@ -52,27 +61,29 @@ const PaymentPage = () => {
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-bold border-b border-slate-200">
                   <tr>
                     <th className="px-6 py-4">Mã GD</th>
+                    <th className="px-6 py-4">Biển số</th>
+                    <th className="px-6 py-4">Loại xe</th>
                     <th className="px-6 py-4">Số tiền</th>
-                    <th className="px-6 py-4">Phương thức</th>
                     <th className="px-6 py-4">Trạng thái</th>
-                    <th className="px-6 py-4">Thời gian</th>
+                    <th className="px-6 py-4">Thời gian vào</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paymentsData.length === 0 ? (
-                    <tr><td colSpan="5" className="text-center py-8 text-slate-500">Chưa có dữ liệu</td></tr>
+                    <tr><td colSpan="6" className="text-center py-8 text-slate-500">Chưa có dữ liệu</td></tr>
                   ) : (
                     paymentsData.map(p => (
                       <tr key={p.id} onClick={() => handleViewPaymentDetail(p.id)} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors">
                         <td className="px-6 py-4 font-mono text-xs">{p.transactionId || p.id.split('-')[0]}</td>
+                        <td className="px-6 py-4">{p.licensePlate || "—"}</td>
+                        <td className="px-6 py-4">{p.vehicleTypeName || "—"}</td>
                         <td className="px-6 py-4 font-bold text-indigo-650">{Number(p.amount).toLocaleString('vi-VN')} đ</td>
-                        <td className="px-6 py-4">{p.paymentMethod}</td>
                         <td className="px-6 py-4">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${p.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
                             {p.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-xs">{new Date(p.createdAt).toLocaleString('vi-VN')}</td>
+                        <td className="px-6 py-4 text-xs">{formatDateTime(p.entryTime || p.createdAt)}</td>
                       </tr>
                     ))
                   )}
@@ -99,6 +110,30 @@ const PaymentPage = () => {
                     <span className="font-mono">{paymentDetail.transactionId || "N/A"}</span>
                   </div>
                   <div className="flex justify-between border-b border-slate-100 pb-2">
+                    <span className="font-semibold">Biển số xe:</span>
+                    <span>{paymentDetail.licensePlate || "—"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-2">
+                    <span className="font-semibold">Loại xe:</span>
+                    <span>{paymentDetail.vehicleTypeName || "—"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-2">
+                    <span className="font-semibold">Khu vực:</span>
+                    <span>{paymentDetail.zoneName || "—"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-2">
+                    <span className="font-semibold">Mã vé:</span>
+                    <span className="font-mono">{paymentDetail.sessionCode || "—"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-2">
+                    <span className="font-semibold">Thời gian vào:</span>
+                    <span>{formatDateTime(paymentDetail.entryTime)}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-2">
+                    <span className="font-semibold">Thời gian ra:</span>
+                    <span>{formatDateTime(paymentDetail.exitTime)}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-2">
                     <span className="font-semibold">Số tiền:</span>
                     <span className="font-bold text-indigo-650">{Number(paymentDetail.amount).toLocaleString('vi-VN')} đ</span>
                   </div>
@@ -106,13 +141,13 @@ const PaymentPage = () => {
                     <span className="font-semibold">Phương thức:</span>
                     <span>{paymentDetail.paymentMethod}</span>
                   </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-2">
+                  <div className="flex justify-between pb-2">
                     <span className="font-semibold">Trạng thái:</span>
                     <span className={`font-bold ${paymentDetail.status === 'COMPLETED' ? 'text-emerald-600' : 'text-rose-600'}`}>{paymentDetail.status}</span>
                   </div>
                   <div className="flex justify-between pb-2">
                     <span className="font-semibold">Thời gian thanh toán:</span>
-                    <span>{paymentDetail.paidAt ? new Date(paymentDetail.paidAt).toLocaleString('vi-VN') : 'N/A'}</span>
+                    <span>{formatDateTime(paymentDetail.paidAt)}</span>
                   </div>
                 </div>
               )}
