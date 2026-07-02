@@ -11,6 +11,7 @@ import StaffCheckIn from "../pages/staff/StaffCheckIn";
 import StaffCheckOut from "../pages/staff/StaffCheckOut";
 import StaffMapping from "../pages/staff/StaffMapping";
 import StaffZoneEntry from "../pages/staff/StaffZoneEntry";
+import StaffZoneExit from "../pages/staff/StaffZoneExit";
 
 import ManagerLayout from "../pages/manager/ManagerLayout";
 import DashboardPage from "../pages/manager/DashboardPage";
@@ -75,6 +76,10 @@ function AppRoutes({ userRole, onLogin, onLogout }) {
           <Route
             path="/staff/zone-entry"
             element={<StaffZoneEntry />}
+          />
+          <Route
+            path="/staff/zone-exit"
+            element={<StaffZoneExit />}
           />
           <Route
             path="/staff/check-out"

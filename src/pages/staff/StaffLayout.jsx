@@ -92,7 +92,8 @@ export default function StaffLayout({ onLogout }) {
     "/staff/dashboard": "Bảng điều khiển tác nghiệp",
     "/staff/map": "Sơ đồ phân khu thực tế",
     "/staff/check-in": "Check-in xe vào bãi",
-    "/staff/zone-entry": "Quét Barie Cổng Zone",
+    "/staff/zone-entry": "Quét Cổng Zone Vào",
+    "/staff/zone-exit": "Quét Cổng Zone Ra",
     "/staff/check-out": "Check-out xe ra",
     "/staff/history": "Lịch sử phiên gửi xe",
   };
@@ -265,12 +266,23 @@ export default function StaffLayout({ onLogout }) {
             collapsed={collapsed}
             to="/staff/zone-entry"
             icon={
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+              <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h.01M16 20h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             }
-            label="Cổng Zone"
+            label="Zone Vào"
             active={location.pathname === "/staff/zone-entry"}
+          />
+          <SideLink
+            collapsed={collapsed}
+            to="/staff/zone-exit"
+            icon={
+              <svg className="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h.01M16 20h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+            label="Zone Ra"
+            active={location.pathname === "/staff/zone-exit"}
           />
           <SideLink collapsed={collapsed} to="/staff/check-out" icon={<IconCheckOut />} label="Check-out xe ra" active={location.pathname === "/staff/check-out"} />
           <SideLink collapsed={collapsed} to="/staff/history" icon={<IconHistory />} label="Lịch sử phiên gửi" active={location.pathname === "/staff/history"} />

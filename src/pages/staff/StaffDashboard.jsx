@@ -185,7 +185,7 @@ export default function StaffDashboard() {
   }, []);
 
   return (
-    <section className="space-y-8 p-5 flex-1">
+    <section className="space-y-8 p-3 flex-1">
       {/* Welcome Banner - Cải thiện với dải chuyển màu hiện đại, sang trọng hơn */}
       <div className="welcome-banner rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-8 text-white relative overflow-hidden shadow-lg shadow-indigo-900/10">
         <div className="absolute right-0 bottom-0 top-0 w-1/3 bg-gradient-to-l from-black/10 to-transparent pointer-events-none" />

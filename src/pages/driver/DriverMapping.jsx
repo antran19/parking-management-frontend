@@ -773,9 +773,9 @@ export default function DriverMapping({ onLogout }) {
     if (!isBicycle && !isValidVietnamLicensePlate(plate)) {
       alert(
         "Biển số không đúng định dạng.\n\n" +
-          "Ví dụ xe máy: 51H1-2345, 59X1-123.45, 59AA-729.32\n" +
-          "Ví dụ ô tô: 30A-1234, 30A-123.45, 50AB-123.45\n" +
-          "Ví dụ xe tải: 51C-123.45, 60C-456.78",
+        "Ví dụ xe máy: 51H1-2345, 59X1-123.45, 59AA-729.32\n" +
+        "Ví dụ ô tô: 30A-1234, 30A-123.45, 50AB-123.45\n" +
+        "Ví dụ xe tải: 51C-123.45, 60C-456.78",
       );
       return;
     }
@@ -877,9 +877,8 @@ export default function DriverMapping({ onLogout }) {
     >
       <DriverSosBanner />
       <aside
-        className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${
-          collapsed ? "w-20" : "w-72"
-        }`}
+        className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${collapsed ? "w-20" : "w-72"
+          }`}
       >
         <div className="flex items-center gap-3.5 px-6 py-6 border-b border-slate-800 overflow-hidden">
           <button
@@ -977,9 +976,8 @@ export default function DriverMapping({ onLogout }) {
       </aside>
 
       <main
-        className={`main-content-area flex-1 min-h-screen flex flex-col pb-24 transition-all duration-300 md:pb-0 ${
-          collapsed ? "md:ml-20" : "md:ml-72"
-        }`}
+        className={`main-content-area flex-1 min-h-screen flex flex-col pb-24 transition-all duration-300 md:pb-0 ${collapsed ? "md:ml-20" : "md:ml-72"
+          }`}
       >
         <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6 md:h-20 md:px-8 md:py-0">
           <div className="flex flex-col">
@@ -1452,11 +1450,10 @@ function SideLink({ to, icon, label, active, collapsed }) {
   return (
     <Link
       to={to}
-      className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-        active
+      className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${active
           ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
           : "text-slate-400 hover:bg-slate-800 hover:text-white"
-      }`}
+        }`}
     >
       <span className="flex-shrink-0">{icon}</span>
       {!collapsed && <span className="whitespace-nowrap">{label}</span>}
@@ -1480,11 +1477,10 @@ function FloorButton({ active, onClick, icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all duration-150 ${
-        active
+      className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all duration-150 ${active
           ? "bg-white text-indigo-600 shadow-sm border border-slate-200"
           : "text-slate-500 hover:bg-white/40"
-      }`}
+        }`}
     >
       <span>{icon}</span>
       <span>{label}</span>
@@ -1609,7 +1605,7 @@ function ZoneCard({ zone, isCurrent, onClick }) {
               ((toSafeNumber(zone.currentCount) +
                 toSafeNumber(zone.reservedCount)) /
                 capacity) *
-                24,
+              24,
             );
 
             const isOccupied = idx < occupiedSlots;
@@ -1617,13 +1613,12 @@ function ZoneCard({ zone, isCurrent, onClick }) {
             return (
               <span
                 key={idx}
-                className={`w-3.5 h-3.5 rounded-[3px] inline-block border transition-all duration-200 ${
-                  isOccupied
+                className={`w-3.5 h-3.5 rounded-[3px] inline-block border transition-all duration-200 ${isOccupied
                     ? "bg-rose-500 border-rose-600 shadow-sm"
                     : isReserved
                       ? "bg-amber-400 border-amber-500 shadow-sm animate-pulse"
                       : "bg-emerald-400 border-emerald-500 hover:scale-110"
-                }`}
+                  }`}
                 title={
                   isOccupied
                     ? "Đang đỗ"
@@ -1700,17 +1695,17 @@ function ZoneModal({
   const plateOptions = isBicycle
     ? []
     : (plates || [])
-        .map((plate) => ({
-          licensePlate: getPlateValue(plate),
-          vehicleTypeId: getPlateVehicleTypeId(plate),
-          vehicleTypeName: getPlateVehicleTypeName(plate),
-        }))
-        .filter((plate) => Boolean(plate.licensePlate))
-        .filter(
-          (plate) =>
-            normalizeVehicleTypeId(plate.vehicleTypeId) ===
-            normalizeVehicleTypeId(zone.vehicleTypeId),
-        );
+      .map((plate) => ({
+        licensePlate: getPlateValue(plate),
+        vehicleTypeId: getPlateVehicleTypeId(plate),
+        vehicleTypeName: getPlateVehicleTypeName(plate),
+      }))
+      .filter((plate) => Boolean(plate.licensePlate))
+      .filter(
+        (plate) =>
+          normalizeVehicleTypeId(plate.vehicleTypeId) ===
+          normalizeVehicleTypeId(zone.vehicleTypeId),
+      );
 
   useEffect(() => {
     if (isBicycle) {
@@ -1791,8 +1786,7 @@ function ZoneModal({
             </div>
           )}
           <div
-            className={`rounded-2xl border p-5 text-center flex flex-col items-center ${
-              zone.status === "CLOSED"
+            className={`rounded-2xl border p-5 text-center flex flex-col items-center ${zone.status === "CLOSED"
                 ? "bg-slate-100 border-slate-200 text-slate-600"
                 : isCurrent
                   ? "bg-indigo-50 border-indigo-100 text-indigo-800"
@@ -1801,7 +1795,7 @@ function ZoneModal({
                     : status === "nearFull"
                       ? "bg-amber-50 border-amber-100 text-amber-800"
                       : "bg-rose-50 border-rose-100 text-rose-800"
-            }`}
+              }`}
           >
             <div className="text-[11px] font-black tracking-widest">
               {zone.status === "CLOSED"
@@ -1845,11 +1839,10 @@ function ZoneModal({
                             setSelectedPlate(plate.licensePlate);
                             setNewPlate("");
                           }}
-                          className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${
-                            selectedPlate === plate.licensePlate && !newPlate
+                          className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${selectedPlate === plate.licensePlate && !newPlate
                               ? "border-indigo-300 bg-indigo-50 text-indigo-700"
                               : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                          }`}
+                            }`}
                         >
                           {formatPlateForDisplay(
                             plate.licensePlate,
@@ -1874,7 +1867,7 @@ function ZoneModal({
                     onChange={(event) =>
                       setNewPlate(normalizeLicensePlate(event.target.value))
                     }
-                    placeholder="Hoặc nhập biển số mới"
+                    placeholder="Hoặc đăng kí biển số mới"
                     className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
                   />
                 </div>
@@ -1922,11 +1915,10 @@ function ZoneModal({
                       key={minutes}
                       type="button"
                       onClick={() => setDurationMinutes(minutes)}
-                      className={`rounded-2xl border px-3 py-3 text-xs font-black transition active:scale-[0.98] ${
-                        durationMinutes === minutes
+                      className={`rounded-2xl border px-3 py-3 text-xs font-black transition active:scale-[0.98] ${durationMinutes === minutes
                           ? "border-indigo-400 bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
                           : "border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-                      }`}
+                        }`}
                     >
                       {minutes === 30 ? "30 phút" : `${minutes / 60} giờ`}
                     </button>
