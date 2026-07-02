@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { staffApi } from "../../api/parkingApi";
-import { formatLicensePlate, isValidVietnamLicensePlate } from "../../utils/licensePlate";
+import { formatLicensePlate, isValidVietnamLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
 
 // ==============================================================
 // CONSTANTS — Labels nhãn cho lý do blacklist
@@ -202,8 +202,9 @@ export default function BlacklistPage({ showToast, user }) {
       return;
     }
     finalLicensePlate = formatLicensePlate(finalLicensePlate, blacklistForm.vehicleTypeName);
-    if (!isValidVietnamLicensePlate(finalLicensePlate)) {
-      showToast("Biển số xe không đúng định dạng!", "error");
+    const validationError = getLicensePlateValidationError(finalLicensePlate, blacklistForm.vehicleTypeName);
+    if (validationError) {
+      showToast(validationError, "error");
       return;
     }
 
@@ -266,8 +267,9 @@ export default function BlacklistPage({ showToast, user }) {
       return;
     }
     finalLicensePlate = formatLicensePlate(finalLicensePlate, blacklistForm.vehicleTypeName);
-    if (!isValidVietnamLicensePlate(finalLicensePlate)) {
-      showToast("Biển số xe không đúng định dạng. Vui lòng nhập lại!", "error");
+    const validationError = getLicensePlateValidationError(finalLicensePlate, blacklistForm.vehicleTypeName);
+    if (validationError) {
+      showToast(validationError, "error");
       setBlacklistForm(prev => ({ ...prev, licensePlate: "" }));
       return;
     }
@@ -506,8 +508,9 @@ export default function BlacklistPage({ showToast, user }) {
                   onBlur={() => {
                     const formattedPlate = formatLicensePlate(blacklistForm.licensePlate, blacklistForm.vehicleTypeName);
                     if (formattedPlate.trim()) {
-                      if (!isValidVietnamLicensePlate(formattedPlate)) {
-                        showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
+                      const validationError = getLicensePlateValidationError(formattedPlate, blacklistForm.vehicleTypeName);
+                      if (validationError) {
+                        showToast(validationError, "error");
                         setBlacklistForm(prev => ({ ...prev, licensePlate: "" }));
                         return;
                       }
