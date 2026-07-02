@@ -4,19 +4,36 @@ import { Spinner } from "../components/Spinner";
 import { ManagerContext } from "./ManagerLayout";
 
 const INCIDENT_TYPE_LABELS = {
-  BLACKLIST_DETECTED:    "Phát hiện biển số đen",
-  UNAUTHORIZED_ACCESS:   "Truy cập trái phép",
-  TAILGATING:            "Xe theo đuôi",
-  OVERSTAY:              "Quá giờ",
-  SUSPICIOUS_ACTIVITY:   "Hoạt động đáng ngờ",
+  LOST_TICKET: "Mất thẻ / mất QR",
+  WRONG_PLATE: "Sai biển số",
+  OVERTIME: "Quá giờ gửi",
+  WRONG_ZONE: "Sai khu vực đỗ",
+  UNPAID: "Chưa thanh toán",
+  SUSPICIOUS_BEHAVIOR: "Hành vi đáng ngờ",
+  OTHER: "Khác",
+
+  BLACKLIST_DETECTED: "Phát hiện biển số đen",
+  UNAUTHORIZED_ACCESS: "Truy cập trái phép",
+  TAILGATING: "Xe theo đuôi",
+  OVERSTAY: "Quá giờ",
+  SUSPICIOUS_ACTIVITY: "Hoạt động đáng ngờ",
+};
+
+const REASON_LABELS = {
+  STOLEN: "Xe trộm cắp",
+  DISTURBANCE: "Gây rối / nguy cơ an ninh",
+  UNPAID_FEE: "Nợ phí / chưa thanh toán",
+  SECURITY_RISK: "Rủi ro an ninh",
+  OTHER: "Khác",
 };
 
 const SecurityPage = () => {
-  const { triggerToast } = useContext(ManagerContext);
+  const { triggerToast, currentUser } = useContext(ManagerContext);
   const [incidents, setIncidents] = useState([]);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [blacklist, setBlacklist] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [removingId, setRemovingId] = useState(null);
   const [tab, setTab] = useState("incidents");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [showResolved, setShowResolved] = useState(false); // mặc định chỉ show việc cần làm
@@ -51,6 +68,41 @@ const SecurityPage = () => {
     if (tab === "blacklist") fetchBlacklist();
   }, [tab]);
 
+  const handleRemoveFromBlacklist = async (item) => {
+    if (!window.confirm(`Gỡ biển số ${item.licensePlate} khỏi danh sách đen?`)) return;
+    setRemovingId(item.id);
+    try {
+      const res = await managerApi.removeFromBlacklist(item.id, {
+        removedByUserId: currentUser?.id,
+      });
+      setBlacklist(prev =>
+        prev.map(b => (b.id === item.id ? res.data.data : b))
+      );
+      triggerToast("Đã gỡ khỏi danh sách đen", "success");
+    } catch (err) {
+      triggerToast("Lỗi khi gỡ khỏi danh sách đen", "error");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const handleResolveIncident = async (incidentId, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm("Đánh dấu sự cố này đã được giải quyết?")) return;
+    try {
+      const res = await managerApi.resolveIncident(incidentId, {
+        handledByUserId: currentUser?.id,
+      });
+      setIncidents(prev =>
+        prev.map(i => (i.id === incidentId ? res.data.data : i))
+      );
+      setSelectedIncident(res.data.data);
+      triggerToast("Đã giải quyết sự cố thành công", "success");
+    } catch (err) {
+      triggerToast(err.response?.data?.message || "Lỗi khi giải quyết sự cố", "error");
+    }
+  };
+
   const unresolvedCount = incidents.filter(i => !i.resolvedAt).length;
 
   const visibleIncidents = useMemo(() => {
@@ -58,6 +110,10 @@ const SecurityPage = () => {
     if (typeFilter !== "ALL") list = list.filter(i => i.exceptionType === typeFilter);
     return [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [incidents, showResolved, typeFilter]);
+
+  const visibleBlacklist = useMemo(() => {
+    return blacklist.filter(item => item.isActive);
+  }, [blacklist]);
 
   return (
     <section className="flex-1 space-y-6 p-8">
@@ -76,11 +132,10 @@ const SecurityPage = () => {
           <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1">
             <button
               onClick={() => setTab("incidents")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                tab === "incidents"
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === "incidents"
                   ? "bg-white text-indigo-600 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
-              }`}
+                }`}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -94,11 +149,10 @@ const SecurityPage = () => {
             </button>
             <button
               onClick={() => setTab("blacklist")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                tab === "blacklist"
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === "blacklist"
                   ? "bg-white text-indigo-600 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
-              }`}
+                }`}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
@@ -117,17 +171,15 @@ const SecurityPage = () => {
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-center gap-3">
                   <button
                     onClick={() => setShowResolved(false)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                      !showResolved ? "bg-rose-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${!showResolved ? "bg-rose-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
                   >
                     Chưa giải quyết ({unresolvedCount})
                   </button>
                   <button
                     onClick={() => setShowResolved(true)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                      showResolved ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${showResolved ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
                   >
                     Tất cả ({incidents.length})
                   </button>
@@ -159,6 +211,7 @@ const SecurityPage = () => {
                             <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Biển số</th>
                             <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Loại</th>
                             <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Thời gian</th>
+                            <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Thao tác</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -172,8 +225,20 @@ const SecurityPage = () => {
                                 <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2 ${item.resolvedAt ? "bg-emerald-400" : "bg-rose-500"}`} />
                                 {item.licensePlate || "—"}
                               </td>
-                              <td className="px-6 py-4 text-slate-600">{INCIDENT_TYPE_LABELS[item.exceptionType] || item.exceptionType || "—"}</td>
-                              <td className="px-6 py-4 text-slate-500 text-xs">{item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : "—"}</td>
+                              <td className="px-6 py-4 text-slate-650 font-medium">{INCIDENT_TYPE_LABELS[item.exceptionType] || item.exceptionType || "—"}</td>
+                              <td className="px-6 py-4 text-slate-550 text-xs">{item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : "—"}</td>
+                              <td className="px-6 py-4">
+                                {!item.resolvedAt ? (
+                                  <button
+                                    onClick={(e) => handleResolveIncident(item.id, e)}
+                                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 transition-all cursor-pointer shadow-sm shadow-rose-100 border border-rose-600/10 flex items-center justify-center"
+                                  >
+                                    Giải quyết
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100/50">Đã giải quyết</span>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -188,9 +253,8 @@ const SecurityPage = () => {
                       <div className="space-y-4 text-sm text-slate-700">
                         <div className="flex items-center justify-between">
                           <p className="font-semibold text-slate-900 text-lg">{selectedIncident.licensePlate || "—"}</p>
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                            selectedIncident.resolvedAt ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                          }`}>
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${selectedIncident.resolvedAt ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                            }`}>
                             {selectedIncident.resolvedAt ? "Đã giải quyết" : "Chưa giải quyết"}
                           </span>
                         </div>
@@ -210,6 +274,14 @@ const SecurityPage = () => {
                           Tạo lúc {selectedIncident.createdAt ? new Date(selectedIncident.createdAt).toLocaleString("vi-VN") : "—"}
                           {selectedIncident.resolvedAt && ` · Giải quyết lúc ${new Date(selectedIncident.resolvedAt).toLocaleString("vi-VN")}`}
                         </div>
+                        {!selectedIncident.resolvedAt && (
+                          <button
+                            onClick={(e) => handleResolveIncident(selectedIncident.id, e)}
+                            className="w-full mt-4 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 transition-all cursor-pointer shadow-md shadow-rose-600/10 border border-rose-600/10"
+                          >
+                            Đánh dấu đã giải quyết
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -220,7 +292,7 @@ const SecurityPage = () => {
             {/* Tab: Biển số đen */}
             {tab === "blacklist" && (
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                {blacklist.length === 0 ? (
+                {visibleBlacklist.length === 0 ? (
                   <div className="text-center py-16 text-slate-400 text-sm">Không có biển số nào trong danh sách đen.</div>
                 ) : (
                   <table className="w-full text-sm">
@@ -230,22 +302,33 @@ const SecurityPage = () => {
                         <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Lý do</th>
                         <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Ngày thêm</th>
                         <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Trạng thái</th>
+                        <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {blacklist.map(item => (
+                      {visibleBlacklist.map(item => (
                         <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4 font-mono font-bold text-slate-800">{item.licensePlate}</td>
-                          <td className="px-6 py-4 text-slate-600">{item.reason || "—"}</td>
+                          <td className="px-6 py-4 text-slate-655 font-medium">{REASON_LABELS[item.reason] || item.reason || "—"}</td>
                           <td className="px-6 py-4 text-slate-500 text-xs">
                             {item.addedAt ? new Date(item.addedAt).toLocaleDateString("vi-VN") : "—"}
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                              item.isActive ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-400"
-                            }`}>
+                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${item.isActive ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-400"
+                              }`}>
                               {item.isActive ? "Đang chặn" : "Đã gỡ"}
                             </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            {item.isActive && (
+                              <button
+                                onClick={() => handleRemoveFromBlacklist(item)}
+                                disabled={removingId === item.id}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {removingId === item.id ? "Đang gỡ..." : "Gỡ blacklist"}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}

@@ -283,6 +283,9 @@ export const staffApi = {
   getBlacklist() {
     return axiosClient.get("/security/blacklist");
   },
+  removeFromBlacklist(id, data) {
+    return axiosClient.put(`/manager/blacklist/${id}/status`, data);
+  },
 
   addBlacklistPlate(data) {
     return axiosClient.post("/security/blacklist", data);
@@ -343,8 +346,14 @@ export const managerApi = {
   getSecurityIncidentDetail(id) {
     return axiosClient.get(`/manager/security/incidents/${id}`);
   },
+  resolveIncident(id, data) {
+    return axiosClient.put(`/security/exceptions/${id}/resolve`, data);
+  },
   getBlacklist() {
     return axiosClient.get("/manager/blacklist");
+  },
+  removeFromBlacklist(id, data) {
+    return axiosClient.put(`/manager/blacklist/${id}/status`, data);
   },
 
   // === CRUD TÀI NGUYÊN (Zone, PricingRule, Gate) ===

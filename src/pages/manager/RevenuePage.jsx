@@ -178,19 +178,34 @@ const RevenuePage = () => {
         {loading ? <Spinner /> : revenueData && (
           <div className="space-y-6">
             {/* KPI cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-2xl p-6 text-white shadow-lg shadow-indigo-500/30">
-                <p className="text-indigo-100 text-xs font-bold uppercase tracking-widest mb-2">Tổng doanh thu</p>
-                <h4 className="text-3xl font-black">{formatVND(revenueData.totalRevenue || 0)}</h4>
-                <p className="text-indigo-200 text-xs mt-2">{getFilterLabel()}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+                <div className="p-3 bg-indigo-50 text-indigo-650 rounded-xl">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Tổng doanh thu</p>
+                  <h4 className="text-xl font-extrabold text-slate-800 mt-0.5">{formatVND(revenueData.totalRevenue || 0)}</h4>
+                  <p className="text-slate-500 text-[10px] mt-0.5">{getFilterLabel()}</p>
+                </div>
               </div>
-              <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-2xl p-6 text-white shadow-lg shadow-emerald-500/30">
-                <p className="text-emerald-100 text-xs font-bold uppercase tracking-widest mb-2">Tổng phiên gửi xe</p>
-                <h4 className="text-3xl font-black">
-                  {new Intl.NumberFormat("vi-VN").format(revenueData.totalSessions || 0)}
-                  <span className="text-xl text-emerald-200 font-bold ml-1">phiên</span>
-                </h4>
-                <p className="text-emerald-200 text-xs mt-2">{getFilterLabel()}</p>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+                <div className="p-3 bg-emerald-50 text-emerald-650 rounded-xl">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Tổng phiên gửi xe</p>
+                  <h4 className="text-xl font-extrabold text-slate-800 mt-0.5">
+                    {new Intl.NumberFormat("vi-VN").format(revenueData.totalSessions || 0)}
+                    <span className="text-xs text-slate-500 font-bold ml-1">phiên</span>
+                  </h4>
+                  <p className="text-slate-500 text-[10px] mt-0.5">{getFilterLabel()}</p>
+                </div>
               </div>
             </div>
 

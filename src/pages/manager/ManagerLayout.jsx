@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, createContext } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { staffApi } from "../../api/parkingApi";
-import { IconDashboard, IconRevenue, IconOccupancy, IconVisits, IconPayments, IconPricing, IconGates } from "../components/Icons"; // adjust path if needed
+import { IconDashboard, IconRevenue, IconOccupancy, IconVisits, IconPayments, IconPricing, IconGates, IconMap3D } from "../components/Icons"; // adjust path if needed
 
 export const ManagerContext = createContext(null);
 
@@ -28,6 +28,80 @@ const ManagerLayout = ({ onLogout }) => {
   const [priceRules, setPriceRules] = useState([]);
   const [gates, setGates] = useState([]);
   const [vehicleTypes, setVehicleTypes] = useState([]);
+
+  const currentUser = JSON.parse(localStorage.getItem("user") || "null");
+
+  // States & Logic cho SOS khẩn cấp trong thanh bên
+  const [sosActive, setSosActive] = useState(false);
+  const [holdProgress, setHoldProgress] = useState(0);
+  const holdTimerRef = useRef(null);
+
+  const checkSosStatus = async () => {
+    try {
+      const res = await staffApi.getEmergencyStatus();
+      setSosActive(res.data.data?.active || false);
+    } catch (err) {
+      console.warn("Failed to check SOS status", err);
+    }
+  };
+
+  useEffect(() => {
+    checkSosStatus();
+    const interval = setInterval(checkSosStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const startHold = () => {
+    if (sosActive) return;
+    setHoldProgress(0);
+    const startTime = Date.now();
+    holdTimerRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const percent = Math.min((elapsed / 3000) * 100, 100);
+      setHoldProgress(percent);
+      if (elapsed >= 3000) {
+        clearInterval(holdTimerRef.current);
+        holdTimerRef.current = null;
+        triggerSos();
+      }
+    }, 50);
+  };
+
+  const stopHold = () => {
+    if (holdTimerRef.current) {
+      clearInterval(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setHoldProgress(0);
+  };
+
+  const triggerSos = async () => {
+    try {
+      await staffApi.activateEmergency({
+        activatedByUserId: currentUser?.id,
+        reason: "Kích hoạt SOS từ thanh bên Manager",
+        notes: "Thao tác giữ nút 3 giây."
+      });
+      setSosActive(true);
+      setHoldProgress(0);
+      triggerToast("Kích hoạt báo động SOS thành công", "success");
+    } catch (err) {
+      triggerToast("Lỗi kích hoạt SOS", "error");
+    }
+  };
+
+  const handleDeactivate = async () => {
+    try {
+      await staffApi.deactivateEmergency({
+        deactivatedByUserId: currentUser?.id,
+        notes: "Hủy kích hoạt SOS từ thanh bên Manager"
+      });
+      setSosActive(false);
+      triggerToast("Đã hủy báo động SOS", "success");
+    } catch (err) {
+      triggerToast("Lỗi hủy SOS", "error");
+    }
+  };
 
   const fetchConfig = async () => {
     try {
@@ -72,10 +146,11 @@ const ManagerLayout = ({ onLogout }) => {
     { id: "pricing", label: "Biểu phí", icon: <IconPricing />, path: "/manager/pricing" },
     { id: "gates", label: "Giám sát cổng", icon: <IconGates />, path: "/manager/gates" },
     { id: "security", label: "An ninh", icon: <IconGates />, path: "/manager/security" },
+    { id: "map3d", label: "Bản đồ 3D", icon: <IconMap3D />, path: "/manager/3d-map" },
   ];
 
   return (
-    <ManagerContext.Provider value={{ buildings, setBuildings, floors, setFloors, zones, setZones, priceRules, setPriceRules, gates, setGates, vehicleTypes, setVehicleTypes, syncConfig, triggerToast, toast }}>
+    <ManagerContext.Provider value={{ buildings, setBuildings, floors, setFloors, zones, setZones, priceRules, setPriceRules, gates, setGates, vehicleTypes, setVehicleTypes, syncConfig, triggerToast, toast, currentUser }}>
       <div ref={containerRef} className="min-h-screen bg-[#f8fafc] text-slate-900 flex font-sans antialiased">
         {/* Sidebar */}
         <aside className={`aside-panel fixed left-0 top-0 bottom-0 z-50 flex h-screen flex-col bg-slate-900 text-white transition-all duration-300 ${collapsed ? "w-20" : "w-72"}`}>
@@ -97,7 +172,52 @@ const ManagerLayout = ({ onLogout }) => {
                 {!collapsed && <span className="whitespace-nowrap">{tab.label}</span>}
               </NavLink>
             ))}
+            
+            {/* Divider line */}
+            <div className="border-t border-slate-800/80 my-2" />
+            
+            {/* SOS Item formatted exactly like standard NavLink row */}
+            {sosActive ? (
+              <button
+                onClick={handleDeactivate}
+                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 cursor-pointer bg-rose-950/20 text-rose-400 hover:bg-rose-900/30 border border-rose-900/10 shadow-inner"
+              >
+                <span className="flex-shrink-0 animate-pulse">
+                  <svg className="w-5 h-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                </span>
+                {!collapsed && <span className="whitespace-nowrap font-bold text-rose-455">Hủy báo động SOS</span>}
+              </button>
+            ) : (
+              <button
+                onMouseDown={startHold}
+                onMouseUp={stopHold}
+                onMouseLeave={stopHold}
+                onTouchStart={startHold}
+                onTouchEnd={stopHold}
+                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 cursor-pointer text-slate-400 hover:bg-slate-800 hover:text-white relative overflow-hidden select-none border border-transparent"
+              >
+                <span className="flex-shrink-0">
+                  <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                </span>
+                {!collapsed && (
+                  <span className="whitespace-nowrap">
+                    {holdProgress > 0 ? `Giữ (${Math.round(holdProgress)}%)` : "Báo động SOS"}
+                  </span>
+                )}
+                {holdProgress > 0 && (
+                  <div
+                    className="absolute bottom-0 left-0 h-[2.5px] bg-rose-500 transition-all duration-75"
+                    style={{ width: `${holdProgress}%` }}
+                  />
+                )}
+              </button>
+            )}
           </nav>
+
           <div className="border-t border-slate-800 p-4 overflow-hidden">
             <button onClick={onLogout} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 font-semibold text-rose-400 hover:bg-rose-955/30 hover:text-rose-300 transition-all duration-200 cursor-pointer">
               {!collapsed && <span className="whitespace-nowrap">Đăng xuất</span>}

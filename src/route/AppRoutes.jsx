@@ -112,6 +112,7 @@ function AppRoutes({ userRole, onLogin, onLogout }) {
         <Route path="gates" element={<GateMonitoringPage />} />
         <Route path="security" element={<SecurityPage />} />
       </Route>
+      <Route path="/manager/3d-map" element={<ParkingTwin3DPage />} />
       <Route path="*" element={<Navigate to="/manager" replace />} />
       </Routes>
     );

@@ -5,7 +5,9 @@ import { ManagerContext } from "./ManagerLayout";
 const PRICING_TYPE_LABELS = {
   HOURLY: "Theo giờ",
   DAILY: "Theo ngày",
-  MONTHLY: "Theo tháng",
+  MONTHLY: "Vé tháng",
+  QUARTERLY: "Vé quý",
+  YEARLY: "Vé năm",
 };
 
 const EMPTY_FORM = {
@@ -13,32 +15,35 @@ const EMPTY_FORM = {
   pricingType: "HOURLY",
   pricePerUnit: 0,
   freeMinutes: 0,
+  buildingId: "",
 };
 
 const PricingPage = () => {
-  const { priceRules, syncConfig, triggerToast } = useContext(ManagerContext);
+  const { buildings, priceRules, vehicleTypes, syncConfig, triggerToast } = useContext(ManagerContext);
   const [editingPrice, setEditingPrice] = useState(null);
   const [creating, setCreating] = useState(false);
   const [newRule, setNewRule] = useState(EMPTY_FORM);
-  const [filterVehicle, setFilterVehicle] = useState("ALL");
-  const [filterType, setFilterType] = useState("ALL");
 
-  const vehicleTypes = [...new Set(priceRules.map(r => r.vehicleTypeName))];
-  const pricingTypes = [...new Set(priceRules.map(r => r.pricingType))];
-
-  const filtered = priceRules.filter(r => {
-    if (filterVehicle !== "ALL" && r.vehicleTypeName !== filterVehicle) return false;
-    if (filterType !== "ALL" && r.pricingType !== filterType) return false;
-    return true;
-  });
+  // Group price rules by vehicleTypeName
+  const grouped = priceRules.reduce((acc, rule) => {
+    const key = rule.vehicleTypeName || "Khác";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(rule);
+    return acc;
+  }, {});
 
   const handleUpdate = async (e) => {
     e.preventDefault();
+    const price = parseFloat(editingPrice.pricePerUnit);
+    if (isNaN(price) || price <= 0) {
+      triggerToast("Đơn giá phải lớn hơn 0", "error");
+      return;
+    }
     try {
       await managerApi.updatePricingRule(editingPrice.id, {
         pricingType: editingPrice.pricingType,
-        pricePerUnit: editingPrice.pricePerUnit,
-        freeMinutes: editingPrice.freeMinutes || 0,
+        pricePerUnit: price,
+        freeMinutes: parseInt(editingPrice.freeMinutes) || 0,
       });
       await syncConfig();
       setEditingPrice(null);
@@ -51,7 +56,47 @@ const PricingPage = () => {
   const handleCreate = async (e) => {
     e.preventDefault();
     try {
-      await managerApi.createPricingRule(newRule);
+      // Kiểm tra vehicleTypeId
+      if (!newRule.vehicleTypeId) {
+        triggerToast("Vui lòng chọn loại phương tiện", "error");
+        return;
+      }
+
+      // Kiểm tra pricePerUnit
+      const price = parseFloat(newRule.pricePerUnit);
+      if (isNaN(price) || price <= 0) {
+        triggerToast("Đơn giá phải lớn hơn 0", "error");
+        return;
+      }
+
+      // Lấy buildingId từ buildings hoặc từ newRule
+      const buildingId = newRule.buildingId || (buildings.length > 0 ? buildings[0].id : "");
+      if (!buildingId) {
+        triggerToast("Không tìm thấy tòa nhà", "error");
+        return;
+      }
+
+      // Kiểm tra xem combination này đã tồn tại hay chưa
+      const isDuplicate = priceRules.some(
+        rule =>
+          rule.buildingId === buildingId &&
+          rule.vehicleTypeId === newRule.vehicleTypeId &&
+          rule.pricingType === newRule.pricingType
+      );
+
+      if (isDuplicate) {
+        const vehicleTypeName = vehicleTypes.find((vt) => vt.id === newRule.vehicleTypeId)?.name || "phương tiện";
+        triggerToast(`Biểu phí cho ${vehicleTypeName} (${PRICING_TYPE_LABELS[newRule.pricingType]}) đã tồn tại. Vui lòng sửa biểu phí hiện có.`, "error");
+        return;
+      }
+      
+      await managerApi.createPricingRule({
+        buildingId: buildingId,
+        vehicleTypeId: newRule.vehicleTypeId,
+        pricingType: newRule.pricingType,
+        pricePerUnit: price,
+        freeMinutes: parseInt(newRule.freeMinutes) || 0,
+      });
       await syncConfig();
       setCreating(false);
       setNewRule(EMPTY_FORM);
@@ -61,8 +106,8 @@ const PricingPage = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Xác nhận xóa biểu phí này?")) return;
+  const handleDelete = async (id, vehicleType) => {
+    if (!window.confirm(`Xóa biểu phí ${vehicleType}?`)) return;
     try {
       await managerApi.deletePricingRule(id);
       await syncConfig();
@@ -73,144 +118,268 @@ const PricingPage = () => {
   };
 
   return (
-    <section className="flex-1 space-y-8 p-8">
-      <div className="space-y-6 fade-up-element">
-        <div className="flex items-center justify-between">
+    <section className="flex-1 p-8 space-y-6">
+      {/* Page Header */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
+        <div className="flex justify-between items-center text-left">
           <div>
-            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Cấu hình Biểu phí</h3>
-            <p className="text-xs text-slate-500 mt-1">Thiết lập giá cước theo giờ, ngày, tháng cho từng loại phương tiện.</p>
+            <h3 className="font-extrabold text-slate-900 text-base">Bảng biểu phí đỗ xe</h3>
+            <p className="text-xs text-slate-400 mt-1">Giá gửi xe theo từng loại phương tiện. Áp dụng cho tất cả cổng trong bãi.</p>
           </div>
           <button
-            onClick={() => setCreating(true)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
+            onClick={() => { 
+              const initialForm = {
+                ...EMPTY_FORM,
+                buildingId: buildings.length > 0 ? buildings[0].id : "",
+              };
+              setNewRule(initialForm); 
+              setCreating(true); 
+            }}
+            className="rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors"
           >
-            + Thêm biểu phí
+            Thêm biểu phí
           </button>
         </div>
 
-        {/* Bộ lọc */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Phương tiện</span>
-            <div className="flex gap-2">
-              <button onClick={() => setFilterVehicle("ALL")} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterVehicle === "ALL" ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>Tất cả</button>
-              {vehicleTypes.map(v => (
-                <button key={v} onClick={() => setFilterVehicle(v)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterVehicle === v ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{v}</button>
-              ))}
-            </div>
-          </div>
+        {/* Grouped pricing table */}
+        <div className="space-y-4">
+          {Object.keys(grouped).length === 0 ? (
+            <p className="text-center text-sm text-slate-400 py-8">Chưa có biểu phí nào.</p>
+          ) : (
+            Object.entries(grouped).map(([vehicleType, items]) => (
+              <div key={vehicleType} className="rounded-xl border border-slate-200 overflow-hidden">
+                {/* Group header */}
+                <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                  <span className="text-sm font-extrabold text-slate-800 uppercase tracking-wide">
+                    {vehicleType}
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">{items.length} mức giá</span>
+                </div>
 
-          <div className="w-px h-5 bg-slate-200" />
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Loại vé</span>
-            <div className="flex gap-2">
-              <button onClick={() => setFilterType("ALL")} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterType === "ALL" ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>Tất cả</button>
-              {pricingTypes.map(t => (
-                <button key={t} onClick={() => setFilterType(t)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterType === t ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{PRICING_TYPE_LABELS[t] || t}</button>
-              ))}
-            </div>
-          </div>
+                {/* Price rows */}
+                <div className="divide-y divide-slate-100">
+                  {items.map((rule) => (
+                    <div
+                      key={rule.id}
+                      className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-6 min-w-0">
+                        <span className="text-sm text-slate-700 font-semibold w-28 flex-shrink-0">
+                          {PRICING_TYPE_LABELS[rule.pricingType] || rule.pricingType}
+                        </span>
+                        <span className="text-base font-extrabold text-slate-900 tabular-nums">
+                          {Number(rule.pricePerUnit).toLocaleString("vi-VN")}{" "}
+                          <span className="text-slate-500 font-semibold text-sm">VNĐ</span>
+                        </span>
+                        {rule.freeMinutes > 0 && (
+                          <span className="text-xs text-slate-500 font-medium">
+                            miễn phí {rule.freeMinutes} phút đầu
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => setEditingPrice({ ...rule })}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
+                        >
+                          Sửa
+                        </button>
+                        <button
+                          onClick={() => handleDelete(rule.id, vehicleType)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                        >
+                          Xóa
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
-        {/* Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filtered.length === 0 ? (
-            <div className="col-span-3 text-center py-16 text-slate-400 text-sm">Không có biểu phí nào phù hợp.</div>
-          ) : filtered.map(rule => (
-            <div key={rule.id} className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex justify-between items-start mb-4">
-                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${rule.vehicleTypeName === "Ô tô" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                  {rule.vehicleTypeName}
-                </span>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                  {PRICING_TYPE_LABELS[rule.pricingType] || rule.pricingType}
-                </span>
-              </div>
-
-              <h4 className="text-3xl font-black text-slate-800 font-mono tracking-tighter mb-1">
-                {Number(rule.pricePerUnit).toLocaleString("vi-VN")}
-                <span className="text-base text-slate-400 font-bold ml-1">đ</span>
-              </h4>
-              <p className="text-xs text-slate-500 font-medium mb-6">
-                {PRICING_TYPE_LABELS[rule.pricingType] || rule.pricingType}
-                {rule.freeMinutes > 0 && ` • Miễn phí ${rule.freeMinutes} phút đầu`}
-              </p>
-
-              <div className="flex gap-2">
-                <button onClick={() => setEditingPrice(rule)} className="flex-1 py-2.5 rounded-xl border border-indigo-200 text-indigo-600 text-xs font-bold hover:bg-indigo-50 transition-colors cursor-pointer">Sửa giá</button>
-                <button onClick={() => handleDelete(rule.id)} className="px-4 py-2.5 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors cursor-pointer">Xóa</button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Modal sửa */}
-        {editingPrice && (
-          <div className="fixed inset-0 z-[9999] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-              <h4 className="text-lg font-black text-slate-800 mb-4">Cập nhật bảng giá</h4>
-              <form onSubmit={handleUpdate} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Loại phương tiện</label>
-                  <input disabled type="text" value={editingPrice.vehicleTypeName} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-100 text-slate-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Loại vé</label>
-                  <input disabled type="text" value={PRICING_TYPE_LABELS[editingPrice.pricingType] || editingPrice.pricingType} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-100 text-slate-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Đơn giá (VNĐ)</label>
-                  <input required type="number" min="0" step="1000" value={editingPrice.pricePerUnit} onChange={e => setEditingPrice({ ...editingPrice, pricePerUnit: e.target.value })} className="w-full border border-indigo-300 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold text-indigo-700" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Phút miễn phí đầu tiên</label>
-                  <input required type="number" min="0" value={editingPrice.freeMinutes || 0} onChange={e => setEditingPrice({ ...editingPrice, freeMinutes: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500" />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setEditingPrice(null)} className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 cursor-pointer">Hủy</button>
-                  <button type="submit" className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold cursor-pointer">Lưu thay đổi</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Modal tạo mới */}
-        {creating && (
-          <div className="fixed inset-0 z-[9999] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-              <h4 className="text-lg font-black text-slate-800 mb-4">Thêm biểu phí mới</h4>
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Vehicle Type ID</label>
-                  <input required type="text" value={newRule.vehicleTypeId} onChange={e => setNewRule({ ...newRule, vehicleTypeId: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500" placeholder="UUID loại xe" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Loại vé</label>
-                  <select value={newRule.pricingType} onChange={e => setNewRule({ ...newRule, pricingType: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500">
-                    <option value="HOURLY">Theo giờ</option>
-                    <option value="DAILY">Theo ngày</option>
-                    <option value="MONTHLY">Theo tháng</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Đơn giá (VNĐ)</label>
-                  <input required type="number" min="0" step="1000" value={newRule.pricePerUnit} onChange={e => setNewRule({ ...newRule, pricePerUnit: e.target.value })} className="w-full border border-indigo-300 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold text-indigo-700" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Phút miễn phí đầu tiên</label>
-                  <input required type="number" min="0" value={newRule.freeMinutes} onChange={e => setNewRule({ ...newRule, freeMinutes: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500" />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => { setCreating(false); setNewRule(EMPTY_FORM); }} className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 cursor-pointer">Hủy</button>
-                  <button type="submit" className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold cursor-pointer">Tạo mới</button>
-                </div>
-              </form>
-            </div>
+        {/* Summary stats */}
+        {priceRules.length > 0 && (
+          <div className="flex items-center gap-4 pt-2 border-t border-slate-100">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tổng cộng</span>
+            <span className="text-xs font-bold text-slate-700">{priceRules.length} mức giá</span>
+            <span className="text-[10px] text-slate-400">·</span>
+            <span className="text-xs font-bold text-slate-700">{Object.keys(grouped).length} loại phương tiện</span>
           </div>
         )}
       </div>
+
+      {/* --- MODAL SỬA --- */}
+      {editingPrice && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-6 text-left border border-slate-200">
+            <h3 className="font-extrabold text-slate-900 text-base">Cập nhật biểu phí</h3>
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Loại phương tiện</label>
+                <input
+                  disabled
+                  type="text"
+                  value={editingPrice.vehicleTypeName}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-xs font-bold text-slate-500 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Kiểu thu phí</label>
+                <input
+                  disabled
+                  type="text"
+                  value={PRICING_TYPE_LABELS[editingPrice.pricingType] || editingPrice.pricingType}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-xs font-bold text-slate-500 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Đơn giá (VNĐ)</label>
+                <input
+                  required
+                  type="number"
+                  min="1000"
+                  step="1000"
+                  value={editingPrice.pricePerUnit}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val !== "" && parseFloat(val) < 0) return;
+                    setEditingPrice({ ...editingPrice, pricePerUnit: val });
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Số phút miễn phí</label>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  value={editingPrice.freeMinutes || 0}
+                  onChange={(e) => setEditingPrice({ ...editingPrice, freeMinutes: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPrice(null)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-white py-3 text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Lưu lại
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL TẠO MỚI --- */}
+      {creating && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-6 text-left border border-slate-200">
+            <h3 className="font-extrabold text-slate-900 text-base">Cài đặt biểu phí mới</h3>
+            <form onSubmit={handleCreate} className="space-y-4">
+              {/* Tòa nhà - chỉ hiển thị nếu có > 1 tòa */}
+              {buildings.length > 1 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Tòa nhà</label>
+                  <select
+                    required
+                    value={newRule.buildingId}
+                    onChange={(e) => setNewRule({ ...newRule, buildingId: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white cursor-pointer"
+                  >
+                    <option value="">— Chọn —</option>
+                    {buildings.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Loại phương tiện</label>
+                  <select
+                    required
+                    value={newRule.vehicleTypeId}
+                    onChange={(e) => setNewRule({ ...newRule, vehicleTypeId: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white cursor-pointer"
+                  >
+                    <option value="">— Chọn —</option>
+                    {vehicleTypes.map((vt) => (
+                      <option key={vt.id} value={vt.id}>{vt.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Kiểu thu phí</label>
+                  <select
+                    value={newRule.pricingType}
+                    onChange={(e) => setNewRule({ ...newRule, pricingType: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white cursor-pointer"
+                  >
+                    <option value="HOURLY">Theo Giờ</option>
+                    <option value="DAILY">Theo Ngày</option>
+                    <option value="MONTHLY">Vé Tháng</option>
+                    <option value="QUARTERLY">Vé Quý</option>
+                    <option value="YEARLY">Vé Năm</option>
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Đơn giá (VNĐ)</label>
+                <input
+                  required
+                  type="number"
+                  min="1000"
+                  step="1000"
+                  value={newRule.pricePerUnit}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val !== "" && parseFloat(val) < 0) return;
+                    setNewRule({ ...newRule, pricePerUnit: val });
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Số phút miễn phí</label>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  value={newRule.freeMinutes}
+                  onChange={(e) => setNewRule({ ...newRule, freeMinutes: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setCreating(false); setNewRule({ ...EMPTY_FORM, buildingId: buildings.length > 0 ? buildings[0].id : "" }); }}
+                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-white py-3 text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Lưu lại
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   );
 };
