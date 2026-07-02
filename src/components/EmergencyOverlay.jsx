@@ -11,6 +11,13 @@ const ROLE_LABELS = {
   ADMIN: "Quản trị viên",
 };
 
+const REASON_LABELS = {
+  FIRE_OR_FLOOD: "Cháy / ngập / sơ tán khẩn cấp",
+  SECURITY_THREAT: "Đe dọa an ninh",
+  MEDICAL_EMERGENCY: "Cấp cứu y tế",
+  OTHER_EMERGENCY: "Khẩn cấp khác",
+};
+
 function formatTime(value) {
   if (!value) return new Date().toLocaleString("vi-VN");
   return new Date(value).toLocaleString("vi-VN");
@@ -76,7 +83,10 @@ export default function EmergencyOverlay({ userRole }) {
     fetchStatus();
 
     const client = new Client({
-      webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+      // GIẢI THÍCH CHO HỘI ĐỒNG:
+      // WebSocket cần trỏ đúng IP của máy chủ. Bằng cách dùng \`window.location.hostname\`,
+      // nếu mở web trên điện thoại (vd: 192.168.1.126), nó sẽ tự động kết nối Real-time tới đúng IP đó thay vì 'localhost'.
+      webSocketFactory: () => new SockJS(`http://${window.location.hostname}:8080/ws`),
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
@@ -165,7 +175,7 @@ export default function EmergencyOverlay({ userRole }) {
         <section className="w-full max-w-5xl overflow-hidden rounded-[2.2rem] border-4 border-red-200 bg-red-700 shadow-[0_0_110px_rgba(239,68,68,0.9)]">
           <div className="border-b border-red-300/40 bg-white/10 px-8 py-5 text-center">
             <p className="text-xs font-black uppercase tracking-[0.55em] text-red-100">
-              Emergency SOS Broadcast · {connected ? "WebSocket Live" : "Reconnecting"}
+              Phát sóng Khẩn cấp SOS · {connected ? "Đã kết nối Live" : "Đang kết nối lại"}
             </p>
           </div>
 
@@ -192,7 +202,7 @@ export default function EmergencyOverlay({ userRole }) {
               <div className="mt-8 grid gap-4 rounded-3xl bg-black/20 p-5 text-sm font-bold md:grid-cols-2">
                 <Info label="Vai trò hiện tại" value={roleLabel} />
                 <Info label="Tòa nhà" value={status.buildingName || "SmartParking"} />
-                <Info label="Lý do" value={status.reason || "EMERGENCY_SOS"} />
+                <Info label="Lý do" value={REASON_LABELS[status.reason] || status.reason || "EMERGENCY_SOS"} />
                 <Info label="Thời điểm nhận cảnh báo" value={formatTime(status.activatedAt)} />
               </div>
 
@@ -212,12 +222,12 @@ export default function EmergencyOverlay({ userRole }) {
             <aside className="flex flex-col justify-between border-t border-red-300/30 bg-red-950/35 p-8 lg:border-l lg:border-t-0">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.35em] text-red-100">
-                  System Lock
+                  Khóa Hệ Thống
                 </p>
                 <div className="mt-5 rounded-3xl bg-black/25 p-5">
-                  <p className="text-5xl font-black">LOCKED</p>
+                  <p className="text-5xl font-black">ĐÃ KHÓA</p>
                   <p className="mt-2 text-sm font-bold text-red-100">
-                    Giao diện thao tác bình thường đang bị khóa bởi emergency overlay.
+                    Giao diện thao tác bình thường đang bị khóa để ưu tiên xử lý khẩn cấp.
                   </p>
                 </div>
               </div>

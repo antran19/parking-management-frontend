@@ -32,7 +32,7 @@ const formatTime = (value) => {
   return new Date(value).toLocaleString("vi-VN");
 };
 
-// Panel container — giống hệt các trang khác trong Security
+// Panel container
 function Panel({ title, children, className }) {
   return (
     <div className={`action-panel-item rounded-3xl border border-slate-200 bg-white p-6 shadow-sm ${className || ""}`}>
@@ -69,24 +69,36 @@ export default function ExceptionLogsPage({ showToast, user }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Danh sách loại phương tiện tải từ API thực (không hardcode)
+  // Danh sách loại phương tiện tải từ API thực
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [loadingConfig, setLoadingConfig] = useState(true);
 
-  // State lưu danh sách file ảnh đang chờ upload
+  // Upload file
   const [selectedFiles, setSelectedFiles] = useState([]);
 
-  // State và Ref cho tính năng Webcam
+  // Webcam
   const [showWebcam, setShowWebcam] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
 
-  // State filter để lọc danh sách sự cố
+  // Lọc
   const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [searchText, setSearchText] = useState("");
 
-  // Form ghi nhận sự cố mới
-  // vehicleTypeId/vehicleTypeName sẽ được set sau khi tải config từ API
+  // Edit mode
+  const [editingId, setEditingId] = useState(null);
+
+  // Image Modal
+  const [viewingImage, setViewingImage] = useState(null);
+
+  // Detail Modal
+  const [viewingLogDetail, setViewingLogDetail] = useState(null);
+
+  // State: Có liên quan phương tiện hay không?
+  const [isVehicleRelated, setIsVehicleRelated] = useState(true);
+
+  // Form
   const [form, setForm] = useState({
     exceptionType: "LOST_TICKET",
     description: "",
@@ -94,38 +106,39 @@ export default function ExceptionLogsPage({ showToast, user }) {
     licensePlate: "",
     vehicleTypeId: "",
     vehicleTypeName: "",
+    existingImages: [],
   });
 
-  // Helper: kiểm tra loại xe hiện tại có phải xe đạp không (dùng name từ API)
-  const isBicycle = () => {
-    const name = (form.vehicleTypeName || "").toLowerCase();
-    return name.includes("đạp") || name.includes("bicycle");
-  };
+  const handleLicensePlateBlur = async () => {
+    if (!isVehicleRelated) return;
 
-  const handleLicensePlateBlur = () => {
     const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleTypeName);
 
-    // Kiểm tra ngay khi rời chuột (blur)
-    if (!isBicycle() && formattedPlate.trim()) {
+    if (formattedPlate.trim()) {
       if (!isValidVietnamLicensePlate(formattedPlate)) {
         showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
         setForm(prev => ({ ...prev, licensePlate: "" }));
         return;
       }
-    }
 
-    setForm(prev => ({
-      ...prev,
-      licensePlate: formattedPlate
-    }));
+      setForm(prev => ({ ...prev, licensePlate: formattedPlate }));
+
+
+    }
   };
 
-  // Lấy danh sách sự cố từ backend
+  const handleSessionIdChange = (e) => {
+    const val = e.target.value;
+    setForm({ ...form, sessionId: val });
+  };
+
+  // Fetch logs
   const fetchLogs = async () => {
     setLoading(true);
     try {
       const res = await staffApi.getSecurityExceptions();
-      setLogs(res.data.data || []);
+      const sortedLogs = (res.data.data || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setLogs(sortedLogs);
     } catch (err) {
       console.error("Fetch exception logs error:", err);
       showToast(err.response?.data?.message || "Không tải được danh sách sự cố.", "error");
@@ -134,7 +147,6 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
-  // Tải cấu hình bãi xe (danh sách loại phương tiện thực từ backend)
   useEffect(() => {
     const fetchConfig = async () => {
       setLoadingConfig(true);
@@ -142,18 +154,15 @@ export default function ExceptionLogsPage({ showToast, user }) {
         const res = await staffApi.getParkingConfig();
         const config = res.data.data || {};
         const types = config.vehicleTypes || [];
-        setVehicleTypes(types);
-        // Mặc định chọn loại phương tiện đầu tiên từ API
-        if (types.length > 0) {
-          setForm(prev => ({
-            ...prev,
-            vehicleTypeId: types[0].id,
-            vehicleTypeName: types[0].name,
-          }));
+        // Lọc bỏ xe đạp
+        const filteredTypes = types.filter(v => !v.name.toLowerCase().includes("đạp") && !v.name.toLowerCase().includes("bicycle"));
+        setVehicleTypes(filteredTypes);
+        if (filteredTypes.length > 0) {
+          setForm(prev => ({ ...prev, vehicleTypeId: filteredTypes[0].id, vehicleTypeName: filteredTypes[0].name }));
         }
       } catch (err) {
         console.error("Fetch parking config error:", err);
-        showToast("Không thể tải cấu hình loại phương tiện từ máy chủ.", "error");
+        showToast("Không thể tải cấu hình loại phương tiện.", "error");
       } finally {
         setLoadingConfig(false);
       }
@@ -162,43 +171,42 @@ export default function ExceptionLogsPage({ showToast, user }) {
     fetchLogs();
   }, []);
 
-  // Cleanup ObjectURLs khi unmount để tránh rò rỉ bộ nhớ
+  // Prevent body scroll when modal is open
   useEffect(() => {
+    if (viewingImage || viewingLogDetail) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
     return () => {
-      selectedFiles.forEach(file => URL.revokeObjectURL(file.preview));
+      document.body.style.overflow = "unset";
     };
+  }, [viewingImage, viewingLogDetail]);
+
+  useEffect(() => {
+    return () => selectedFiles.forEach(file => URL.revokeObjectURL(file.preview));
   }, [selectedFiles]);
 
-  // Hàm thêm file vào danh sách chờ
   const handleAddFiles = (files) => {
     if (!files || !files.length) return;
-    const newFiles = files.map(file => Object.assign(file, {
-      preview: URL.createObjectURL(file)
-    }));
+    const newFiles = files.map(file => Object.assign(file, { preview: URL.createObjectURL(file) }));
     setSelectedFiles(prev => [...prev, ...newFiles]);
   };
 
-  // Xử lý upload khi chọn ảnh từ máy tính
   const handleImageUpload = (e) => {
-    const files = Array.from(e.target.files);
-    handleAddFiles(files);
-    // Reset input file
+    handleAddFiles(Array.from(e.target.files));
     e.target.value = null;
   };
 
-  // --- LOGIC WEBCAM ---
+  // Webcam
   const startWebcam = async () => {
     setShowWebcam(true);
     try {
-      // Yêu cầu quyền camera (ưu tiên camera sau nếu có trên di động)
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      if (videoRef.current) videoRef.current.srcObject = stream;
       streamRef.current = stream;
     } catch (err) {
-      console.error("Error accessing webcam:", err);
-      showToast("Không thể truy cập camera. Vui lòng kiểm tra quyền trình duyệt.", "error");
+      showToast("Không thể truy cập camera.", "error");
       setShowWebcam(false);
     }
   };
@@ -217,31 +225,22 @@ export default function ExceptionLogsPage({ showToast, user }) {
       canvas.width = videoRef.current.videoWidth;
       canvas.height = videoRef.current.videoHeight;
       const ctx = canvas.getContext("2d");
-      // Vẽ frame hiện tại của video lên canvas
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      
-      // Chuyển canvas thành file ảnh (Blob) và thêm vào danh sách chờ
       canvas.toBlob((blob) => {
         if (blob) {
-          const file = new File([blob], `webcam_${Date.now()}.jpg`, { type: "image/jpeg" });
-          handleAddFiles([file]);
-          stopWebcam(); // Chụp xong tự tắt cam
+          handleAddFiles([new File([blob], `webcam_${Date.now()}.jpg`, { type: "image/jpeg" })]);
+          stopWebcam();
         }
-      }, "image/jpeg", 0.9); // Chất lượng 90%
+      }, "image/jpeg", 0.9);
     }
   };
 
-  // Dọn dẹp stream camera khi người dùng rời khỏi trang
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
+      if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
     };
   }, []);
-  // --------------------
 
-  // Xóa ảnh đã chọn (theo index)
   const handleRemoveImage = (indexToRemove) => {
     setSelectedFiles((prev) => {
       const newFiles = [...prev];
@@ -251,17 +250,77 @@ export default function ExceptionLogsPage({ showToast, user }) {
     });
   };
 
-  // Ghi nhận sự cố mới vào DB
+  // Handle Edit Click
+  const handleEdit = (log) => {
+    setEditingId(log.id);
+
+    let defaultVt = vehicleTypes[0];
+
+    // Format lại biển số ngay khi ấn sửa
+    let formattedPlate = log.licensePlate || "";
+    if (formattedPlate && defaultVt) {
+      formattedPlate = formatLicensePlate(formattedPlate, defaultVt.name);
+    }
+
+    // Nếu log có biển số coi như có liên quan xe
+    setIsVehicleRelated(!!log.licensePlate);
+
+    setForm({
+      exceptionType: log.exceptionType || "LOST_TICKET",
+      description: log.description || "",
+      licensePlate: formattedPlate,
+      vehicleTypeId: defaultVt?.id || "",
+      vehicleTypeName: defaultVt?.name || "",
+      existingImages: log.imageUrls ? [...log.imageUrls] : [],
+    });
+    setSelectedFiles([]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleRemoveExistingImage = (indexToRemove) => {
+    setForm(prev => {
+      const newExisting = [...prev.existingImages];
+      newExisting.splice(indexToRemove, 1);
+      return { ...prev, existingImages: newExisting };
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setIsVehicleRelated(true);
+    setForm({
+      exceptionType: "LOST_TICKET",
+      description: "",
+      licensePlate: "",
+      vehicleTypeId: vehicleTypes[0]?.id || "",
+      vehicleTypeName: vehicleTypes[0]?.name || "",
+      existingImages: [],
+    });
+    setSelectedFiles([]);
+  };
+
+  // Resolve Click
+  const handleResolve = async (logId) => {
+    try {
+      await staffApi.resolveSecurityException(logId, { handledByUserId: user.id });
+      showToast("Đã giải quyết sự cố!", "success");
+      fetchLogs();
+    } catch (err) {
+      showToast(err.response?.data?.message || "Lỗi khi giải quyết sự cố", "error");
+    }
+  };
+
+  // Submit Form (Create / Edit)
   const submitException = async (e) => {
     e.preventDefault();
     if (!form.description.trim()) {
       showToast("Vui lòng nhập mô tả sự cố", "error");
       return;
     }
-    if (!isBicycle() && form.licensePlate.trim()) {
+    if (isVehicleRelated && form.licensePlate.trim()) {
       const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleTypeName);
       if (!isValidVietnamLicensePlate(formattedPlate)) {
-        showToast("Biển số xe không đúng định dạng. Vui lòng nhập lại!", "error");
+        showToast("Biển số xe không đúng định dạng!", "error");
         setForm(prev => ({ ...prev, licensePlate: "" }));
         return;
       }
@@ -275,7 +334,6 @@ export default function ExceptionLogsPage({ showToast, user }) {
     let uploadedUrls = [];
 
     try {
-      // 1. Nếu có ảnh, upload lên Cloudinary TRƯỚC
       if (selectedFiles.length > 0) {
         showToast("Đang tải ảnh lên Cloudinary...", "warning");
         for (const file of selectedFiles) {
@@ -291,101 +349,110 @@ export default function ExceptionLogsPage({ showToast, user }) {
           if (data.secure_url) {
             uploadedUrls.push(data.secure_url);
           } else {
-            throw new Error(data.error?.message || "Lỗi khi upload ảnh lên Cloudinary");
+            throw new Error(data.error?.message || "Lỗi khi upload ảnh");
           }
         }
       }
 
-      // 2. Gửi data xuống BE
-      await staffApi.logSecurityException({
+      const payload = {
         exceptionType: form.exceptionType,
         description: form.description.trim(),
-        sessionId: form.sessionId || null,
-        // Gửi biển số đã được format
-        ...(form.licensePlate.trim() && { licensePlate: formatLicensePlate(form.licensePlate.trim(), form.vehicleTypeName) }),
         handledByUserId: user.id,
-        // Gửi kèm danh sách URL ảnh minh chứng lên BE
-        ...(uploadedUrls.length > 0 && { imageUrls: uploadedUrls }),
-      });
-      // Reset form - giữ lại vehicleTypeId/vehicleTypeName mặc định (loại đầu tiên từ API)
-      setForm(prev => ({ ...prev, exceptionType: "LOST_TICKET", description: "", sessionId: "", licensePlate: "" }));
-      selectedFiles.forEach(f => URL.revokeObjectURL(f.preview));
-      setSelectedFiles([]); // Xóa danh sách ảnh chờ
-      showToast("✅ Đã ghi nhận sự cố an ninh", "success");
+      };
+
+      if (isVehicleRelated && form.licensePlate.trim()) {
+        payload.licensePlate = formatLicensePlate(form.licensePlate.trim(), form.vehicleTypeName);
+      }
+
+      if (editingId) {
+        payload.imageUrls = [...(form.existingImages || []), ...uploadedUrls];
+        await staffApi.updateSecurityException(editingId, payload);
+        showToast("✅ Đã cập nhật sự cố", "success");
+        cancelEdit();
+      } else {
+        if (uploadedUrls.length > 0) payload.imageUrls = uploadedUrls;
+        await staffApi.logSecurityException(payload);
+        showToast("✅ Đã ghi nhận sự cố mới", "success");
+        setForm(prev => ({ ...prev, exceptionType: "LOST_TICKET", description: "", licensePlate: "", existingImages: [] }));
+        setIsVehicleRelated(true);
+        selectedFiles.forEach(f => URL.revokeObjectURL(f.preview));
+        setSelectedFiles([]);
+      }
+
       fetchLogs();
     } catch (err) {
       console.error(err);
-      showToast(err.message || "Ghi nhận sự cố thất bại", "error");
+      showToast(err.message || "Ghi nhận/cập nhật sự cố thất bại", "error");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Lọc danh sách sự cố theo type + search text
   const filteredLogs = logs.filter((log) => {
     const matchType = filterType === "all" || log.exceptionType === filterType;
+    const matchStatus =
+      filterStatus === "all" ||
+      (filterStatus === "pending" && log.status !== "RESOLVED") ||
+      (filterStatus === "resolved" && log.status === "RESOLVED");
     const matchSearch =
       !searchText ||
       (log.description || "").toLowerCase().includes(searchText.toLowerCase()) ||
-      (log.session?.licensePlate || log.licensePlate || "").toLowerCase().includes(searchText.toLowerCase());
-    return matchType && matchSearch;
+      (log.licensePlate || "").toLowerCase().includes(searchText.toLowerCase());
+    return matchType && matchStatus && matchSearch;
   });
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] mt-8">
-      {/* ── Form ghi nhận sự cố mới ── */}
-      <Panel title="📝 Ghi nhận sự cố mới">
+    <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] mt-8 relative">
+      {/* ── Form ghi nhận/edit sự cố ── */}
+      <Panel title={editingId ? "✏️ Chỉnh sửa sự cố" : "📝 Ghi nhận sự cố mới"}>
         <form onSubmit={submitException} className="space-y-4">
-          {/* Biển số xe & Loại phương tiện */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Loại phương tiện">
-              {loadingConfig ? (
-                <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
-                  Đang tải danh sách loại xe...
-                </div>
-              ) : vehicleTypes.length === 0 ? (
-                <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-500">
-                  ⚠️ Không tải được cấu hình loại xe từ server
-                </div>
-              ) : (
+          <div className="flex items-center gap-2 mb-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <input
+              type="checkbox"
+              id="isVehicleRelated"
+              checked={isVehicleRelated}
+              onChange={(e) => setIsVehicleRelated(e.target.checked)}
+              className="w-4 h-4 text-red-600 rounded border-slate-300 focus:ring-red-500"
+            />
+            <label htmlFor="isVehicleRelated" className="text-sm font-bold text-slate-700 cursor-pointer select-none">
+              Sự cố này CÓ LIÊN QUAN đến một phương tiện cụ thể
+            </label>
+          </div>
+
+          {isVehicleRelated && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Loại phương tiện">
                 <select
                   value={form.vehicleTypeId}
                   onChange={(e) => {
                     const selected = vehicleTypes.find(v => String(v.id) === String(e.target.value));
-                    setForm({
-                      ...form,
-                      vehicleTypeId: e.target.value,
-                      vehicleTypeName: selected?.name || "",
-                      licensePlate: "", // Xóa biển số khi đổi loại để nhập lại
-                    });
+                    setForm({ ...form, vehicleTypeId: e.target.value, vehicleTypeName: selected?.name || "", licensePlate: "" });
                   }}
-                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-500/10 transition-all outline-none"
+                  disabled={loadingConfig || vehicleTypes.length === 0}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 outline-none"
                 >
-                  {vehicleTypes.map(vt => (
-                    <option key={vt.id} value={vt.id}>{vt.name}</option>
-                  ))}
+                  {vehicleTypes.map(vt => <option key={vt.id} value={vt.id}>{vt.name}</option>)}
                 </select>
-              )}
-            </Field>
+              </Field>
 
-            <Field label="Biển số xe (tự động format)">
-              <input
-                type="text"
-                placeholder={isBicycle() ? "Không yêu cầu nhập cho xe đạp" : "VD: 59A1-123.45"}
-                value={form.licensePlate}
-                onChange={(e) => setForm({ ...form, licensePlate: e.target.value })}
-                onBlur={handleLicensePlateBlur}
-                disabled={isBicycle()}
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-500/10 transition-all outline-none uppercase disabled:opacity-50 disabled:cursor-not-allowed"
-              />
-            </Field>
-          </div>
-          {/* Loại sự cố */}
+              <Field label="Biển số xe">
+                <input
+                  type="text"
+                  placeholder="VD: 59A1-123.45"
+                  value={form.licensePlate}
+                  onChange={(e) => setForm({ ...form, licensePlate: e.target.value })}
+                  onBlur={handleLicensePlateBlur}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 outline-none uppercase min-w-0"
+                />
+              </Field>
+            </div>
+          )}
+
           <Field label="Loại sự cố">
             <select
               value={form.exceptionType}
               onChange={(e) => setForm({ ...form, exceptionType: e.target.value })}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-900 outline-none"
             >
               {Object.entries(EXCEPTION_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -393,96 +460,63 @@ export default function ExceptionLogsPage({ showToast, user }) {
             </select>
           </Field>
 
-          {/* Mô tả — full width */}
           <Field label="Mô tả chi tiết sự cố">
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows="5"
-              placeholder="Ghi rõ tình huống xảy ra, xe liên quan, cách xử lý ban đầu..."
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              placeholder="Ghi rõ tình huống xảy ra..."
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none"
             />
           </Field>
 
-          {/* Session ID: full-width */}
-          <Field label="ID Phiên gửi xe (tuỳ chọn)">
-            <input
-              value={form.sessionId}
-              onChange={(e) => setForm({ ...form, sessionId: e.target.value })}
-              placeholder="Nhập session ID nếu có"
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-mono font-medium text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-            />
-          </Field>
 
-          {/* Khu vực đính kèm ảnh sự cố */}
-          <Field label="Đính kèm ảnh minh chứng (tuỳ chọn)">
+
+          <Field label={editingId ? "Tải lên ảnh mới (Ghi đè ảnh cũ - tuỳ chọn)" : "Đính kèm ảnh minh chứng (tuỳ chọn)"}>
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
-                {/* Cách 1: Chụp trực tiếp bằng Webcam trên máy tính/laptop */}
-                <button 
-                  type="button" 
-                  onClick={startWebcam} 
-                  disabled={submitting || showWebcam}
-                  className="flex-1 cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-center transition-colors hover:bg-slate-100 hover:border-slate-400 disabled:opacity-50"
-                >
-                  <span className="text-sm font-semibold text-slate-600">📸 Mở Camera</span>
-                </button>
-
-                {/* Cách 2: Chọn ảnh từ thư viện thiết bị */}
-                <label className="flex-1 cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-center transition-colors hover:bg-slate-100 hover:border-slate-400 disabled:opacity-50">
+                <button type="button" onClick={startWebcam} disabled={submitting || showWebcam} className="flex-1 rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-sm font-semibold hover:bg-slate-100">📸 Mở Camera</button>
+                <label className="flex-1 cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-center text-sm font-semibold hover:bg-slate-100">
                   <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={submitting} multiple />
-                  <span className="text-sm font-semibold text-slate-600">🖼️ Chọn nhiều ảnh</span>
+                  🖼️ Chọn ảnh
                 </label>
               </div>
 
-              {/* Giao diện Webcam (chỉ hiện khi nhấn Mở Camera) */}
               {showWebcam && (
                 <div className="mt-2 flex flex-col gap-3">
                   <div className="relative rounded-xl overflow-hidden border-2 border-slate-800 bg-black aspect-video flex flex-col shadow-lg">
-                    <video 
-                      ref={videoRef} 
-                      autoPlay 
-                      playsInline 
-                      className="w-full h-full object-cover"
-                    ></video>
+                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover"></video>
                   </div>
-                  {/* Hai nút điều khiển nằm bên ngoài để dễ bấm */}
-                  <div className="flex justify-center gap-3 md:gap-4">
-                    <button 
-                      type="button" 
-                      onClick={stopWebcam}
-                      className="rounded-xl bg-slate-200 text-slate-700 px-6 py-3.5 text-sm font-bold shadow-sm hover:bg-slate-300 transition-all flex-1"
-                    >
-                      Hủy thao tác
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={captureImage}
-                      className="rounded-xl bg-red-600 text-white px-6 py-3.5 text-sm font-bold shadow-md hover:bg-red-700 transition-all flex-1"
-                    >
-                      📸 Chụp ảnh
-                    </button>
+                  <div className="flex justify-center gap-3">
+                    <button type="button" onClick={stopWebcam} className="rounded-xl bg-slate-200 text-slate-700 px-6 py-3.5 text-sm font-bold flex-1">Hủy</button>
+                    <button type="button" onClick={captureImage} className="rounded-xl bg-red-600 text-white px-6 py-3.5 text-sm font-bold flex-1">📸 Chụp</button>
                   </div>
                 </div>
               )}
 
-              {/* Hiển thị danh sách preview ảnh chờ upload */}
+              {form.existingImages && form.existingImages.length > 0 && selectedFiles.length === 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-semibold text-slate-500 mb-2">Ảnh hiện tại của sự cố:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {form.existingImages.map((url, idx) => (
+                      <div key={idx} className="relative inline-block rounded-lg overflow-hidden border border-slate-200 shadow-sm">
+                        <img src={url} alt={`Existing ${idx + 1}`} className="h-24 w-auto object-cover" />
+                        <button type="button" onClick={() => handleRemoveExistingImage(idx)} disabled={submitting} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors z-10 flex items-center justify-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {selectedFiles.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
+                  <p className="text-xs font-semibold text-slate-500 mb-2 w-full">Ảnh mới (sẽ thay thế ảnh hiện tại):</p>
                   {selectedFiles.map((file, idx) => (
                     <div key={idx} className="relative inline-block rounded-lg overflow-hidden border border-slate-200 shadow-sm">
-                      <img src={file.preview} alt={`Preview ${idx+1}`} className="h-24 w-auto object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(idx)}
-                        disabled={submitting}
-                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors disabled:opacity-50"
-                        title="Xóa ảnh này"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      </button>
+                      <img src={file.preview} alt={`Preview ${idx + 1}`} className="h-24 w-auto object-cover" />
+                      <button type="button" onClick={() => handleRemoveImage(idx)} disabled={submitting} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md">X</button>
                     </div>
                   ))}
                 </div>
@@ -490,48 +524,48 @@ export default function ExceptionLogsPage({ showToast, user }) {
             </div>
           </Field>
 
-          <button
-            disabled={submitting}
-            className="w-full rounded-xl bg-red-600 py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg shadow-red-600/20 hover:bg-red-700 disabled:opacity-60 transition-colors"
-          >
-            {submitting ? "Đang lưu..." : "Ghi nhận sự cố"}
-          </button>
+          <div className="flex gap-3 pt-2">
+            {editingId && (
+              <button
+                type="button"
+                onClick={cancelEdit}
+                disabled={submitting}
+                className="flex-1 rounded-xl bg-slate-200 py-3.5 text-sm font-bold uppercase tracking-wider text-slate-700 hover:bg-slate-300 transition-colors"
+              >
+                Hủy
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 rounded-xl bg-red-600 py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg shadow-red-600/20 hover:bg-red-700 transition-colors disabled:opacity-50"
+            >
+              {submitting ? "Đang lưu..." : (editingId ? "Lưu chỉnh sửa" : "Ghi nhận sự cố")}
+            </button>
+          </div>
         </form>
-
-        {/* Hướng dẫn nhanh */}
-        <div className="mt-6 rounded-xl bg-amber-50 border border-amber-100 p-4">
-          <p className="text-xs font-black uppercase tracking-wider text-amber-600 mb-2">📋 Lưu ý</p>
-          <ul className="space-y-1 text-xs text-amber-700 font-medium">
-            <li>• Ghi nhận ngay khi phát hiện sự cố</li>
-            <li>• Biển số và Session ID giúp truy vết qua camera</li>
-            <li>• Mọi sự cố đều được lưu vào database thật</li>
-          </ul>
-        </div>
       </Panel>
 
       {/* ── Danh sách sự cố đã ghi nhận ── */}
       <Panel title="📋 Danh sách sự cố an ninh">
-        {/* Thanh filter + search */}
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Tìm theo mô tả hoặc biển số..."
-            className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-red-300 focus:ring-2 focus:ring-red-100"
+            className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none"
           />
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none"
-          >
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
             <option value="all">Tất cả loại</option>
-            {Object.entries(EXCEPTION_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
+            {Object.entries(EXCEPTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
+            <option value="all">Tất cả trạng thái</option>
+            <option value="pending">⏳ Đang xử lý</option>
+            <option value="resolved">✓ Đã giải quyết</option>
           </select>
         </div>
 
-        {/* Đếm số kết quả */}
         {!loading && (
           <p className="mb-3 text-xs text-slate-400 font-semibold">
             Hiển thị {filteredLogs.length}/{logs.length} sự cố
@@ -541,93 +575,190 @@ export default function ExceptionLogsPage({ showToast, user }) {
         {loading ? (
           <div className="py-8 text-center text-sm text-slate-400">Đang tải danh sách sự cố...</div>
         ) : !filteredLogs.length ? (
-          <Empty text={searchText || filterType !== "all" ? "Không tìm thấy sự cố phù hợp." : "Chưa có sự cố nào được ghi nhận."} />
+          <Empty text="Không tìm thấy sự cố phù hợp." />
         ) : (
-          <>
-            {/* Desktop-only: table layout (ẩn trên mobile) */}
-            <div className="hidden md:block space-y-3 max-h-[560px] overflow-y-auto pr-1">
-              {filteredLogs.map((log, idx) => (
-                <div
-                  key={log.id || idx}
-                  className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      {/* Loại sự cố với badge màu */}
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border mb-2 ${EXCEPTION_BADGE_COLOR[log.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
+          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+            {filteredLogs.map((log) => {
+              const isResolved = log.status === "RESOLVED";
+              return (
+                <div key={log.id} onClick={() => setViewingLogDetail(log)} className="cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col gap-2">
+                  {/* Header Row */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex gap-2 items-center flex-wrap">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${EXCEPTION_BADGE_COLOR[log.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
                         {EXCEPTION_LABELS[log.exceptionType] || log.exceptionType}
                       </span>
-                      <p className="text-sm font-medium leading-relaxed text-slate-700">
-                        {log.description || "—"}
-                      </p>
-                      {/* Thumbnail nhiều ảnh minh chứng — Desktop */}
-                      {log.imageUrls && log.imageUrls.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {log.imageUrls.map((url, idx) => (
-                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="inline-block">
-                              <img src={url} alt={`Minh chứng ${idx+1}`} className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
-                            </a>
-                          ))}
-                        </div>
+
+                      {/* Trạng thái Badge */}
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${isResolved ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                        {isResolved ? "✓ Đã giải quyết" : "⏳ Đang xử lý"}
+                      </span>
+
+                      {log.licensePlate && (
+                        <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-black tracking-widest text-slate-900 shadow-sm">
+                          {log.licensePlate}
+                        </span>
                       )}
                     </div>
-                    {/* Biển số xe nếu có liên kết session hoặc trường riêng */}
-                    {(log.session?.licensePlate || log.licensePlate) && (
-                      <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs font-black tracking-widest text-slate-900 shadow-sm flex-shrink-0">
-                        <span className="mr-1 h-2 w-2 rounded-full bg-blue-600" />
-                        {log.session?.licensePlate || log.licensePlate}
-                      </span>
-                    )}
-                  </div>
 
-                  {/* Footer: người xử lý + thời gian */}
-                  <div className="mt-3 flex items-center justify-between text-[11px] font-semibold text-slate-400">
-                    <span>Xử lý bởi: {log.handledBy?.fullName || "—"}</span>
-                    <span>{formatTime(log.resolvedAt || log.createdAt)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Mobile-only: card list dạng cuộn dọc */}
-            <div className="md:hidden space-y-3 max-h-[480px] overflow-y-auto pr-1">
-              {filteredLogs.map((log, idx) => (
-                <div
-                  key={log.id || idx}
-                  className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${EXCEPTION_BADGE_COLOR[log.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                      {EXCEPTION_LABELS[log.exceptionType] || log.exceptionType}
-                    </span>
-                    {(log.session?.licensePlate || log.licensePlate) && (
-                      <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs font-black tracking-widest text-slate-900 shadow-sm flex-shrink-0">
-                        <span className="mr-1 h-2 w-2 rounded-full bg-blue-600" />
-                        {log.session?.licensePlate || log.licensePlate}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm font-medium leading-relaxed text-slate-700">{log.description || "—"}</p>
-                  {/* Thumbnail nhiều ảnh minh chứng — Mobile */}
-                  {log.imageUrls && log.imageUrls.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {log.imageUrls.map((url, idx) => (
-                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="inline-block">
-                              <img src={url} alt={`Minh chứng ${idx+1}`} className="h-14 w-14 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
-                            </a>
-                          ))}
-                        </div>
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2">
+                      {!isResolved && (
+                        <button onClick={(e) => { e.stopPropagation(); handleResolve(log.id); }} className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
+                          Giải quyết
+                        </button>
                       )}
-                  <div className="mt-2 flex items-center justify-between text-[11px] font-semibold text-slate-400">
-                    <span>Bởi: {log.handledBy?.fullName || "—"}</span>
-                    <span>{formatTime(log.resolvedAt || log.createdAt)}</span>
+                      {!isResolved && (
+                        <button onClick={(e) => { e.stopPropagation(); handleEdit(log); }} className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
+                          Sửa
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Body */}
+                  <p className="text-sm font-medium leading-relaxed text-slate-700 my-1">{log.description || "—"}</p>
+
+                  {/* Image Thumbnails */}
+                  {(() => {
+                    const validImages = log.imageUrls ? log.imageUrls.filter(url => url && url.startsWith('http')) : [];
+                    return validImages.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {validImages.map((url, idx) => (
+                          <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
+                            <img src={url} alt="Sự cố" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">Không có ảnh</p>
+                    );
+                  })()}
+
+                  {/* Footer */}
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 border-t border-slate-200 pt-2 mt-1">
+                    <span>NV: {log.handledBy || "—"}</span>
+                    <span>Tạo: {formatTime(log.createdAt)} {isResolved && log.resolvedAt ? ` • Xử lý: ${formatTime(log.resolvedAt)}` : ''}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-          </>
+              );
+            })}
+          </div>
         )}
       </Panel>
+
+      {/* Image Modal Full Size */}
+      {viewingImage && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setViewingImage(null)}>
+          <div className="relative max-w-4xl w-full max-h-[90vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setViewingImage(null)}
+              className="absolute -top-12 right-0 md:-right-12 rounded-full bg-white/20 p-2 text-white hover:bg-white/40 transition-colors shadow-lg"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <img src={viewingImage} alt="Full Size" className="max-h-[90vh] w-auto rounded-xl shadow-2xl object-contain bg-black/50" />
+          </div>
+        </div>
+      )}
+
+      {/* Chi tiết sự cố Modal */}
+      {viewingLogDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setViewingLogDetail(null)}>
+          <div className="relative max-w-lg w-full max-h-[90vh] overflow-y-auto rounded-3xl bg-white shadow-2xl p-8" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setViewingLogDetail(null)} className="absolute top-6 right-6 text-slate-400 hover:bg-slate-100 hover:text-slate-800 p-2 rounded-full transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+
+            <h3 className="text-2xl font-black text-slate-900 mb-6 flex items-center gap-3">
+              <span className="text-3xl">📋</span> Chi tiết sự cố
+            </h3>
+
+            <div className="space-y-6">
+              {/* Type and Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Loại sự cố</span>
+                  <span className={`inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border ${EXCEPTION_BADGE_COLOR[viewingLogDetail.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                    {EXCEPTION_LABELS[viewingLogDetail.exceptionType] || viewingLogDetail.exceptionType}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Trạng thái</span>
+                  <span className={`inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border ${viewingLogDetail.status === "RESOLVED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                    {viewingLogDetail.status === "RESOLVED" ? "✓ Đã giải quyết" : "⏳ Đang xử lý"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Vehicle & Session info */}
+              {(viewingLogDetail.licensePlate || viewingLogDetail.sessionId) && (
+                <div className="grid grid-cols-2 gap-4">
+                  {viewingLogDetail.licensePlate && (
+                    <div>
+                      <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
+                      <span className="inline-flex items-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm">
+                        {viewingLogDetail.licensePlate}
+                      </span>
+                    </div>
+                  )}
+
+
+                </div>
+              )}
+
+              {/* Description */}
+              <div>
+                <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
+                <p className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-5 leading-relaxed shadow-inner">
+                  {viewingLogDetail.description || "Không có mô tả chi tiết."}
+                </p>
+              </div>
+
+              {/* Images */}
+              {viewingLogDetail.imageUrls?.length > 0 && (
+                <div>
+                  <span className="block text-xs font-bold uppercase text-slate-500 mb-3">Hình ảnh minh chứng</span>
+                  <div className="flex flex-wrap gap-3">
+                    {viewingLogDetail.imageUrls.map((url, idx) => (
+                      <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:border-slate-400">
+                        <img src={url} alt="Sự cố" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer info */}
+              <div className="pt-6 mt-4 border-t border-slate-100 flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-bold text-slate-700">Người ghi nhận:</span>
+                  <span className="font-medium text-slate-600">{viewingLogDetail.handledBy || "—"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-bold text-slate-700">Thời gian tạo:</span>
+                  <span className="font-medium text-slate-600">{formatTime(viewingLogDetail.createdAt)}</span>
+                </div>
+                {viewingLogDetail.status === "RESOLVED" && viewingLogDetail.resolvedAt && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-bold text-emerald-700">Thời gian xử lý:</span>
+                    <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">{formatTime(viewingLogDetail.resolvedAt)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end">
+              <button onClick={() => setViewingLogDetail(null)} className="rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-8 py-3.5 transition-colors active:scale-95 shadow-sm">
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

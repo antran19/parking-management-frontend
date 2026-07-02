@@ -90,7 +90,7 @@ export default function StaffMapping() {
           if (fName === "T1") {
             fName = "1";
           }
-          
+
           if (!floorMap[fName]) {
             floorMap[fName] = [];
           }
@@ -118,7 +118,7 @@ export default function StaffMapping() {
         });
 
         setFloors(floorMap);
-        
+
         // Tự động chọn tầng đầu tiên (thấp nhất) nếu tầng hiện tại không có trong data backend
         const sortedFloorKeys = getSortedFloorKeys(floorMap);
         if (sortedFloorKeys.length > 0 && !floorMap[activeFloor]) {
@@ -146,7 +146,7 @@ export default function StaffMapping() {
     const closedSync = setInterval(() => {
       try {
         setClosedZones(new Set(JSON.parse(localStorage.getItem("closedZones") || "[]")));
-      } catch {}
+      } catch { }
     }, 1500);
 
     return () => {
@@ -179,7 +179,7 @@ export default function StaffMapping() {
     let available = 0;
     let occupied = 0;
     let reserved = 0;
-    
+
     groups.forEach(group => {
       group.zones.forEach(zone => {
         const isClosed = closedZones.has(zone.id);
@@ -268,7 +268,7 @@ export default function StaffMapping() {
 
       {/* Bố cục 2 cột tối ưu hóa khoảng trắng và hiển thị Premium giống Driver */}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        
+
         {/* Cột trái: Bảng thống kê các Zone */}
         <div className="lg:col-span-8 space-y-10">
           {groups.map((group) => {
@@ -314,37 +314,37 @@ export default function StaffMapping() {
               <span className="text-xl">🗺️</span>
               <h3 className="text-sm font-bold text-slate-800">Định vị nhanh ({activeFloor === "B1" || activeFloor === "B2" ? "Tầng Hầm" : "Tầng Nổi"})</h3>
             </div>
-            
+
             {/* SVG Live Direction Map */}
             <div className="relative rounded-2xl bg-slate-900 aspect-[4/3] w-full flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
               <div className="absolute inset-0 bg-[linear-gradient(rgba(79,70,229,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(79,70,229,0.05)_1px,transparent_1px)] bg-[size:16px_16px]" />
-              
+
               <svg className="w-4/5 h-4/5 text-slate-600 z-10" viewBox="0 0 200 150">
                 <rect x="10" y="10" width="180" height="130" rx="8" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
-                
+
                 <text x="25" y="25" className="fill-emerald-400 font-sans text-[7px] font-black tracking-widest">CỔNG VÀO</text>
                 <path d="M 10 30 L 40 30" stroke="#34d399" strokeWidth="1.5" />
-                
+
                 <text x="130" y="138" className="fill-rose-400 font-sans text-[7px] font-black tracking-widest">CỔNG RA</text>
                 <path d="M 160 120 L 190 120" stroke="#f87171" strokeWidth="1.5" />
-                
+
                 <line x1="85" y1="10" x2="85" y2="140" stroke="#475569" strokeWidth="1.5" strokeDasharray="3 3" />
-                
+
                 <g className="opacity-50">
                   <rect x="25" y="45" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
                   <rect x="25" y="65" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
                   <rect x="25" y="85" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                  
+
                   <rect x="155" y="45" width="20" height="12" rx="1.5" fill="none" stroke="#6366f1" strokeWidth="1.5" />
                   <text x="157" y="53" className="fill-indigo-400 font-mono text-[5px] font-bold">B1-B</text>
                   <rect x="155" y="65" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
                   <rect x="155" y="85" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
                 </g>
-                
+
                 <circle cx="100" cy="75" r="16" className="fill-indigo-500/10 stroke-indigo-500/30" strokeWidth="1" />
                 <text x="100" y="78" textAnchor="middle" className="fill-indigo-400 font-sans text-[8px] font-bold">Lối di chuyển</text>
               </svg>
-              
+
               <div className="absolute bottom-3 left-4 text-[9px] font-semibold text-slate-500 flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Hệ thống lưu thông thông minh
@@ -358,7 +358,7 @@ export default function StaffMapping() {
               <span className="text-xl">💳</span>
               <h3 className="text-sm font-bold text-slate-800">Biểu Phí Giữ Chỗ Áp Dụng</h3>
             </div>
-            
+
             <div className="space-y-3.5">
               {pricingRules && pricingRules.length > 0 ? (
                 pricingRules.map((rule) => {
@@ -406,9 +406,8 @@ function FloorButton({ active, onClick, icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all duration-150 cursor-pointer ${
-        active ? "bg-white text-indigo-600 shadow-sm border border-slate-200" : "text-slate-500 hover:bg-white/40"
-      }`}
+      className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all duration-150 cursor-pointer ${active ? "bg-white text-indigo-600 shadow-sm border border-slate-200" : "text-slate-500 hover:bg-white/40"
+        }`}
     >
       <span>{icon}</span>
       <span>{label}</span>
@@ -434,23 +433,23 @@ function ZoneCard({ zone, isClosed, onClick }) {
   const available = getZoneAvailability(zone, isClosed);
   const usagePercent = getZoneUsagePercent(zone);
   const status = getZoneStatus(zone, isClosed);
-  
+
   const style = isClosed
     ? "border-slate-200 bg-slate-100/60 opacity-80 hover:opacity-100"
     : status === "available"
-    ? "border-emerald-100 bg-white hover:border-emerald-200 hover:shadow-md hover:translate-y-[-2px]"
-    : status === "nearFull"
-    ? "border-amber-100 bg-amber-50/10 hover:border-amber-250 hover:shadow-md hover:translate-y-[-2px]"
-    : "border-rose-100 bg-rose-50/10 hover:border-rose-250 hover:shadow-md hover:translate-y-[-2px]";
+      ? "border-emerald-100 bg-white hover:border-emerald-200 hover:shadow-md hover:translate-y-[-2px]"
+      : status === "nearFull"
+        ? "border-amber-100 bg-amber-50/10 hover:border-amber-250 hover:shadow-md hover:translate-y-[-2px]"
+        : "border-rose-100 bg-rose-50/10 hover:border-rose-250 hover:shadow-md hover:translate-y-[-2px]";
 
   const barColor = isClosed ? "bg-slate-400" : status === "available" ? "bg-emerald-500" : status === "nearFull" ? "bg-amber-500" : "bg-rose-500";
   const statusBadgeColor = isClosed
     ? "bg-slate-200 text-slate-700 border-slate-300"
     : status === "available"
-    ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-    : status === "nearFull"
-    ? "bg-amber-50 text-amber-700 border-amber-150"
-    : "bg-rose-50 text-rose-700 border-rose-150";
+      ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+      : status === "nearFull"
+        ? "bg-amber-50 text-amber-700 border-amber-150"
+        : "bg-rose-50 text-rose-700 border-rose-150";
 
   return (
     <button onClick={onClick} className={`zone-card-item rounded-2xl border p-4.5 text-left transition-all duration-200 cursor-pointer flex flex-col justify-between ${style}`}>
@@ -461,7 +460,7 @@ function ZoneCard({ zone, isClosed, onClick }) {
             {isClosed ? "🔒 Đã Khóa" : getStatusLabel(status)}
           </span>
         </div>
-        
+
         <h3 className="mt-2 text-base font-extrabold text-slate-800 leading-snug">{zone.name}</h3>
         <p className="mt-0.5 text-[11px] font-bold text-slate-600 flex items-center gap-1">
           <span>{zone.type === "bicycle" ? "🚲" : zone.type === "motorbike" ? "🏍️" : zone.type === "truck" ? "🚚" : "🚗"}</span>
@@ -517,15 +516,14 @@ function ZoneModal({ zone, isClosed, onClose }) {
         </div>
 
         <div className="space-y-4 p-8">
-          <div className={`rounded-2xl p-5 text-center border ${
-            isClosed
+          <div className={`rounded-2xl p-5 text-center border ${isClosed
               ? "bg-slate-100 text-slate-600 border-slate-200"
               : status === "available"
-              ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-              : status === "nearFull"
-              ? "bg-amber-50 text-amber-700 border-amber-100"
-              : "bg-rose-50 text-rose-700 border-rose-100"
-          }`}>
+                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                : status === "nearFull"
+                  ? "bg-amber-50 text-amber-700 border-amber-100"
+                  : "bg-rose-50 text-rose-700 border-rose-100"
+            }`}>
             <div className="text-3xl mb-1">{isClosed ? "🔒" : "🟢"}</div>
             <h4 className="text-base font-bold">
               Trạng thái: {isClosed ? "Phân khu đang TẠM KHÓA" : getStatusLabel(status)}
