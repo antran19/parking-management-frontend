@@ -7,14 +7,23 @@
  * - Xem danh sách parking pass đã mua
  */
 import { useState, useEffect } from "react";
+import { QRCodeCanvas } from "qrcode.react";
 import { staffApi } from "../../api/parkingApi";
+import {
+  normalizeLicensePlate as normalizePlateForApi,
+  formatLicensePlate,
+  getLicensePlateValidationError,
+} from "../../utils/licensePlate";
+
+
+
 /**
- * NOTE Quảng - Driver scope:
- * Không sửa file shared utils/licensePlate.js.
- * Tạo helper local tại ProfileTab để chấp nhận cả biển số user nhập có dấu
- * và biển số backend trả về dạng đã normalize.
+ * NOTE Quảng - Driver:
+ * Chỉ chuẩn hóa input lúc người dùng nhập để UI dễ nhìn.
+ * Không dùng hàm này để validate biển số.
+ * Validate chính dùng chung từ utils/licensePlate.js để đồng bộ với Staff check-in.
  */
-const normalizeLicensePlate = (value) => {
+const normalizePlateInput = (value) => {
   return String(value || "")
     .trim()
     .toUpperCase()
@@ -22,25 +31,8 @@ const normalizeLicensePlate = (value) => {
     .replace(/[–—]/g, "-");
 };
 
-const normalizePlateForApi = (value) => {
-  return normalizeLicensePlate(value).replace(/[^A-Z0-9]/g, "");
-};
-
-const isValidVietnamLicensePlate = (value) => {
-  const plate = normalizeLicensePlate(value);
-  const compactPlate = normalizePlateForApi(value);
-
-  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2,3})$/;
-  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{4,6}$/;
-
-  return displayPattern.test(plate) || backendPattern.test(compactPlate);
-};
-
-const LICENSE_PLATE_HINT =
-  "Biển số phải đúng định dạng, ví dụ: 49E72932, 51H12345, 30AB99988, 51AC12345, 59X1-12345 hoặc 51F-123.45";
-
 const BICYCLE_IDENTIFIER_HINT =
-  "Xe đạp không có biển số. Backend sẽ tự sinh mã dạng 1 chữ cái + 3 số, ví dụ: B482.";
+  "Xe đạp không có biển số. Backend sẽ tự sinh mã dạng BCyymmdd-nnnn, ví dụ: BC260702-0001.";
 
 const normalizeVehicleTypeText = (value) => {
   return String(value || "")
@@ -127,72 +119,6 @@ const isBicycleVehicleTypeName = (value) => {
   return getVehicleTypeKey(value) === "BICYCLE";
 };
 
-const isValidPlateByVehicleType = (value, vehicleType) => {
-  const compactPlate = normalizePlateForApi(value);
-  const type = getVehicleTypeKey(vehicleType);
-
-  if (!compactPlate) return false;
-
-  if (type === "BICYCLE") {
-    return /^[A-Z]\d{3}$/.test(compactPlate);
-  }
-
-  if (type === "MOTORBIKE") {
-    return (
-      /^\d{2}[A-Z]\d\d{4,5}$/.test(compactPlate) ||
-      /^\d{2}[A-Z]{2}\d{4,5}$/.test(compactPlate)
-    );
-  }
-
-  if (type === "CAR" || type === "TRUCK") {
-    return /^\d{2}[A-Z]{1,2}\d{4,5}$/.test(compactPlate);
-  }
-
-  return false;
-};
-//format biển số xe cho nó đúng nè !!!!
-const formatLicensePlateForDisplay = (value, vehicleType) => {
-  const clean = normalizePlateForApi(value);
-  if (!clean) return "";
-
-  const type = getVehicleTypeKey(vehicleType);
-
-  if (type === "BICYCLE") {
-    return clean;
-  }
-
-  // Xe máy cũ 5 số: 59X112345 -> 59X1-123.45
-  if (type === "MOTORBIKE" && /^\d{2}[A-Z]\d\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d)(\d{3})(\d{2})$/, "$1$2$3-$4.$5");
-  }
-
-  // Xe máy cũ 4 số: 51H12345 -> 51H1-2345
-  if (type === "MOTORBIKE" && /^\d{2}[A-Z]\d\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d)(\d{4})$/, "$1$2$3-$4");
-  }
-
-  // Xe máy mới 5 số: 59AA72932 -> 59AA-729.32
-  if (type === "MOTORBIKE" && /^\d{2}[A-Z]{2}\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{2})(\d{3})(\d{2})$/, "$1$2-$3.$4");
-  }
-
-  // Xe máy mới 4 số: 59AA7293 -> 59AA-7293
-  if (type === "MOTORBIKE" && /^\d{2}[A-Z]{2}\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{2})(\d{4})$/, "$1$2-$3");
-  }
-
-  // Ô tô / xe tải 5 số: 30A12345 -> 30A-123.45
-  if (/^\d{2}[A-Z]{1,2}\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{1,2})(\d{3})(\d{2})$/, "$1$2-$3.$4");
-  }
-
-  // Ô tô / xe tải 4 số: 30A1234 -> 30A-1234
-  if (/^\d{2}[A-Z]{1,2}\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{1,2})(\d{4})$/, "$1$2-$3");
-  }
-
-  return clean;
-};
 
 const PASS_TYPE_INFO = {
   MONTHLY: {
@@ -221,7 +147,7 @@ const PASS_TYPE_INFO = {
 const LicensePlate = ({ plate, vehicleTypeName }) => (
   <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-slate-200 bg-white font-mono font-bold text-slate-800 shadow-sm text-xs tracking-widest">
     <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block mr-0.5 animate-pulse"></span>
-    {formatLicensePlateForDisplay(plate, vehicleTypeName)}
+    {formatLicensePlate(plate, vehicleTypeName)}
   </span>
 );
 
@@ -235,7 +161,6 @@ export default function ProfileTab({
   loadUserData,
 }) {
   const [pricingPlans, setPricingPlans] = useState([]);
-  const [allPricingPlans, setAllPricingPlans] = useState([]);
   const [myPasses, setMyPasses] = useState([]);
   const [config, setConfig] = useState({ buildings: [], vehicleTypes: [] });
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -247,6 +172,9 @@ export default function ProfileTab({
   const [addPlateVehicleTypeId, setAddPlateVehicleTypeId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
+  const [showAllExpiredPasses, setShowAllExpiredPasses] = useState(false);
+  const [selectedPassDetail, setSelectedPassDetail] = useState(null);
+  const [profileSectionTab, setProfileSectionTab] = useState("MARKETPLACE");
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -300,14 +228,21 @@ export default function ProfileTab({
 
   const normalizeVehicleTypeId = (value) => String(value || "");
 
+  const getPlateSource = (plate) => {
+    if (typeof plate === "string") return "PROFILE";
+    return plate?.source || "PROFILE";
+  };
+
   const managedPlates = (user.licensePlates || [])
     .map((plate) => ({
       raw: plate,
+      source: getPlateSource(plate),
       licensePlate: getPlateValue(plate),
       vehicleTypeId: getPlateVehicleTypeId(plate),
       vehicleTypeName: getPlateVehicleTypeName(plate),
     }))
     .filter((plate) => Boolean(plate.licensePlate))
+    .filter((plate) => plate.source === "PROFILE")
     .filter((plate) => !isBicycleVehicleTypeName(plate.vehicleTypeName));
 
   const plateVehicleTypes = (config.vehicleTypes || [])
@@ -317,7 +252,6 @@ export default function ProfileTab({
     }))
     .filter((vehicleType) => !isBicycleVehicleTypeName(vehicleType));
 
-  const managedPlateValues = managedPlates.map((plate) => plate.licensePlate);
   const getManagedPlatesByVehicleType = (vehicleTypeId) => {
     const targetTypeId = normalizeVehicleTypeId(vehicleTypeId);
 
@@ -374,7 +308,6 @@ export default function ProfileTab({
          * - pricingPlans chỉ lấy MONTHLY để đăng ký vé tháng/quý/năm.
          * - Không dùng HOURLY/DAILY để tính pass, tránh sai nghiệp vụ.
          */
-        setAllPricingPlans(plans);
         setPricingPlans(
           plans.filter(
             (plan) =>
@@ -400,6 +333,15 @@ export default function ProfileTab({
     return mp;
   };
 
+
+  /**
+   * NOTE Quảng - Driver:
+   * Đăng ký Parking Pass cho Driver.
+   * - Xe đạp: không nhập biển số, backend tự sinh mã.
+   * - Xe máy / ô tô / xe tải: validate bằng getLicensePlateValidationError()
+   *   từ utils/licensePlate.js để đồng bộ với Staff check-in.
+   * - Nếu nhập biển mới khi mua pass, hệ thống tự thêm biển đó vào hồ sơ Driver trước.
+   */
   const handleRegister = async (e) => {
     e.preventDefault();
 
@@ -411,7 +353,7 @@ export default function ProfileTab({
     const isBicyclePass = isBicycleVehicleTypeName(
       selectedPlan.vehicleTypeName,
     );
-    const normalizedPlate = normalizeLicensePlate(regPlate);
+    const normalizedPlate = normalizePlateForApi(regPlate);
 
     if (!isBicyclePass) {
       if (!normalizedPlate) {
@@ -419,16 +361,13 @@ export default function ProfileTab({
         return;
       }
 
-      if (
-        !isValidPlateByVehicleType(
-          normalizedPlate,
-          selectedPlan.vehicleTypeName,
-        )
-      ) {
-        showToast(
-          `Biển số không đúng định dạng cho ${selectedPlan.vehicleTypeName}. Ví dụ xe máy: 59AA-729.32, 59X1-123.45; ô tô: 30A-123.45; xe tải: 51C-123.45`,
-          "error",
-        );
+      const plateError = getLicensePlateValidationError(
+        normalizedPlate,
+        selectedPlan.vehicleTypeName,
+      );
+
+      if (plateError) {
+        showToast(plateError, "error");
         return;
       }
     }
@@ -463,7 +402,7 @@ export default function ProfileTab({
         !plateBelongsToDriver
       ) {
         await addPlateToDriverProfile(
-          normalizePlateForApi(normalizedPlate),
+          normalizedPlate,
           selectedPlan.vehicleTypeId,
         );
 
@@ -475,9 +414,7 @@ export default function ProfileTab({
       const res = await staffApi.registerDriverPass({
         buildingId: selectedPlan.buildingId,
         vehicleTypeId: selectedPlan.vehicleTypeId,
-        licensePlate: isBicyclePass
-          ? ""
-          : normalizePlateForApi(normalizedPlate),
+        licensePlate: isBicyclePass ? "" : normalizedPlate,
         passType: selectedPassType,
       });
 
@@ -562,6 +499,20 @@ export default function ProfileTab({
   const expiredPasses = myPasses.filter(
     (p) => !["ACTIVE", "PENDING_PAYMENT"].includes(p.status),
   );
+
+  const EXPIRED_PASS_PREVIEW_LIMIT = 5;
+
+  const visibleExpiredPasses = showAllExpiredPasses
+    ? expiredPasses
+    : expiredPasses.slice(0, EXPIRED_PASS_PREVIEW_LIMIT);
+
+  const hasMoreExpiredPasses = expiredPasses.length > EXPIRED_PASS_PREVIEW_LIMIT;
+
+  const hiddenExpiredPassCount = Math.max(
+    0,
+    expiredPasses.length - EXPIRED_PASS_PREVIEW_LIMIT,
+  );
+
   const primaryPass = activePasses[0];
   const totalActiveValue = activePasses.reduce(
     (sum, pass) => sum + Number(pass.fee || 0),
@@ -579,6 +530,44 @@ export default function ProfileTab({
     },
     activePasses.length ? 9999 : 0,
   );
+
+  const profileSectionTabs = [
+    {
+      id: "MARKETPLACE",
+      label: "Mua gói",
+      description: "Đăng ký vé",
+      icon: "💳",
+      count: pricingPlans.length,
+    },
+    {
+      id: "ACTIVE_PASSES",
+      label: "Vé của tôi",
+      description: "Đang hiệu lực",
+      icon: "🎫",
+      count: activePasses.length,
+    },
+    {
+      id: "PLATES",
+      label: "Biển số",
+      description: "Xe đã lưu",
+      icon: "🚘",
+      count: managedPlates.length,
+    },
+    {
+      id: "PENDING",
+      label: "Chờ thanh toán",
+      description: "Đơn chưa trả",
+      icon: "⏳",
+      count: pendingPasses.length,
+    },
+    {
+      id: "EXPIRED",
+      label: "Vé cũ",
+      description: "Hết hạn / hủy",
+      icon: "🗂️",
+      count: expiredPasses.length,
+    },
+  ];
 
   return (
     <div className="profile-mobile-root space-y-6 sm:space-y-8 animate-fadeIn">
@@ -610,7 +599,7 @@ export default function ProfileTab({
             </p>
 
             <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-              <HeroMetric label="Biển số" value={user.licensePlates.length} />
+              <HeroMetric label="Biển số" value={(user?.licensePlates || []).length} />
               <HeroMetric
                 label="Vé hiệu lực"
                 value={activePasses.length}
@@ -649,11 +638,11 @@ export default function ProfileTab({
               </p>
               <p className="mt-2 text-sm font-black text-white">
                 {primaryPass
-                  ? `${PASS_TYPE_INFO[primaryPass.passType]?.label || primaryPass.passType} · ${formatLicensePlateForDisplay(
-                      primaryPass.licensePlate,
-                      primaryPass.vehicleTypeName ||
-                        primaryPass.vehicleType?.name,
-                    )}`
+                  ? `${PASS_TYPE_INFO[primaryPass.passType]?.label || primaryPass.passType} · ${formatLicensePlate(
+                    primaryPass.licensePlate,
+                    primaryPass.vehicleTypeName ||
+                    primaryPass.vehicleType?.name,
+                  )}`
                   : "Chưa có vé định kỳ"}
               </p>
               <p className="mt-1 text-xs font-semibold text-slate-400">
@@ -672,134 +661,306 @@ export default function ProfileTab({
         </div>
       </section>
 
-      {/* ===== GÓI DỊCH VỤ ===== */}
-      <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:rounded-[2rem] sm:p-6 md:p-8">
-        <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-end">
-          <div>
-            <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-[0.18em]">
-              Marketplace gói dịch vụ
-            </h4>
-            <p className="mt-2 text-xs text-slate-400">
-              Chọn loại xe và gói phù hợp để đăng ký vé định kỳ. Giá lấy từ bảng
-              giá thật trên hệ thống.
-            </p>
-          </div>
-          <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-700">
-            Live pricing
-          </span>
-        </div>
-
-        {pricingPlans.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">
-            Chưa có gói dịch vụ nào được cấu hình. Liên hệ Admin.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {pricingPlans.map((plan) => {
-              const planVehicleType =
-                plan.vehicleType ||
-                config.vehicleTypes.find((v) => v.id === plan.vehicleTypeId);
-
-              const vtName = getVehicleTypeDisplayName(planVehicleType);
-              const buildingName =
-                plan.building?.name ||
-                plan.building?.buildingName ||
-                config.buildings.find((b) => b.id === plan.buildingId)?.name ||
-                config.buildings.find((b) => b.id === plan.buildingId)
-                  ?.buildingName ||
-                "Bãi xe";
-              const monthlyPrice = Number(plan.pricePerUnit || 0);
+      {/* ===== THANH CHỌN MỤC HỒ SƠ ===== */}
+      <div className="sticky top-[84px] z-30">
+        <div className="rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-2.5 shadow-xl shadow-slate-200/70 backdrop-blur-xl">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+            {profileSectionTabs.map((tab) => {
+              const active = profileSectionTab === tab.id;
 
               return (
-                <div
-                  key={plan.id}
-                  className="action-panel-item group relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-6 shadow-sm transition-all hover:-translate-y-1 hover:border-cyan-200 hover:shadow-2xl hover:shadow-cyan-950/10"
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setProfileSectionTab(tab.id)}
+                  className={`group relative overflow-hidden rounded-[1.25rem] border px-3.5 py-3 text-left transition-all duration-200 ${active
+                      ? "border-indigo-500 bg-gradient-to-br from-indigo-600 via-blue-600 to-sky-500 text-white shadow-lg shadow-blue-500/25"
+                      : "border-slate-200 bg-white text-slate-600 shadow-sm hover:-translate-y-0.5 hover:border-indigo-100 hover:bg-indigo-50/60 hover:shadow-md"
+                    }`}
                 >
-                  <div className="absolute -right-12 -top-12 h-28 w-28 rounded-full bg-cyan-100 opacity-0 blur-2xl transition-opacity group-hover:opacity-100" />
-                  <div className="relative flex items-center justify-between mb-4">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-xs font-black tracking-widest text-white shadow-lg shadow-slate-900/10">
-                      PASS
+                  {active && (
+                    <div className="absolute -right-8 -top-8 h-20 w-20 rounded-full bg-white/20 blur-2xl" />
+                  )}
+
+                  <div className="relative flex items-center gap-3">
+                    <span
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base shadow-sm ${active
+                          ? "bg-white/20 text-white"
+                          : "bg-slate-50 text-indigo-600 ring-1 ring-slate-200"
+                        }`}
+                    >
+                      {tab.icon}
                     </span>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-cyan-700 bg-cyan-50 px-2.5 py-1 rounded-full border border-cyan-100">
-                      {vtName}
-                    </span>
-                  </div>
-                  <h5 className="relative text-lg font-black text-slate-950">
-                    {buildingName}
-                  </h5>
-                  <p className="relative text-xs text-slate-400 mt-1 mb-4">
-                    Giá cơ bản:{" "}
-                    <span className="font-black text-slate-800">
-                      {monthlyPrice.toLocaleString("vi-VN")}đ/tháng
-                    </span>
-                  </p>
 
-                  {/* 3 plan types */}
-                  <div className="space-y-2.5 mb-5">
-                    {Object.entries(PASS_TYPE_INFO).map(([type, info]) => {
-                      const fee = calcFee(monthlyPrice, type);
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => {
-                            const planVehicleTypeId =
-                              plan.vehicleType?.id || plan.vehicleTypeId;
-                            const matchingPlates =
-                              getManagedPlatesByVehicleType(planVehicleTypeId);
-
-                            setSelectedPlan({
-                              vehicleTypeId: planVehicleTypeId,
-                              vehicleTypeName: vtName,
-                              monthlyPrice,
-                              buildingId: plan.building?.id || plan.buildingId,
-                              buildingName,
-                            });
-
-                            setSelectedPassType(type);
-
-                            if (isBicycleVehicleTypeName(vtName)) {
-                              setPlateInputMode("AUTO_BICYCLE");
-                              setRegPlate("");
-                            } else if (matchingPlates.length > 0) {
-                              setPlateInputMode("MANAGED");
-                              setRegPlate(matchingPlates[0].licensePlate);
-                            } else {
-                              setPlateInputMode("MANUAL");
-                              setRegPlate("");
-                            }
-
-                            setShowPassModal(true);
-                          }}
-                          className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all cursor-pointer ${selectedPlan?.vehicleTypeId === (plan.vehicleType?.id || plan.vehicleTypeId) && selectedPassType === type ? "border-indigo-400 bg-indigo-50 shadow-md" : "border-slate-100 bg-slate-50/50 hover:border-slate-200"}`}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p
+                          className={`truncate text-[11px] font-black uppercase tracking-[0.12em] ${active ? "text-white" : "text-slate-700"
+                            }`}
                         >
-                          <div className="flex items-center gap-2.5">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-[10px] font-black tracking-widest text-white">
-                              {info.code}
-                            </span>
-                            <div>
-                              <span className="text-xs font-black text-slate-800">
-                                {info.label}
-                              </span>
-                              {info.discount && (
-                                <span className="ml-2 text-[9px] font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
-                                  {info.discount}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <span className="text-sm font-black text-slate-900">
-                            {fee.toLocaleString("vi-VN")}đ
-                          </span>
-                        </button>
-                      );
-                    })}
+                          {tab.label}
+                        </p>
+
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${active
+                              ? "bg-white/20 text-white"
+                              : "bg-slate-100 text-slate-500"
+                            }`}
+                        >
+                          {tab.count}
+                        </span>
+                      </div>
+
+                      <p
+                        className={`mt-1 truncate text-[10px] font-semibold ${active ? "text-white/75" : "text-slate-400"
+                          }`}
+                      >
+                        {tab.description}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
-        )}
+        </div>
       </div>
+
+      {/* ===== GÓI DỊCH VỤ ===== */}
+      {profileSectionTab === "MARKETPLACE" && (
+        <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:rounded-[2rem] sm:p-6 md:p-8">
+          <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-[0.18em]">
+                Marketplace gói dịch vụ
+              </h4>
+              <p className="mt-2 text-xs text-slate-400">
+                Chọn loại xe và gói phù hợp để đăng ký vé định kỳ. Giá lấy từ bảng
+                giá thật trên hệ thống.
+              </p>
+            </div>
+
+            <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+              Live pricing
+            </span>
+          </div>
+
+          {pricingPlans.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">
+              Chưa có gói dịch vụ nào được cấu hình. Liên hệ Admin.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {pricingPlans.map((plan) => {
+                const planVehicleType =
+                  plan.vehicleType ||
+                  config.vehicleTypes.find((v) => v.id === plan.vehicleTypeId);
+
+                const vtName = getVehicleTypeDisplayName(planVehicleType);
+
+                const buildingName =
+                  plan.building?.name ||
+                  plan.building?.buildingName ||
+                  config.buildings.find((b) => b.id === plan.buildingId)?.name ||
+                  config.buildings.find((b) => b.id === plan.buildingId)
+                    ?.buildingName ||
+                  "Bãi xe";
+
+                const monthlyPrice = Number(plan.pricePerUnit || 0);
+                const planVehicleTypeId = plan.vehicleType?.id || plan.vehicleTypeId;
+
+                return (
+                  <div
+                    key={plan.id}
+                    className="action-panel-item group relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-6 shadow-sm transition-all hover:-translate-y-1 hover:border-indigo-200 hover:shadow-2xl hover:shadow-indigo-950/10"
+                  >
+                    <div className="absolute -right-12 -top-12 h-28 w-28 rounded-full bg-indigo-100 opacity-0 blur-2xl transition-opacity group-hover:opacity-100" />
+
+                    <div className="relative mb-4 flex items-center justify-between">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-500 to-blue-600 text-xs font-black tracking-widest text-white shadow-lg shadow-indigo-500/20">
+                        PASS
+                      </span>
+
+                      <span className="rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-indigo-700">
+                        {vtName}
+                      </span>
+                    </div>
+
+                    <h5 className="relative text-lg font-black text-slate-950">
+                      {buildingName}
+                    </h5>
+
+                    <p className="relative mb-4 mt-1 text-xs text-slate-400">
+                      Giá cơ bản:{" "}
+                      <span className="font-black text-indigo-700">
+                        {monthlyPrice.toLocaleString("vi-VN")}đ/tháng
+                      </span>
+                    </p>
+
+                    <div className="mb-5 space-y-2.5">
+                      {Object.entries(PASS_TYPE_INFO).map(([type, info]) => {
+                        const fee = calcFee(monthlyPrice, type);
+                        const selected =
+                          selectedPlan?.vehicleTypeId === planVehicleTypeId &&
+                          selectedPassType === type;
+
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => {
+                              const matchingPlates =
+                                getManagedPlatesByVehicleType(planVehicleTypeId);
+
+                              setSelectedPlan({
+                                vehicleTypeId: planVehicleTypeId,
+                                vehicleTypeName: vtName,
+                                monthlyPrice,
+                                buildingId: plan.building?.id || plan.buildingId,
+                                buildingName,
+                              });
+
+                              setSelectedPassType(type);
+
+                              if (isBicycleVehicleTypeName(vtName)) {
+                                setPlateInputMode("AUTO_BICYCLE");
+                                setRegPlate("");
+                              } else if (matchingPlates.length > 0) {
+                                setPlateInputMode("MANAGED");
+                                setRegPlate(matchingPlates[0].licensePlate);
+                              } else {
+                                setPlateInputMode("MANUAL");
+                                setRegPlate("");
+                              }
+
+                              setShowPassModal(true);
+                            }}
+                            className={`flex w-full cursor-pointer items-center justify-between rounded-xl border p-3 text-left transition-all ${selected
+                              ? "border-indigo-300 bg-indigo-50 shadow-md shadow-indigo-100/60"
+                              : "border-slate-100 bg-slate-50/50 hover:border-indigo-100 hover:bg-white"
+                              }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50 text-[10px] font-black tracking-widest text-indigo-700">
+                                {info.code}
+                              </span>
+
+                              <div>
+                                <span className="text-xs font-black text-slate-800">
+                                  {info.label}
+                                </span>
+
+                                {info.discount && (
+                                  <span className="ml-2 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-600">
+                                    {info.discount}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <span className="text-sm font-black text-slate-900">
+                              {fee.toLocaleString("vi-VN")}đ
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== QUẢN LÝ BIỂN SỐ XE ===== */}
+      {profileSectionTab === "PLATES" && (
+        <div className="action-panel-item overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-gradient-to-r from-slate-950 to-slate-800 p-6 text-white md:p-8">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-200">
+              Vehicle Registry
+            </p>
+            <h4 className="mt-2 text-xl font-black tracking-tight">
+              Danh sách biển số xe đăng ký
+            </h4>
+            <p className="mt-2 text-xs font-medium text-slate-400">
+              Các biển số này được dùng khi đặt chỗ, check-in và tra cứu phiên gửi
+              xe.
+            </p>
+          </div>
+          <div className="space-y-6 p-6 md:p-8">
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3.5">
+                Xe đã đăng ký trong hồ sơ
+              </span>
+              {managedPlates.length === 0 ? (
+                <p className="text-slate-400 font-bold italic py-2 text-xs">
+                  Chưa có biển số xe nào được liên kết vào tài khoản.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {managedPlates.map((plate, idx) => (
+                    <div
+                      key={idx}
+                      className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl hover:border-indigo-100 transition-colors"
+                    >
+                      <div>
+                        <LicensePlate
+                          plate={plate.licensePlate}
+                          vehicleTypeName={plate.vehicleTypeName}
+                        />
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {plate.vehicleTypeName}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => handleDeletePlate(plate.licensePlate)}
+                        className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer"
+                        title="Xóa biển số này"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="pt-6 border-t border-slate-100">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3">
+                Thêm biển số xe
+              </span>
+              <div className="flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-slate-900">
+                    Thêm biển số xe
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    Biển số được dùng khi đặt chỗ, check-in và tra cứu phiên gửi
+                    xe.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (plateVehicleTypes.length === 0) {
+                      alert("Không có loại xe cần đăng ký biển số");
+                      return;
+                    }
+
+                    setShowAddPlateModal(true);
+                    setAddPlateVehicleTypeId(plateVehicleTypes[0]?.id || "");
+                  }}
+                  className="rounded-xl bg-indigo-600 px-5 py-3 text-xs font-extrabold text-white shadow-md shadow-indigo-600/15 transition-colors hover:bg-indigo-700 cursor-pointer"
+                >
+                  + Thêm biển số
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== FORM ĐĂNG KÝ ===== */}
       {showPassModal && selectedPlan && (
@@ -879,7 +1040,7 @@ export default function ProfileTab({
                       {BICYCLE_IDENTIFIER_HINT}
                       <br />
                       Mã này sẽ được lưu vào vé sau khi tạo đơn, ví dụ:{" "}
-                      <span className="font-mono font-black">B482</span>.
+                      <span className="font-mono font-black">BC260701-0001</span>
                     </div>
                   ) : (
                     <>
@@ -893,11 +1054,10 @@ export default function ProfileTab({
                             );
                           }}
                           disabled={selectedPlanPlateOptions.length === 0}
-                          className={`rounded-2xl border px-4 py-3 text-left text-xs font-black transition ${
-                            plateInputMode === "MANAGED"
-                              ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                          className={`rounded-2xl border px-4 py-3 text-left text-xs font-black transition ${plateInputMode === "MANAGED"
+                            ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
                         >
                           Chọn biển số đã quản lý
                         </button>
@@ -908,11 +1068,10 @@ export default function ProfileTab({
                             setPlateInputMode("MANUAL");
                             setRegPlate("");
                           }}
-                          className={`rounded-2xl border px-4 py-3 text-left text-xs font-black transition ${
-                            plateInputMode === "MANUAL"
-                              ? "border-cyan-400 bg-cyan-50 text-cyan-700"
-                              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                          }`}
+                          className={`rounded-2xl border px-4 py-3 text-left text-xs font-black transition ${plateInputMode === "MANUAL"
+                            ? "border-cyan-400 bg-cyan-50 text-cyan-700"
+                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                            }`}
                         >
                           Nhập biển số mới
                         </button>
@@ -939,7 +1098,7 @@ export default function ProfileTab({
                                   key={plate.licensePlate}
                                   value={plate.licensePlate}
                                 >
-                                  {formatLicensePlateForDisplay(
+                                  {formatLicensePlate(
                                     plate.licensePlate,
                                     vehicleTypeName,
                                   )}{" "}
@@ -960,7 +1119,7 @@ export default function ProfileTab({
                           type="text"
                           value={regPlate}
                           onChange={(e) =>
-                            setRegPlate(normalizeLicensePlate(e.target.value))
+                            setRegPlate(normalizePlateInput(e.target.value))
                           }
                           placeholder="Ví dụ: 51F-123.45 hoặc 30A-12345"
                           required
@@ -981,7 +1140,7 @@ export default function ProfileTab({
                   )}
                 </div>
               </div>
-              　
+
               <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
                 <button
                   type="button"
@@ -1012,369 +1171,307 @@ export default function ProfileTab({
         </div>
       )}
 
-      {/* ===== TẤT CẢ BẢNG GIÁ XE ===== */}
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-        <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end">
-          <div>
-            <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-[0.18em]">
-              Tất cả bảng giá xe
+      {profileSectionTab === "PENDING" && (
+        pendingPasses.length > 0 ? (
+          <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 md:p-8">
+            <h4 className="text-sm font-extrabold text-amber-900 uppercase tracking-[0.18em]">
+              Đơn chờ thanh toán ({pendingPasses.length})
             </h4>
-            <p className="mt-2 text-xs text-slate-400">
-              Hiển thị toàn bộ bảng giá backend trả về: theo giờ, ngày, tháng
-              hoặc loại cấu hình khác.
+            <p className="mt-1 text-xs font-medium text-amber-700/70">
+              Các gói này đã tạo đơn nhưng chưa được VNPay xác nhận thanh toán
+              thành công.
             </p>
-          </div>
-
-          <span className="w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
-            {allPricingPlans.length} bảng giá
-          </span>
-        </div>
-
-        {allPricingPlans.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-xs font-bold text-slate-400">
-            Chưa có bảng giá nào từ backend.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-100">
-            <table className="min-w-[680px] w-full text-left text-xs">
-              <thead className="bg-slate-950 text-white">
-                <tr>
-                  <th className="px-4 py-3 font-black uppercase tracking-widest">
-                    Loại xe
-                  </th>
-                  <th className="px-4 py-3 font-black uppercase tracking-widest">
-                    Bãi xe
-                  </th>
-                  <th className="px-4 py-3 font-black uppercase tracking-widest">
-                    Loại giá
-                  </th>
-                  <th className="px-4 py-3 text-right font-black uppercase tracking-widest">
-                    Giá
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {allPricingPlans.map((plan) => {
-                  const vehicleTypeName =
-                    plan.vehicleType?.name ||
-                    config.vehicleTypes.find((v) => v.id === plan.vehicleTypeId)
-                      ?.name ||
-                    "Xe";
-
-                  const buildingName =
-                    plan.building?.name ||
-                    plan.building?.buildingName ||
-                    config.buildings.find((b) => b.id === plan.buildingId)
-                      ?.name ||
-                    config.buildings.find((b) => b.id === plan.buildingId)
-                      ?.buildingName ||
-                    "Smart Parking";
-
-                  return (
-                    <tr key={plan.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-black text-slate-800">
-                        {vehicleTypeName}
-                      </td>
-
-                      <td className="px-4 py-3 font-semibold text-slate-500">
-                        {buildingName}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-600">
-                          {plan.pricingType || "UNKNOWN"}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-3 text-right font-black text-slate-950">
-                        {Number(plan.pricePerUnit || 0).toLocaleString("vi-VN")}
-                        đ
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {pendingPasses.length > 0 && (
-        <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 md:p-8">
-          <h4 className="text-sm font-extrabold text-amber-900 uppercase tracking-[0.18em]">
-            Đơn chờ thanh toán ({pendingPasses.length})
-          </h4>
-          <p className="mt-1 text-xs font-medium text-amber-700/70">
-            Các gói này đã tạo đơn nhưng chưa được VNPay xác nhận thanh toán
-            thành công.
-          </p>
-          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {pendingPasses.map((pass) => (
-              <div
-                key={pass.id}
-                className="rounded-2xl border border-amber-200 bg-white p-5 text-xs shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">
-                      Pending Payment
-                    </p>
-                    <p className="mt-2 text-base font-black text-slate-900">
-                      {PASS_TYPE_INFO[pass.passType]?.label || pass.passType}
-                    </p>
-                    <p className="mt-1 font-mono font-black tracking-wider text-slate-600">
-                      {formatLicensePlateForDisplay(
-                        pass.licensePlate,
-                        pass.vehicleTypeName || pass.vehicleType?.name,
-                      )}
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-700">
-                    Chờ thanh toán
-                  </span>
-                </div>
-                <div className="mt-4 flex items-center justify-between border-t border-amber-100 pt-4">
-                  <span className="font-bold text-slate-500">Số tiền</span>
-                  <span className="text-sm font-black text-slate-950">
-                    {Number(pass.fee || 0).toLocaleString("vi-VN")}đ
-                  </span>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-2">
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => handleContinuePayment(pass.id)}
-                    className="w-full rounded-xl bg-amber-600 px-4 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-white transition hover:bg-amber-700 disabled:opacity-50 cursor-pointer"
-                  >
-                    Thanh toán tiếp qua VNPay
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => handleCancelPendingPayment(pass.id)}
-                    className="w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 cursor-pointer"
-                  >
-                    Hủy thanh toán
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ===== VÉ ĐÃ MUA ===== */}
-      {activePasses.length > 0 && (
-        <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-[0.18em]">
-                Vé đang hoạt động ({activePasses.length})
-              </h4>
-              <p className="mt-1 text-xs font-medium text-slate-400">
-                Các quyền gửi xe còn hiệu lực, hiển thị theo thời hạn còn lại.
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {activePasses.map((pass) => {
-              const info =
-                PASS_TYPE_INFO[pass.passType] || PASS_TYPE_INFO.MONTHLY;
-              const daysLeft = Math.max(
-                0,
-                Math.ceil(
-                  (new Date(pass.endDate) - new Date()) / (1000 * 60 * 60 * 24),
-                ),
-              );
-              return (
+            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {pendingPasses.map((pass) => (
                 <div
                   key={pass.id}
-                  className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${info.color} p-6 text-white shadow-lg`}
+                  className="rounded-2xl border border-amber-200 bg-white p-5 text-xs shadow-sm"
                 >
-                  <div className="absolute right-0 top-0 -mr-10 -mt-10 h-28 w-28 rounded-full bg-white/10 blur-xl" />
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-start justify-between gap-4">
                     <div>
-                      <span className="text-[9px] font-black uppercase tracking-widest bg-white/20 px-2 py-0.5 rounded-full">
-                        {info.label}
-                      </span>
-                      <p className="text-lg font-black mt-2">
-                        {pass.vehicleTypeName || pass.vehicleType?.name || "Xe"}
+                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">
+                        Pending Payment
                       </p>
-                    </div>
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-xs font-black tracking-widest text-white">
-                      {info.code}
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-xs font-semibold text-white/85">
-                    <p>
-                      Biển số:{" "}
-                      <span className="font-black text-white font-mono">
-                        {formatLicensePlateForDisplay(
+                      <p className="mt-2 text-base font-black text-slate-900">
+                        {PASS_TYPE_INFO[pass.passType]?.label || pass.passType}
+                      </p>
+                      <p className="mt-1 font-mono font-black tracking-wider text-slate-600">
+                        {formatLicensePlate(
                           pass.licensePlate,
                           pass.vehicleTypeName || pass.vehicleType?.name,
                         )}
-                      </span>
-                    </p>
-                    <p>
-                      Hiệu lực:{" "}
-                      {new Date(pass.startDate).toLocaleDateString("vi-VN")} →{" "}
-                      {new Date(pass.endDate).toLocaleDateString("vi-VN")}
-                    </p>
-                    <p>
-                      Phí:{" "}
-                      <span className="font-black text-white">
-                        {Number(pass.fee || 0).toLocaleString("vi-VN")}đ
-                      </span>
-                    </p>
-                  </div>
-                  <div className="mt-4 flex items-center gap-2">
-                    <div className="h-1.5 flex-1 bg-white/20 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-white/80 rounded-full transition-all"
-                        style={{
-                          width: `${Math.min(100, (daysLeft / (info.months * 30)) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-black">
-                      {daysLeft} ngày
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {expiredPasses.length > 0 && (
-        <div>
-          <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">
-            Vé hết hạn / đã hủy ({expiredPasses.length})
-          </h4>
-          <div className="space-y-2">
-            {expiredPasses.map((pass) => (
-              <div
-                key={pass.id}
-                className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50/50 text-xs"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 text-[10px] font-black tracking-widest text-slate-500">
-                    OLD
-                  </span>
-                  <div>
-                    <span className="font-bold text-slate-600">
-                      {pass.vehicleTypeName || pass.vehicleType?.name || "Xe"} ·{" "}
-                      {pass.passType}
-                    </span>
-                    <p className="text-slate-400 font-medium">
-                      Biển:{" "}
-                      {formatLicensePlateForDisplay(
-                        pass.licensePlate,
-                        pass.vehicleTypeName || pass.vehicleType?.name,
-                      )}{" "}
-                      · {new Date(pass.startDate).toLocaleDateString("vi-VN")} →{" "}
-                      {new Date(pass.endDate).toLocaleDateString("vi-VN")}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
-                  {pass.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ===== QUẢN LÝ BIỂN SỐ XE ===== */}
-      <div className="action-panel-item overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-950 to-slate-800 p-6 text-white md:p-8">
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-200">
-            Vehicle Registry
-          </p>
-          <h4 className="mt-2 text-xl font-black tracking-tight">
-            Danh sách biển số xe đăng ký
-          </h4>
-          <p className="mt-2 text-xs font-medium text-slate-400">
-            Các biển số này được dùng khi đặt chỗ, check-in và tra cứu phiên gửi
-            xe.
-          </p>
-        </div>
-        <div className="space-y-6 p-6 md:p-8">
-          <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3.5">
-              Xe đã đăng ký trong hồ sơ
-            </span>
-            {managedPlates.length === 0 ? (
-              <p className="text-slate-400 font-bold italic py-2 text-xs">
-                Chưa có biển số xe nào được liên kết vào tài khoản.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {managedPlates.map((plate, idx) => (
-                  <div
-                    key={idx}
-                    className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl hover:border-indigo-100 transition-colors"
-                  >
-                    <div>
-                      <LicensePlate
-                        plate={plate.licensePlate}
-                        vehicleTypeName={plate.vehicleTypeName}
-                      />
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        {plate.vehicleTypeName}
                       </p>
                     </div>
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-700">
+                      Chờ thanh toán
+                    </span>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between border-t border-amber-100 pt-4">
+                    <span className="font-bold text-slate-500">Số tiền</span>
+                    <span className="text-sm font-black text-slate-950">
+                      {Number(pass.fee || 0).toLocaleString("vi-VN")}đ
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-2">
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => handleContinuePayment(pass.id)}
+                      className="w-full rounded-xl bg-amber-600 px-4 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-white transition hover:bg-amber-700 disabled:opacity-50 cursor-pointer"
+                    >
+                      Thanh toán tiếp qua VNPay
+                    </button>
 
                     <button
-                      onClick={() => handleDeletePlate(plate.licensePlate)}
-                      className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer"
-                      title="Xóa biển số này"
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => handleCancelPendingPayment(pass.id)}
+                      className="w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 cursor-pointer"
                     >
-                      Xóa
+                      Hủy thanh toán
                     </button>
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <EmptyProfileSection
+            icon="⏳"
+            title="Không có đơn chờ thanh toán"
+            description="Các đơn mua gói chưa thanh toán sẽ xuất hiện tại đây."
+          />
+        )
+      )}
+      {/* ===== VÉ ĐÃ MUA ===== */}
+      {profileSectionTab === "ACTIVE_PASSES" && (
+        activePasses.length > 0 ? (
+          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-[0.18em]">
+                  Vé đang hoạt động ({activePasses.length})
+                </h4>
+                <p className="mt-1 text-xs font-medium text-slate-400">
+                  Các quyền gửi xe còn hiệu lực, hiển thị theo thời hạn còn lại.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {activePasses.map((pass) => {
+                const info =
+                  PASS_TYPE_INFO[pass.passType] || PASS_TYPE_INFO.MONTHLY;
+                const daysLeft = Math.max(
+                  0,
+                  Math.ceil(
+                    (new Date(pass.endDate) - new Date()) / (1000 * 60 * 60 * 24),
+                  ),
+                );
+                return (
+                  <button
+                    type="button"
+                    key={pass.id}
+                    onClick={() => setSelectedPassDetail(pass)}
+                    className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${info.color} p-6 text-left text-white shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-2xl active:scale-[0.98]`}
+                  >
+                    <div className="absolute right-0 top-0 -mr-10 -mt-10 h-28 w-28 rounded-full bg-white/10 blur-xl" />
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <span className="text-[9px] font-black uppercase tracking-widest bg-white/20 px-2 py-0.5 rounded-full">
+                          {info.label}
+                        </span>
+                        <p className="text-lg font-black mt-2">
+                          {pass.vehicleTypeName || pass.vehicleType?.name || "Xe"}
+                        </p>
+                      </div>
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-xs font-black tracking-widest text-white">
+                        {info.code}
+                      </span>
+                    </div>
+                    <div className="space-y-1 text-xs font-semibold text-white/85">
+                      <p>
+                        Biển số:{" "}
+                        <span className="font-black text-white font-mono">
+                          {formatLicensePlate(
+                            pass.licensePlate,
+                            pass.vehicleTypeName || pass.vehicleType?.name,
+                          )}
+                        </span>
+                      </p>
+                      <p>
+                        Hiệu lực:{" "}
+                        {new Date(pass.startDate).toLocaleDateString("vi-VN")} →{" "}
+                        {new Date(pass.endDate).toLocaleDateString("vi-VN")}
+                      </p>
+                      <p>
+                        Phí:{" "}
+                        <span className="font-black text-white">
+                          {Number(pass.fee || 0).toLocaleString("vi-VN")}đ
+                        </span>
+                      </p>
+                    </div>
+                    <div className="mt-4 flex items-center gap-2">
+                      <div className="h-1.5 flex-1 bg-white/20 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-white/80 rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(100, (daysLeft / (info.months * 30)) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-black">
+                        {daysLeft} ngày
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-white/70">
+                      Nhấn để xem chi tiết
+                    </p>
+
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <EmptyProfileSection
+            icon="🎫"
+            title="Chưa có vé đang hoạt động"
+            description="Các gói gửi xe đã thanh toán và còn hiệu lực sẽ hiển thị tại đây."
+          />
+        )
+      )}
+
+
+
+      {profileSectionTab === "EXPIRED" && (
+        expiredPasses.length > 0 ? (
+          <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
+            <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-rose-50/40 p-6 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-rose-500">
+                  Expired / Cancelled Passes
+                </p>
+
+                <h4 className="mt-1 text-xl font-black text-slate-950">
+                  Vé hết hạn / đã hủy
+                </h4>
+
+                <p className="mt-1 text-xs font-semibold text-slate-400">
+                  Danh sách các vé không còn hiệu lực hoặc đã bị hủy thanh toán.
+                </p>
+              </div>
+
+              <span className="w-fit rounded-full border border-rose-100 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                {expiredPasses.length} vé
+              </span>
+            </div>
+
+            <div className="space-y-3 bg-slate-50/60 p-4 md:p-5">
+              {visibleExpiredPasses.map((pass) => {
+                const vehicleTypeName =
+                  pass.vehicleTypeName || pass.vehicleType?.name || "Xe";
+
+                const passLabel =
+                  PASS_TYPE_INFO[pass.passType]?.label || pass.passType;
+
+                const startDate = pass.startDate
+                  ? new Date(pass.startDate).toLocaleDateString("vi-VN")
+                  : "--";
+
+                const endDate = pass.endDate
+                  ? new Date(pass.endDate).toLocaleDateString("vi-VN")
+                  : "--";
+
+                return (
+                  <div
+                    key={pass.id}
+                    className="group flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-rose-100 hover:shadow-lg hover:shadow-slate-200/70 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="flex items-start gap-4">
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 text-[10px] font-black uppercase tracking-widest text-rose-500">
+                        OLD
+                      </span>
+
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-black text-slate-900">
+                            {vehicleTypeName}
+                          </p>
+
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                            {passLabel}
+                          </span>
+                        </div>
+
+                        <p className="mt-2 font-mono text-xs font-black tracking-wider text-slate-700">
+                          {formatLicensePlate(pass.licensePlate, vehicleTypeName)}
+                        </p>
+
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-400">
+                          <span>
+                            Bắt đầu:{" "}
+                            <span className="font-black text-slate-600">
+                              {startDate}
+                            </span>
+                          </span>
+
+                          <span className="hidden text-slate-300 sm:inline">
+                            •
+                          </span>
+
+                          <span>
+                            Kết thúc:{" "}
+                            <span className="font-black text-slate-600">
+                              {endDate}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3 md:border-t-0 md:pt-0">
+                      <span className="rounded-full border border-rose-100 bg-rose-50 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-rose-600">
+                        {pass.status}
+                      </span>
+
+                      <span className="text-right text-[11px] font-bold text-slate-400">
+                        Không còn hiệu lực
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {hasMoreExpiredPasses && (
+              <div className="border-t border-slate-100 bg-white px-5 py-3 text-center">
+                <button
+                  type="button"
+                  onClick={() => setShowAllExpiredPasses((prev) => !prev)}
+                  className="inline-flex items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-4 py-2 text-[11px] font-bold text-blue-600 transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-sm"
+                >
+                  {showAllExpiredPasses ? "Thu gọn" : "Xem thêm"}
+                </button>
               </div>
             )}
           </div>
-          <div className="pt-6 border-t border-slate-100">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3">
-              Thêm biển số xe
-            </span>
-            <div className="flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-black text-slate-900">
-                  Thêm biển số xe
-                </p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Biển số được dùng khi đặt chỗ, check-in và tra cứu phiên gửi
-                  xe.
-                </p>
-              </div>
+        ) : (
+          <EmptyProfileSection
+            icon="🗂️"
+            title="Chưa có vé cũ"
+            description="Vé hết hạn, đã hủy hoặc không còn hiệu lực sẽ nằm ở đây."
+          />
+        )
+      )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (plateVehicleTypes.length === 0) {
-                    alert("Không có loại xe cần đăng ký biển số");
-                    return;
-                  }
 
-                  setShowAddPlateModal(true);
-                  setAddPlateVehicleTypeId(plateVehicleTypes[0]?.id || "");
-                }}
-                className="rounded-xl bg-indigo-600 px-5 py-3 text-xs font-extrabold text-white shadow-md shadow-indigo-600/15 transition-colors hover:bg-indigo-700 cursor-pointer"
-              >
-                + Thêm biển số
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      {selectedPassDetail && (
+        <ParkingPassDetailModal
+          pass={selectedPassDetail}
+          onClose={() => setSelectedPassDetail(null)}
+        />
+      )}
 
       {showAddPlateModal && (
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
@@ -1410,7 +1507,7 @@ export default function ProfileTab({
                   type="text"
                   value={newPlateInput}
                   onChange={(e) =>
-                    setNewPlateInput(normalizeLicensePlate(e.target.value))
+                    setNewPlateInput(normalizePlateInput(e.target.value))
                   }
                   placeholder="Ví dụ: 51F-123.45 hoặc 51F12345"
                   required
@@ -1464,6 +1561,180 @@ export default function ProfileTab({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function EmptyProfileSection({ icon, title, description }) {
+  return (
+    <div className="rounded-[2rem] border border-dashed border-slate-200 bg-white p-10 text-center shadow-sm">
+      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-2xl shadow-inner">
+        {icon}
+      </div>
+
+      <h4 className="mt-4 text-sm font-black text-slate-900">
+        {title}
+      </h4>
+
+      <p className="mx-auto mt-2 max-w-md text-xs font-semibold leading-6 text-slate-400">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function ParkingPassDetailModal({ pass, onClose }) {
+  if (!pass) return null;
+
+  const info = PASS_TYPE_INFO[pass.passType] || PASS_TYPE_INFO.MONTHLY;
+  const vehicleTypeName =
+    pass.vehicleTypeName || pass.vehicleType?.name || pass.vehicleType || "Xe";
+
+  const isBike = isBicycleVehicleTypeName(vehicleTypeName);
+  const identifierLabel = isBike ? "Mã xe đạp" : "Biển số";
+  const identifierValue = isBike
+    ? pass.licensePlate || "--"
+    : formatLicensePlate(pass.licensePlate, vehicleTypeName);
+
+  const startDate = pass.startDate
+    ? new Date(pass.startDate).toLocaleDateString("vi-VN")
+    : "--";
+
+  const endDate = pass.endDate
+    ? new Date(pass.endDate).toLocaleDateString("vi-VN")
+    : "--";
+
+  const feeText = `${Number(pass.fee || 0).toLocaleString("vi-VN")}đ`;
+
+  const daysLeft = Math.max(
+    0,
+    Math.ceil((new Date(pass.endDate) - new Date()) / (1000 * 60 * 60 * 24)),
+  );
+
+  const qrValue = JSON.stringify({
+    type: "SMART_PARKING_PASS",
+    passId: pass.id || "",
+    passType: pass.passType || "",
+    passLabel: info.label || "",
+    licensePlate: pass.licensePlate || "",
+    identifierLabel,
+    identifierValue,
+    vehicleType: vehicleTypeName,
+    startDate: pass.startDate || "",
+    endDate: pass.endDate || "",
+    fee: Number(pass.fee || 0),
+    status: pass.status || "",
+  });
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-md">
+      <div className="w-full max-w-[470px] max-h-[88vh] overflow-hidden rounded-[2rem] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
+        <div className="sticky top-0 z-10 bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-950 px-6 py-5 text-white shadow-lg shadow-slate-950/20">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/70">
+                Parking pass detail
+              </p>
+
+              <h3 className="mt-2 text-xl font-black">
+                {info.label || pass.passType || "Gói gửi xe"}
+              </h3>
+
+              <p className="mt-1 text-xs font-bold text-white/70">
+                {vehicleTypeName}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl bg-white/15 px-4 py-2 text-xs font-black text-white shadow-sm transition hover:bg-white/25 active:scale-95"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+
+        <div className="max-h-[calc(88vh-118px)] overflow-y-auto bg-gradient-to-b from-white via-slate-50 to-white p-6">
+          <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+            <PassInfoRow label={identifierLabel} value={identifierValue} mono tone="primary" />
+            <PassInfoRow label="Loại xe" value={vehicleTypeName} />
+            <PassInfoRow label="Loại gói" value={info.label || pass.passType} />
+            <PassInfoRow label="Trạng thái" value={pass.status || "--"} tone="status" />
+            <PassInfoRow label="Ngày bắt đầu" value={startDate} />
+            <PassInfoRow label="Ngày kết thúc" value={endDate} />
+            <PassInfoRow label="Còn lại" value={`${daysLeft} ngày`} tone="primary" />
+            <PassInfoRow label="Phí" value={feeText} mono tone="money" />
+          </div>
+
+          <div className="mt-6 rounded-[1.75rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-blue-50 px-4 py-5 text-center shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-500">
+              Mã QR gói gửi xe
+            </p>
+
+            <div className="mt-3 flex justify-center">
+              <div className="rounded-2xl border border-indigo-100 bg-white p-3 shadow-md shadow-indigo-100/70">
+                <QRCodeCanvas
+                  value={qrValue}
+                  size={160}
+                  level="M"
+                  includeMargin={true}
+                />
+              </div>
+            </div>
+
+            <p className="mt-3 font-mono text-xs font-black text-indigo-700">
+              {identifierValue}
+            </p>
+
+            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+              Quét mã để xem nhanh thông tin gói gửi xe
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-6 w-full rounded-2xl bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:from-indigo-700 hover:via-blue-700 hover:to-sky-600 active:scale-[0.98]"
+          >
+            Đóng
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PassInfoRow({ label, value, mono = false, tone = "default" }) {
+  const toneClass =
+    tone === "primary"
+      ? "border-indigo-100 bg-indigo-50/80 text-indigo-800"
+      : tone === "status"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : tone === "money"
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-slate-200 bg-white text-slate-800";
+
+  const labelClass =
+    tone === "primary"
+      ? "text-indigo-500"
+      : tone === "status"
+        ? "text-emerald-500"
+        : tone === "money"
+          ? "text-amber-500"
+          : "text-slate-400";
+
+  return (
+    <div
+      className={`rounded-2xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+    >
+      <p className={`text-[9px] font-black uppercase tracking-widest ${labelClass}`}>
+        {label}
+      </p>
+
+      <p className={`mt-1 text-xs font-black ${mono ? "font-mono" : ""}`}>
+        {value || "--"}
+      </p>
     </div>
   );
 }

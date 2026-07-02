@@ -8,39 +8,31 @@
  */
 
 import DriverSosBanner from "./DriverSosBanner";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { staffApi } from "../../api/parkingApi";
 import gsap from "gsap";
+import {
+  normalizeLicensePlate as normalizePlateForApi,
+  formatLicensePlate,
+  getLicensePlateValidationError,
+} from "../../utils/licensePlate";
+
+
 /**
- * NOTE Quảng - Driver scope:
- * Không sửa shared utils/licensePlate.js vì TEAM_ASSIGNMENT đánh dấu FE shared không sửa.
- * Helper local này chấp nhận cả dạng có dấu (51F-123.45) và dạng backend normalize (51F12345).
+ * Hàm: normalizePlateInput
+ * Note Quảng - Driver:
+ * Chỉ chuẩn hóa nhẹ input UI khi tài xế nhập biển số mới.
+ * Không dùng hàm này để validate.
+ * Validate chính dùng getLicensePlateValidationError() từ utils/licensePlate.js
+ * để đồng bộ với Staff check-in.
  */
-const normalizeLicensePlate = (value) => {
-  return String(value || "")
+const normalizePlateInput = (value) =>
+  String(value || "")
     .trim()
     .toUpperCase()
     .replace(/\s+/g, "")
     .replace(/[–—]/g, "-");
-};
-
-const normalizePlateForApi = (value) => {
-  return normalizeLicensePlate(value).replace(/[^A-Z0-9]/g, "");
-};
-
-const isValidVietnamLicensePlate = (value) => {
-  const plate = normalizeLicensePlate(value);
-  const compactPlate = normalizePlateForApi(value);
-
-  const displayPattern = /^\d{2}[A-Z]{1,2}\d?-\d{3}(\.\d{2}|\d{2,3})$/;
-  const backendPattern = /^\d{2}[A-Z]{1,2}\d?\d{4,6}$/;
-
-  return displayPattern.test(plate) || backendPattern.test(compactPlate);
-};
-
-const LICENSE_PLATE_HINT =
-  "Biển số phải đúng định dạng, ví dụ: 49E72932, 51H12345, 30AB99988, 51AC12345, 59X1-12345 hoặc 51F-123.45";
 
 const getPlateValue = (plate) => {
   if (typeof plate === "string") return plate;
@@ -74,41 +66,6 @@ const isBicycleVehicleTypeName = (value) => {
   return text.includes("XE DAP") || text.includes("BICYCLE") || text === "BIKE";
 };
 
-const formatPlateForDisplay = (value, vehicleTypeName) => {
-  const clean = normalizePlateForApi(value);
-  if (!clean) return "--";
-
-  if (isBicycleVehicleTypeName(vehicleTypeName)) {
-    return clean;
-  }
-
-  if (/^\d{2}[A-Z]\d\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d)(\d{3})(\d{2})$/, "$1$2$3-$4.$5");
-  }
-
-  if (/^\d{2}[A-Z]\d\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d)(\d{4})$/, "$1$2$3-$4");
-  }
-
-  if (/^\d{2}[A-Z]{2}\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{2})(\d{3})(\d{2})$/, "$1$2-$3.$4");
-  }
-
-  if (/^\d{2}[A-Z]{2}\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{2})(\d{4})$/, "$1$2-$3");
-  }
-
-  if (/^\d{2}[A-Z]\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d{3})(\d{2})$/, "$1$2-$3.$4");
-  }
-
-  if (/^\d{2}[A-Z]\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d{4})$/, "$1$2-$3");
-  }
-
-  return clean;
-};
-
 const normalizeVehicleTypeId = (value) => String(value || "");
 const isBicycleZone = (zone) => zone?.type === "bicycle";
 // Sắp xếp các tầng theo thứ tự logic từ sâu nhất dưới hầm lên trên cao (B2, B1, G, 1, 2,...)
@@ -130,6 +87,8 @@ export const getSortedFloorKeys = (floorsObj) => {
     (a, b) => getFloorWeight(a) - getFloorWeight(b),
   );
 };
+
+const DRIVER_RESERVATION_HOLD_MINUTES = 60;
 
 const IconDashboard = () => (
   <svg
@@ -264,18 +223,27 @@ const IconSettings = () => (
   </svg>
 );
 
-const LicensePlate = ({ plate }) => (
+const LicensePlate = ({ plate, vehicleTypeName }) => (
   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold text-slate-800 text-[9px] tracking-wide shadow-sm scale-95 origin-center">
-    {plate}
+    {formatLicensePlate(plate, vehicleTypeName)}
   </span>
 );
 
 const emptyFloors = {};
 
+/**
+ * Hàm: getVehicleLabel
+ * Note Quảng - Driver:
+ * Map loại zone nội bộ sang tên loại xe tiếng Việt.
+ * Tên này được truyền vào getLicensePlateValidationError()
+ * nên phải đúng với loại xe Staff dùng khi check-in.
+ */
 function getVehicleLabel(type) {
   if (type === "bicycle") return "Xe đạp";
   if (type === "ebike") return "Xe đạp điện";
   if (type === "motorbike") return "Xe máy";
+  if (type === "truck") return "Xe tải";
+  if (type === "car") return "Ô tô";
   return "Ô tô";
 }
 
@@ -352,6 +320,339 @@ function getStatusLabel(status) {
   return "Đã đầy";
 }
 
+function getPricingVehicleTypeName(plan) {
+  const rawName =
+    plan?.vehicleType?.name ||
+    plan?.vehicleTypeName ||
+    plan?.vehicleType?.vehicleTypeName ||
+    "Phương tiện";
+
+  const text = normalizeVehicleTypeText(rawName);
+
+  if (text.includes("XE DAP") || text.includes("BICYCLE")) return "Xe đạp";
+  if (text.includes("XE MAY") || text.includes("MOTORBIKE")) return "Xe máy";
+  if (text.includes("O TO") || text.includes("OTO") || text.includes("CAR")) {
+    return "Ô tô";
+  }
+  if (text.includes("XE TAI") || text.includes("TRUCK")) return "Xe tải";
+
+  return rawName;
+}
+
+function getPricingTypeLabel(type) {
+  const value = String(type || "").toUpperCase();
+
+  if (value === "HOURLY") return "Theo giờ";
+  if (value === "DAILY") return "Theo ngày";
+  if (value === "MONTHLY") return "Theo tháng";
+  if (value === "QUARTERLY") return "Theo quý";
+  if (value === "YEARLY") return "Theo năm";
+
+  return value || "Không rõ";
+}
+
+function getPricingUnitLabel(type) {
+  const value = String(type || "").toUpperCase();
+
+  if (value === "HOURLY") return "/ giờ";
+  if (value === "DAILY") return "/ ngày";
+  if (value === "MONTHLY") return "/ tháng";
+  if (value === "QUARTERLY") return "/ quý";
+  if (value === "YEARLY") return "/ năm";
+
+  return "";
+}
+
+function getPricingOrder(type) {
+  const value = String(type || "").toUpperCase();
+
+  if (value === "HOURLY") return 1;
+  if (value === "DAILY") return 2;
+  if (value === "MONTHLY") return 3;
+  if (value === "QUARTERLY") return 4;
+  if (value === "YEARLY") return 5;
+
+  return 99;
+}
+
+function getPricingPrice(plan) {
+  return Number(plan?.pricePerUnit ?? plan?.price ?? plan?.amount ?? 0);
+}
+
+function DriverMobileInlineCSS() {
+  return (
+    <style>{`
+      :root {
+        --driver-bottom-nav-height: 76px;
+      }
+
+      .mobile-driver-nav {
+        position: fixed;
+        left: 10px;
+        right: 10px;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 9990;
+        display: none;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+        padding: 8px;
+        border: 1px solid rgba(226, 232, 240, 0.9);
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 -14px 44px rgba(15, 23, 42, 0.16);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .mobile-nav-item {
+        min-width: 0;
+        min-height: 56px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        border: 0;
+        border-radius: 18px;
+        background: transparent;
+        color: #64748b;
+        font-weight: 900;
+        line-height: 1;
+        text-decoration: none;
+        transition: all 0.16s ease;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .mobile-nav-item:active {
+        transform: scale(0.95);
+      }
+
+      .mobile-nav-active {
+        background: linear-gradient(135deg, #4f46e5, #2563eb);
+        color: #ffffff;
+        box-shadow: 0 12px 24px rgba(37, 99, 235, 0.26);
+      }
+
+      .mobile-nav-danger {
+        color: #e11d48;
+      }
+
+      .mobile-nav-icon {
+        display: block;
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .mobile-nav-label {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 10px;
+        letter-spacing: -0.01em;
+      }
+
+      .mobile-floor-scroll {
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .mobile-floor-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      @media (max-width: 767px) {
+        html,
+        body,
+        #root {
+          width: 100%;
+          min-width: 320px;
+          overflow-x: hidden;
+        }
+
+        body {
+          background: #f8fafc;
+        }
+
+        .driver-mobile-shell {
+          display: block;
+          width: 100%;
+          min-height: 100dvh;
+          padding-bottom: calc(var(--driver-bottom-nav-height) + 22px + env(safe-area-inset-bottom));
+        }
+
+        .main-content-area {
+          width: 100%;
+          min-width: 0;
+          margin-left: 0 !important;
+          padding-bottom: calc(var(--driver-bottom-nav-height) + 18px + env(safe-area-inset-bottom));
+        }
+
+        .main-content-area > header {
+          min-height: 64px;
+          align-items: center;
+          padding: 12px 14px;
+          border-bottom-color: rgba(226, 232, 240, 0.75);
+          border-bottom-left-radius: 22px;
+          border-bottom-right-radius: 22px;
+          box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        }
+
+        .main-content-area > header h2 {
+          max-width: 58vw;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 16px;
+          line-height: 1.2;
+        }
+
+        .main-content-area > header p {
+          max-width: 58vw;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .main-content-area > header > div:last-child {
+          gap: 8px;
+        }
+
+        .main-content-area > header button {
+          min-width: 40px;
+          min-height: 40px;
+        }
+
+        .driver-content-section {
+          padding: 14px 14px calc(var(--driver-bottom-nav-height) + 28px + env(safe-area-inset-bottom)) !important;
+          min-height: auto !important;
+        }
+
+        .welcome-banner,
+        .action-panel-item,
+        .stat-card-item,
+        .zone-card-mobile,
+        .profile-mobile-root > section,
+        .profile-mobile-root > div {
+          border-radius: 22px !important;
+        }
+
+        .welcome-banner {
+          padding: 18px !important;
+        }
+
+        .welcome-banner h1,
+        .profile-mobile-root h3 {
+          font-size: clamp(22px, 7vw, 30px) !important;
+          line-height: 1.08 !important;
+        }
+
+        .welcome-banner p,
+        .profile-mobile-root p {
+          line-height: 1.6;
+        }
+
+        .stat-card-item,
+        .action-panel-item,
+        .zone-card-mobile {
+          padding: 16px !important;
+          box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        }
+
+        .profile-mobile-root {
+          gap: 18px;
+        }
+
+        .profile-mobile-root .grid {
+          min-width: 0;
+        }
+
+        .profile-mobile-root input,
+        .profile-mobile-root select,
+        .driver-content-section input,
+        .driver-content-section select {
+          font-size: 16px;
+        }
+
+        .profile-mobile-root input,
+        .profile-mobile-root select,
+        .profile-mobile-root button,
+        .driver-content-section input,
+        .driver-content-section select,
+        .driver-content-section button {
+          touch-action: manipulation;
+        }
+
+        .mobile-driver-nav {
+          display: grid;
+        }
+
+        .mobile-driver-nav .mobile-nav-item {
+          min-height: 54px;
+        }
+
+        .mobile-driver-nav .mobile-nav-label {
+          font-size: 9.5px;
+        }
+
+        .zone-card-head,
+        .zone-card-footer {
+          gap: 10px;
+        }
+
+        .zone-card-metrics {
+          gap: 8px !important;
+        }
+
+        .zone-card-legend {
+          transform: none !important;
+          transform-origin: center !important;
+        }
+
+        .fixed.inset-0[class*="z-[9998]"],
+        .fixed.inset-0[class*="z-[100]"],
+        .fixed.inset-0[class*="z-[9999]"] {
+          align-items: flex-end !important;
+          padding: 12px !important;
+        }
+
+        .fixed.inset-0[class*="z-[9998]"] > div,
+        .fixed.inset-0[class*="z-[100]"] > div,
+        .fixed.inset-0[class*="z-[9999]"] > div {
+          max-height: calc(100dvh - 24px);
+          overflow-y: auto;
+          border-radius: 28px !important;
+        }
+      }
+
+      @media (max-width: 380px) {
+        .mobile-driver-nav {
+          left: 6px;
+          right: 6px;
+          gap: 4px;
+          padding: 6px;
+          border-radius: 20px;
+        }
+
+        .mobile-nav-icon {
+          font-size: 16px;
+        }
+
+        .mobile-nav-label {
+          font-size: 9px;
+        }
+
+        .driver-content-section {
+          padding-left: 10px !important;
+          padding-right: 10px !important;
+        }
+      }
+    `}</style>
+  );
+}
+
 export default function DriverMapping({ onLogout }) {
   const navigate = useNavigate();
   const containerRef = useRef(null);
@@ -371,8 +672,8 @@ export default function DriverMapping({ onLogout }) {
   );
   const [liveDate, setLiveDate] = useState("");
   const [floors, setFloors] = useState(emptyFloors);
-  const [vehicleTypes, setVehicleTypes] = useState([]);
   const [activeSession, setActiveSession] = useState(null);
+  const [pricingPlans, setPricingPlans] = useState([]);
   const [emergencyStatus, setEmergencyStatus] = useState({
     active: false,
     message: "",
@@ -393,15 +694,17 @@ export default function DriverMapping({ onLogout }) {
       : userState.licensePlates || [];
   }, [driverPlates, userState]);
 
-  const currentDriver = useMemo(
-    () => ({
+  const currentDriver = useMemo(() => {
+    const firstPlate = plates[0];
+
+    return {
       name: userState.fullName || "Tài xế",
       role: "Tài xế",
       currentZoneId: userState.currentZoneId || null,
-      plate: getPlateValue(plates[0]) || "Chưa đăng ký",
-    }),
-    [userState, plates],
-  );
+      plate: getPlateValue(firstPlate),
+      vehicleTypeName: getPlateVehicleTypeName(firstPlate),
+    };
+  }, [userState, plates]);
 
   const loadEmergencyStatus = async () => {
     try {
@@ -541,15 +844,6 @@ export default function DriverMapping({ onLogout }) {
 
         setDriverPlates(backendPlates);
 
-        // NOTE:
-        // DriverMapping phải lấy biển số thật từ backend.
-        // Không phụ thuộc localStorage.user vì login thường chỉ lưu email/role/token,
-        // không chắc có sẵn licensePlates.
-        //
-        // Sau khi lấy được biển số, đồng bộ lại localStorage để:
-        // - DriverDashboard đọc được biển số
-        // - ProfileTab không bị lệch dữ liệu
-        // - fetchActiveSession có danh sách plate để gọi API
         const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
 
         const updatedUser = {
@@ -562,8 +856,11 @@ export default function DriverMapping({ onLogout }) {
           ...prev,
           licensePlates: backendPlates,
         }));
+
+        return backendPlates;
       } catch (err) {
         console.error("Không thể tải biển số driver:", err);
+        return [];
       }
     };
 
@@ -573,7 +870,6 @@ export default function DriverMapping({ onLogout }) {
       try {
         const res = await staffApi.getParkingConfig();
         const config = res.data.data || {};
-        setVehicleTypes(config.vehicleTypes || []);
         const backendZones = config.zones;
         if (backendZones && backendZones.length > 0) {
           const floorMap = {};
@@ -631,14 +927,19 @@ export default function DriverMapping({ onLogout }) {
       }
     };
 
-    const fetchActiveSession = async () => {
-      const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+    const fetchDriverPricingPlans = async () => {
+      try {
+        const res = await staffApi.getDriverPricingPlans();
+        setPricingPlans(res.data?.data || []);
+      } catch (err) {
+        console.error("Không thể tải bảng giá driver:", err);
+        setPricingPlans([]);
+      }
+    };
 
-      // NOTE:
-      // Ở lần load đầu tiên, driverPlates state có thể chưa cập nhật kịp.
-      // Vì vậy hàm này đọc từ localStorage, nơi fetchDriverPlates đã đồng bộ biển số.
-      // Nếu chưa có biển số thì không gọi API session để tránh request rỗng.
-      const registeredPlates = storedUser.licensePlates || [];
+    const fetchActiveSession = async (inputPlates) => {
+      const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+      const registeredPlates = inputPlates || storedUser.licensePlates || [];
 
       if (registeredPlates.length === 0) {
         setActiveSession(null);
@@ -661,16 +962,32 @@ export default function DriverMapping({ onLogout }) {
     // 1. Biển số của driver từ backend
     // 2. Cấu hình tầng/zone từ backend
     // 3. Phiên gửi xe đang active nếu có
-    fetchDriverPlates();
-    fetchRealtimeConfig();
-    fetchActiveSession();
-    loadEmergencyStatus();
+    const bootstrapDriverMap = async () => {
+      const freshPlates = await fetchDriverPlates();
+
+      await Promise.all([
+        fetchRealtimeConfig(),
+        fetchActiveSession(freshPlates),
+        fetchDriverPricingPlans(),
+        loadEmergencyStatus(),
+      ]);
+    };
+
+    bootstrapDriverMap();
 
     const configInterval = setInterval(() => {
-      fetchDriverPlates();
-      fetchRealtimeConfig();
-      fetchActiveSession();
-      loadEmergencyStatus();
+      const bootstrapDriverMap = async () => {
+        const freshPlates = await fetchDriverPlates();
+
+        await Promise.all([
+          fetchRealtimeConfig(),
+          fetchActiveSession(freshPlates),
+          fetchDriverPricingPlans(),
+          loadEmergencyStatus(),
+        ]);
+      };
+
+      bootstrapDriverMap();
     }, 10000);
 
     return () => {
@@ -706,6 +1023,30 @@ export default function DriverMapping({ onLogout }) {
   }, [activeSession, allZones]);
 
   const currentZone = allZones.find((zone) => zone.id === currentZoneId);
+  const pricingRows = useMemo(() => {
+    const hourlyRows = (pricingPlans || [])
+      .map((plan, index) => {
+        const pricingType = String(plan.pricingType || "").toUpperCase();
+        const price = getPricingPrice(plan);
+        const vehicleTypeName = getPricingVehicleTypeName(plan);
+
+        return {
+          key: plan.id || `${plan.vehicleTypeId || vehicleTypeName}-${pricingType}-${index}`,
+          vehicleTypeName,
+          pricingType,
+          pricingTypeLabel: getPricingTypeLabel(pricingType),
+          unitLabel: getPricingUnitLabel(pricingType),
+          price,
+        };
+      })
+      .filter((row) => row.price > 0 && row.pricingType === "HOURLY")
+      .sort((a, b) => a.vehicleTypeName.localeCompare(b.vehicleTypeName, "vi"));
+
+    // Tránh trường hợp cùng một loại xe có nhiều dòng HOURLY bị lặp.
+    return Array.from(
+      new Map(hourlyRows.map((row) => [row.vehicleTypeName, row])).values(),
+    );
+  }, [pricingPlans]);
 
   // Vị trí: phần thống kê tầng trong DriverMapping.
   const counts = {
@@ -741,12 +1082,7 @@ export default function DriverMapping({ onLogout }) {
     return matchSearch && matchStatus && matchType;
   };
 
-  const handleReserveZone = async (
-    zoneId,
-    licensePlate,
-    reservedFromInput,
-    reservedToInput,
-  ) => {
+  const handleReserveZone = async (zoneId, licensePlate) => {
     // nếu SOS đang hoạt động thì driver không được đặt chỗ
     if (emergencyStatus.active) {
       alert(
@@ -770,13 +1106,14 @@ export default function DriverMapping({ onLogout }) {
       return;
     }
 
-    if (!isBicycle && !isValidVietnamLicensePlate(plate)) {
-      alert(
-        "Biển số không đúng định dạng.\n\n" +
-          "Ví dụ xe máy: 51H1-2345, 59X1-123.45, 59AA-729.32\n" +
-          "Ví dụ ô tô: 30A-1234, 30A-123.45, 50AB-123.45\n" +
-          "Ví dụ xe tải: 51C-123.45, 60C-456.78",
-      );
+    const vehicleTypeName = getVehicleLabel(zone.type);
+
+    const plateError = !isBicycle
+      ? getLicensePlateValidationError(plate, vehicleTypeName)
+      : null;
+
+    if (plateError) {
+      alert(plateError);
       return;
     }
 
@@ -819,12 +1156,10 @@ export default function DriverMapping({ onLogout }) {
         }
       }
 
-      const reservedFrom = reservedFromInput
-        ? new Date(reservedFromInput)
-        : new Date();
-      const reservedTo = reservedToInput
-        ? new Date(reservedToInput)
-        : new Date(Date.now() + 30 * 60 * 1000);
+      const reservedFrom = new Date();
+      const reservedTo = new Date(
+        reservedFrom.getTime() + DRIVER_RESERVATION_HOLD_MINUTES * 60 * 1000,
+      );
 
       if (
         Number.isNaN(reservedFrom.getTime()) ||
@@ -855,7 +1190,10 @@ export default function DriverMapping({ onLogout }) {
       alert(
         isBicycle
           ? `Đã giữ chỗ tại ${zone.zoneCode}. Mã xe đạp của bạn là ${vehicleIdentifier}.`
-          : `Đã giữ chỗ tại ${zone.zoneCode} cho xe ${plate} từ ${reservedFrom.toLocaleString("vi-VN")} đến ${reservedTo.toLocaleString("vi-VN")}`,
+          : `Đã giữ chỗ tại ${zone.zoneCode} cho xe ${formatLicensePlate(
+            plate,
+            getVehicleLabel(zone.type),
+          )} từ ${reservedFrom.toLocaleString("vi-VN")} đến ${reservedTo.toLocaleString("vi-VN")}`,
       );
 
       navigate("/driver/dashboard#my-reservations");
@@ -866,20 +1204,17 @@ export default function DriverMapping({ onLogout }) {
     }
   };
 
-  const navigateToDashboardWidget = (widgetId) => {
-    navigate(`/driver/dashboard?scrollTo=${widgetId}`);
-  };
-
   return (
     <div
       ref={containerRef}
       className="driver-mobile-shell min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-900 flex font-sans"
     >
+      <DriverMobileInlineCSS />
+
       <DriverSosBanner />
       <aside
-        className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${
-          collapsed ? "w-20" : "w-72"
-        }`}
+        className={`aside-panel fixed left-0 top-0 bottom-0 z-50 hidden h-screen flex-col bg-slate-900 text-white shadow-xl transition-all duration-300 md:flex ${collapsed ? "w-20" : "w-72"
+          }`}
       >
         <div className="flex items-center gap-3.5 px-6 py-6 border-b border-slate-800 overflow-hidden">
           <button
@@ -977,9 +1312,8 @@ export default function DriverMapping({ onLogout }) {
       </aside>
 
       <main
-        className={`main-content-area flex-1 min-h-screen flex flex-col pb-24 transition-all duration-300 md:pb-0 ${
-          collapsed ? "md:ml-20" : "md:ml-72"
-        }`}
+        className={`main-content-area flex-1 min-h-screen flex flex-col pb-24 transition-all duration-300 md:pb-0 ${collapsed ? "md:ml-20" : "md:ml-72"
+          }`}
       >
         <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6 md:h-20 md:px-8 md:py-0">
           <div className="flex flex-col">
@@ -1049,7 +1383,16 @@ export default function DriverMapping({ onLogout }) {
                 {currentZone?.zoneCode || "--"}
               </h3>
               <div className="mt-3 flex flex-wrap gap-2">
-                <LicensePlate plate={getPlateValue(currentDriver.plate)} />
+                {currentDriver.plate ? (
+                  <LicensePlate
+                    plate={currentDriver.plate}
+                    vehicleTypeName={currentDriver.vehicleTypeName}
+                  />
+                ) : (
+                  <span className="rounded border border-slate-300 bg-white px-2 py-1 text-[9px] font-bold text-slate-500">
+                    Chưa đăng ký
+                  </span>
+                )}
                 <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-700 border border-indigo-100">
                   {currentZone
                     ? getVehicleLabel(currentZone.type)
@@ -1339,45 +1682,57 @@ export default function DriverMapping({ onLogout }) {
               <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
                 <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
                   <span className="text-xl">💳</span>
-                  <h3 className="text-sm font-bold text-slate-800">
-                    Biểu Phí Giữ Chỗ Áp Dụng
-                  </h3>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">
+                      Biểu phí gửi xe theo giờ
+                    </h3>
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-400">
+                      Hiển thị phí theo giờ của từng loại xe
+                    </p>
+                  </div>
                 </div>
 
-                <div className="space-y-3.5">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-500">
-                      Mô tô / Xe máy
-                    </span>
-                    <span className="font-bold text-slate-800">
-                      5.000đ / lượt
-                    </span>
+                {pricingRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
+                    <p className="text-xs font-black text-slate-700">
+                      Chưa có dữ liệu phí theo giờ
+                    </p>
+                    <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                      Kiểm tra bảng giá HOURLY trong cấu hình pricing plans.
+                    </p>
                   </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-500">
-                      Ô tô (4-7 chỗ)
-                    </span>
-                    <span className="font-bold text-slate-800">
-                      15.000đ / giờ đầu
-                    </span>
+                ) : (
+                  <div className="space-y-3.5">
+                    {pricingRows.map((row) => (
+                      <div
+                        key={row.key}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs"
+                      >
+                        <div>
+                          <p className="font-black text-slate-800">
+                            {row.vehicleTypeName}
+                          </p>
+                          <p className="mt-0.5 text-[10px] font-bold text-slate-400">
+                            {row.pricingTypeLabel}
+                          </p>
+                        </div>
+
+                        <span className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-1.5 font-black text-indigo-700">
+                          {row.price.toLocaleString("vi-VN")}đ / giờ
+                        </span>
+                      </div>
+                    ))}
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs">
+                      <span className="font-semibold text-emerald-700">
+                        Thời gian giữ chỗ
+                      </span>
+                      <span className="rounded-xl bg-white px-3 py-1.5 font-black text-emerald-700 shadow-sm">
+                        {DRIVER_RESERVATION_HOLD_MINUTES} phút
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-500">
-                      Đặt chỗ trước (Booking Fee)
-                    </span>
-                    <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
-                      Miễn phí 30 phút
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-500">
-                      Thành viên VIP hội viên
-                    </span>
-                    <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">
-                      Giảm giá -20%
-                    </span>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Hướng dẫn di chuyển thông minh */}
@@ -1400,9 +1755,7 @@ export default function DriverMapping({ onLogout }) {
           zone={selectedZone}
           isCurrent={selectedZone.id === currentZoneId}
           onClose={() => setSelectedZone(null)}
-          onReserve={(plate, reservedFrom, reservedTo) =>
-            handleReserveZone(selectedZone.id, plate, reservedFrom, reservedTo)
-          }
+          onReserve={(plate) => handleReserveZone(selectedZone.id, plate)}
           plates={plates}
           emergencyActive={emergencyStatus.active}
           emergencyMessage={emergencyStatus.message}
@@ -1452,11 +1805,10 @@ function SideLink({ to, icon, label, active, collapsed }) {
   return (
     <Link
       to={to}
-      className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${
-        active
-          ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-          : "text-slate-400 hover:bg-slate-800 hover:text-white"
-      }`}
+      className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${active
+        ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+        : "text-slate-400 hover:bg-slate-800 hover:text-white"
+        }`}
     >
       <span className="flex-shrink-0">{icon}</span>
       {!collapsed && <span className="whitespace-nowrap">{label}</span>}
@@ -1464,27 +1816,14 @@ function SideLink({ to, icon, label, active, collapsed }) {
   );
 }
 
-function ButtonLink({ icon, label, collapsed, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white transition-all duration-200"
-    >
-      <span className="flex-shrink-0">{icon}</span>
-      {!collapsed && <span className="whitespace-nowrap">{label}</span>}
-    </button>
-  );
-}
-
 function FloorButton({ active, onClick, icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all duration-150 ${
-        active
-          ? "bg-white text-indigo-600 shadow-sm border border-slate-200"
-          : "text-slate-500 hover:bg-white/40"
-      }`}
+      className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all duration-150 ${active
+        ? "bg-white text-indigo-600 shadow-sm border border-slate-200"
+        : "text-slate-500 hover:bg-white/40"
+        }`}
     >
       <span>{icon}</span>
       <span>{label}</span>
@@ -1609,7 +1948,7 @@ function ZoneCard({ zone, isCurrent, onClick }) {
               ((toSafeNumber(zone.currentCount) +
                 toSafeNumber(zone.reservedCount)) /
                 capacity) *
-                24,
+              24,
             );
 
             const isOccupied = idx < occupiedSlots;
@@ -1617,13 +1956,12 @@ function ZoneCard({ zone, isCurrent, onClick }) {
             return (
               <span
                 key={idx}
-                className={`w-3.5 h-3.5 rounded-[3px] inline-block border transition-all duration-200 ${
-                  isOccupied
-                    ? "bg-rose-500 border-rose-600 shadow-sm"
-                    : isReserved
-                      ? "bg-amber-400 border-amber-500 shadow-sm animate-pulse"
-                      : "bg-emerald-400 border-emerald-500 hover:scale-110"
-                }`}
+                className={`w-3.5 h-3.5 rounded-[3px] inline-block border transition-all duration-200 ${isOccupied
+                  ? "bg-rose-500 border-rose-600 shadow-sm"
+                  : isReserved
+                    ? "bg-amber-400 border-amber-500 shadow-sm animate-pulse"
+                    : "bg-emerald-400 border-emerald-500 hover:scale-110"
+                  }`}
                 title={
                   isOccupied
                     ? "Đang đỗ"
@@ -1659,27 +1997,28 @@ function ZoneModal({
   const canReserve =
     !emergencyActive && available > 0 && !isCurrent && zone.status === "ACTIVE";
   const isBicycle = isBicycleZone(zone);
-  const makeDateInput = (date) => toDateTimeLocalInputValue(date);
 
   const [selectedPlate, setSelectedPlate] = useState("");
   const [newPlate, setNewPlate] = useState("");
-  const [reservedFromInput, setReservedFromInput] = useState(
-    makeDateInput(new Date()),
-  );
-  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [realtimeNow, setRealtimeNow] = useState(new Date());
+
+  useEffect(() => {
+    const tick = () => setRealtimeNow(new Date());
+
+    tick();
+
+    const intervalId = window.setInterval(tick, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const reservedToInput = useMemo(() => {
-    const fromDate = new Date(reservedFromInput);
-
-    if (Number.isNaN(fromDate.getTime())) {
-      return makeDateInput(new Date(Date.now() + durationMinutes * 60 * 1000));
-    }
-
-    return makeDateInput(
-      new Date(fromDate.getTime() + durationMinutes * 60 * 1000),
+  const reservedToPreview = useMemo(() => {
+    return new Date(
+      realtimeNow.getTime() + DRIVER_RESERVATION_HOLD_MINUTES * 60 * 1000,
     );
-  }, [reservedFromInput, durationMinutes]);
+  }, [realtimeNow]);
 
   const formatReservationTimeLabel = (value) => {
     const date = new Date(value);
@@ -1694,23 +2033,35 @@ function ZoneModal({
     });
   };
 
-  const setStartNow = () => {
-    setReservedFromInput(makeDateInput(new Date()));
+  const formatReservationDateTimeFull = (value) => {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "--";
+
+    return date.toLocaleString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
   };
+
   const plateOptions = isBicycle
     ? []
     : (plates || [])
-        .map((plate) => ({
-          licensePlate: getPlateValue(plate),
-          vehicleTypeId: getPlateVehicleTypeId(plate),
-          vehicleTypeName: getPlateVehicleTypeName(plate),
-        }))
-        .filter((plate) => Boolean(plate.licensePlate))
-        .filter(
-          (plate) =>
-            normalizeVehicleTypeId(plate.vehicleTypeId) ===
-            normalizeVehicleTypeId(zone.vehicleTypeId),
-        );
+      .map((plate) => ({
+        licensePlate: getPlateValue(plate),
+        vehicleTypeId: getPlateVehicleTypeId(plate),
+        vehicleTypeName: getPlateVehicleTypeName(plate),
+      }))
+      .filter((plate) => Boolean(plate.licensePlate))
+      .filter(
+        (plate) =>
+          normalizeVehicleTypeId(plate.vehicleTypeId) ===
+          normalizeVehicleTypeId(zone.vehicleTypeId),
+      );
 
   useEffect(() => {
     if (isBicycle) {
@@ -1736,19 +2087,19 @@ function ZoneModal({
       return;
     }
 
-    if (!isBicycle && !isValidVietnamLicensePlate(finalPlate)) {
-      alert(LICENSE_PLATE_HINT);
+    const plateError = !isBicycle
+      ? getLicensePlateValidationError(finalPlate, getVehicleLabel(zone.type))
+      : null;
+
+    if (plateError) {
+      alert(plateError);
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      await onReserve(
-        isBicycle ? null : finalPlate,
-        reservedFromInput,
-        reservedToInput,
-      );
+      await onReserve(isBicycle ? null : finalPlate);
     } finally {
       setIsSubmitting(false);
     }
@@ -1791,17 +2142,16 @@ function ZoneModal({
             </div>
           )}
           <div
-            className={`rounded-2xl border p-5 text-center flex flex-col items-center ${
-              zone.status === "CLOSED"
-                ? "bg-slate-100 border-slate-200 text-slate-600"
-                : isCurrent
-                  ? "bg-indigo-50 border-indigo-100 text-indigo-800"
-                  : status === "available"
-                    ? "bg-emerald-50 border-emerald-100 text-emerald-800"
-                    : status === "nearFull"
-                      ? "bg-amber-50 border-amber-100 text-amber-800"
-                      : "bg-rose-50 border-rose-100 text-rose-800"
-            }`}
+            className={`rounded-2xl border p-5 text-center flex flex-col items-center ${zone.status === "CLOSED"
+              ? "bg-slate-100 border-slate-200 text-slate-600"
+              : isCurrent
+                ? "bg-indigo-50 border-indigo-100 text-indigo-800"
+                : status === "available"
+                  ? "bg-emerald-50 border-emerald-100 text-emerald-800"
+                  : status === "nearFull"
+                    ? "bg-amber-50 border-amber-100 text-amber-800"
+                    : "bg-rose-50 border-rose-100 text-rose-800"
+              }`}
           >
             <div className="text-[11px] font-black tracking-widest">
               {zone.status === "CLOSED"
@@ -1832,7 +2182,7 @@ function ZoneModal({
               {!isBicycle && (
                 <div>
                   <p className="text-xs font-black uppercase tracking-wider text-slate-600">
-                    Biển số giữ chỗ
+                    Biển số được quản lý
                   </p>
 
                   {plateOptions.length > 0 ? (
@@ -1845,13 +2195,12 @@ function ZoneModal({
                             setSelectedPlate(plate.licensePlate);
                             setNewPlate("");
                           }}
-                          className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${
-                            selectedPlate === plate.licensePlate && !newPlate
-                              ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                          }`}
+                          className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${selectedPlate === plate.licensePlate && !newPlate
+                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                            }`}
                         >
-                          {formatPlateForDisplay(
+                          {formatLicensePlate(
                             plate.licensePlate,
                             plate.vehicleTypeName,
                           )}
@@ -1869,88 +2218,78 @@ function ZoneModal({
                     </p>
                   )}
 
-                  <input
-                    value={newPlate}
-                    onChange={(event) =>
-                      setNewPlate(normalizeLicensePlate(event.target.value))
-                    }
-                    placeholder="Hoặc nhập biển số mới"
-                    className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
-                  />
+                  <div className="mt-3">
+                    <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Đăng ký biển số mới
+                    </label>
+                    <input
+                      value={newPlate}
+                      onChange={(event) =>
+                        setNewPlate(normalizePlateInput(event.target.value))
+                      }
+                      placeholder="Ví dụ: 59A1-12345"
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50"
+                    />
+
+                  </div>
                 </div>
               )}
 
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
-                <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="rounded-[1.75rem] border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm shadow-slate-200/70">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-black uppercase tracking-wider text-slate-700">
                       Thời gian giữ chỗ
                     </p>
-                    <p className="mt-0.5 text-[10px] font-semibold text-slate-400">
-                      Chọn thời điểm bắt đầu và thời lượng giữ chỗ
-                    </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={setStartNow}
-                    className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-700 transition hover:bg-indigo-100"
-                  >
-                    Bây giờ
-                  </button>
                 </div>
 
-                <label className="block">
-                  <span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    Bắt đầu
-                  </span>
-
-                  <input
-                    type="datetime-local"
-                    value={reservedFromInput}
-                    min={makeDateInput(new Date())}
-                    onChange={(event) =>
-                      setReservedFromInput(event.target.value)
-                    }
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-black text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50"
-                  />
-                </label>
-
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {[30, 60, 120].map((minutes) => (
-                    <button
-                      key={minutes}
-                      type="button"
-                      onClick={() => setDurationMinutes(minutes)}
-                      className={`rounded-2xl border px-3 py-3 text-xs font-black transition active:scale-[0.98] ${
-                        durationMinutes === minutes
-                          ? "border-indigo-400 bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
-                          : "border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-                      }`}
-                    >
-                      {minutes === 30 ? "30 phút" : `${minutes / 60} giờ`}
-                    </button>
-                  ))}
+                <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/80 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
+                    Thời điểm hiện tại
+                  </p>
+                  <p className="mt-2 text-base font-black text-indigo-900">
+                    {formatReservationDateTimeFull(realtimeNow)}
+                  </p>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                      Từ
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Bắt đầu
                     </p>
-                    <p className="mt-1 text-xs font-black text-slate-800">
-                      {formatReservationTimeLabel(reservedFromInput)}
+                    <p className="mt-2 text-sm font-black text-slate-900">
+                      {formatReservationDateTimeFull(realtimeNow)}
                     </p>
+
                   </div>
 
-                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-3 py-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-indigo-400">
-                      Đến
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 shadow-sm">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
+                      Hết hạn
                     </p>
-                    <p className="mt-1 text-xs font-black text-indigo-800">
-                      {formatReservationTimeLabel(reservedToInput)}
+                    <p className="mt-2 text-sm font-black text-indigo-900">
+                      {formatReservationDateTimeFull(reservedToPreview)}
                     </p>
+
                   </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+                    Lưu ý check-in
+                  </p>
+                  <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">
+                    Vui lòng{" "}
+                    <span className="font-black">
+                      check-in đúng trong khoảng thời gian từ{" "}
+                      {formatReservationDateTimeFull(realtimeNow)} đến{" "}
+                      {formatReservationDateTimeFull(reservedToPreview)}
+                    </span>
+                    . Nếu quá thời gian này, đặt chỗ có thể hết hiệu lực và hệ thống có quyền
+                    từ chối giữ chỗ.
+                  </p>
                 </div>
               </div>
             </div>

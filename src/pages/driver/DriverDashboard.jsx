@@ -6,11 +6,12 @@ import driverAvatar from "../../assets/driver-avatar.png";
 import { staffApi } from "../../api/parkingApi";
 import gsap from "gsap";
 import ProfileTab from "./ProfileTab";
+import { QRCodeCanvas } from "qrcode.react";
 
 import {
-  isValidVietnamLicensePlate,
   normalizeLicensePlate as normalizePlateForApi,
-  LICENSE_PLATE_HINT,
+  formatLicensePlate,
+  getLicensePlateValidationError,
 } from "../../utils/licensePlate";
 
 // Hàm: normalizePlateInput
@@ -28,17 +29,6 @@ const getPlateValue = (plate) => {
   return plate?.licensePlate || plate?.plateNumber || plate?.plate || "";
 };
 
-const getPlateVehicleTypeId = (plate) => {
-  if (typeof plate === "string") return null;
-  return plate?.vehicleTypeId || plate?.vehicleType?.id || null;
-};
-
-const getPlateVehicleTypeName = (plate) => {
-  if (typeof plate === "string") return "Chưa gán loại xe";
-  return (
-    plate?.vehicleTypeName || plate?.vehicleType?.name || "Chưa gán loại xe"
-  );
-};
 
 const normalizeVehicleTypeText = (value) => {
   return String(value || "")
@@ -55,46 +45,6 @@ const isBicycleVehicleTypeName = (value) => {
   return text.includes("XE DAP") || text.includes("BICYCLE") || text === "BIKE";
 };
 
-const formatPlateForDisplay = (value, vehicleTypeName) => {
-  const clean = normalizePlateForApi(value);
-  if (!clean) return "--";
-
-  if (isBicycleVehicleTypeName(vehicleTypeName)) {
-    return clean;
-  }
-
-  // Xe máy cũ 5 số: 59X112345 -> 59X1-123.45
-  if (/^\d{2}[A-Z]\d\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d)(\d{3})(\d{2})$/, "$1$2$3-$4.$5");
-  }
-
-  // Xe máy cũ 4 số: 50H12345 -> 50H1-2345
-  if (/^\d{2}[A-Z]\d\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d)(\d{4})$/, "$1$2$3-$4");
-  }
-
-  // Xe máy mới / ô tô 2 chữ 5 số: 50AB12345 -> 50AB-123.45
-  if (/^\d{2}[A-Z]{2}\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{2})(\d{3})(\d{2})$/, "$1$2-$3.$4");
-  }
-
-  // 2 chữ 4 số: 50AB1234 -> 50AB-1234
-  if (/^\d{2}[A-Z]{2}\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z]{2})(\d{4})$/, "$1$2-$3");
-  }
-
-  // Ô tô / xe tải 1 chữ 5 số: 30A99988 -> 30A-999.88
-  if (/^\d{2}[A-Z]\d{5}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d{3})(\d{2})$/, "$1$2-$3.$4");
-  }
-
-  // Ô tô / xe tải 1 chữ 4 số: 30A1234 -> 30A-1234
-  if (/^\d{2}[A-Z]\d{4}$/.test(clean)) {
-    return clean.replace(/^(\d{2})([A-Z])(\d{4})$/, "$1$2-$3");
-  }
-
-  return clean;
-};
 
 const getVehicleIdentifierLabel = (vehicleTypeName) =>
   isBicycleVehicleTypeName(vehicleTypeName) ? "Mã xe đạp" : "Biển số";
@@ -107,7 +57,97 @@ const getVehicleIdentifierValue = (item) => {
     return item?.licensePlate || "--";
   }
 
-  return formatPlateForDisplay(item?.licensePlate, vehicleTypeName);
+  return formatLicensePlate(item?.licensePlate, vehicleTypeName);
+};
+
+const normalizeDriverSearchText = (value) => {
+  const normalized = String(value || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/Đ/g, "D")
+    .replace(/đ/g, "D")
+    .trim();
+
+  const compact = normalized.replace(/[^A-Z0-9]/g, "");
+
+  return `${normalized} ${compact}`;
+};
+
+const matchesDriverSearch = (keyword, fields = []) => {
+  const rawKeyword = String(keyword || "").trim();
+
+  if (!rawKeyword) return true;
+
+  const normalizedKeyword = normalizeDriverSearchText(rawKeyword);
+  const keywordTokens = normalizedKeyword
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  const searchableText = fields
+    .filter((value) => value !== null && value !== undefined)
+    .map((value) => normalizeDriverSearchText(value))
+    .join(" ");
+
+  const compactSearchableText = searchableText.replace(/[^A-Z0-9]/g, "");
+
+  return keywordTokens.every((token) => {
+    const compactToken = token.replace(/[^A-Z0-9]/g, "");
+
+    return (
+      searchableText.includes(token) ||
+      compactSearchableText.includes(compactToken)
+    );
+  });
+};
+
+const getCompactSearchText = (value) =>
+  String(value || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/Đ/g, "D")
+    .replace(/đ/g, "D")
+    .replace(/[^A-Z0-9]/g, "");
+
+const isPlateLikeSearchKeyword = (keyword) => {
+  const raw = String(keyword || "").trim();
+  const compact = getCompactSearchText(raw);
+
+  if (!compact) return false;
+
+  // Có dấu / hoặc : thì thường là tìm theo ngày giờ, không xem là biển số.
+  if (/[/:]/.test(raw)) return false;
+
+  // Có số thì ưu tiên xem là tìm biển số/mã đặt chỗ/mã phiên/khu.
+  return /\d/.test(compact);
+};
+
+const matchesDriverSmartSearch = ({
+  keyword,
+  primaryFields = [],
+  secondaryFields = [],
+}) => {
+  const rawKeyword = String(keyword || "").trim();
+
+  if (!rawKeyword) return true;
+
+  const plateLike = isPlateLikeSearchKeyword(rawKeyword);
+
+  // Nếu user gõ kiểu 50, 50AB, 50AB12345, B010720260001, B1-A
+  // thì chỉ tìm trong nhóm chính: biển số/mã xe/mã phiên/mã đặt chỗ/khu.
+  // Không search ngày giờ để tránh ra kết quả sai.
+  if (plateLike) {
+    return matchesDriverSearch(rawKeyword, primaryFields);
+  }
+
+  // Nếu user gõ completed, xe máy, hoàn tất, đã hủy...
+  // thì cho search rộng hơn.
+  return matchesDriverSearch(rawKeyword, [
+    ...primaryFields,
+    ...secondaryFields,
+  ]);
 };
 
 const formatDateTimeText = (value) => {
@@ -294,24 +334,279 @@ const IconSettings = () => (
   </svg>
 );
 
-const LicensePlate = ({ plate, vehicleTypeName }) => (
-  <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-slate-200 bg-white font-mono font-bold text-slate-800 shadow-sm text-xs tracking-widest">
-    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block mr-0.5 animate-pulse"></span>
-    {formatPlateForDisplay(plate, vehicleTypeName)}
-  </span>
-);
+function DriverMobileInlineCSS() {
+  return (
+    <style>{`
+      :root {
+        --driver-bottom-nav-height: 76px;
+      }
 
-const getReservationStatusLabel = (status) => {
-  const normalizedStatus = String(status || "").toUpperCase();
+      .mobile-driver-nav {
+        position: fixed;
+        left: 10px;
+        right: 10px;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 9990;
+        display: none;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+        padding: 8px;
+        border: 1px solid rgba(226, 232, 240, 0.9);
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 -14px 44px rgba(15, 23, 42, 0.16);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
 
-  if (normalizedStatus === "PENDING") return "Pending";
-  if (normalizedStatus === "CONFIRMED") return "Confirmed";
-  if (normalizedStatus === "CANCELLED") return "Cancelled";
-  if (normalizedStatus === "EXPIRED") return "Expired";
-  if (normalizedStatus === "COMPLETED") return "Completed";
+      .mobile-nav-item {
+        min-width: 0;
+        min-height: 56px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        border: 0;
+        border-radius: 18px;
+        background: transparent;
+        color: #64748b;
+        font-weight: 900;
+        line-height: 1;
+        text-decoration: none;
+        transition: all 0.16s ease;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
 
-  return normalizedStatus || "--";
-};
+      .mobile-nav-item:active {
+        transform: scale(0.95);
+      }
+
+      .mobile-nav-active {
+        background: linear-gradient(135deg, #4f46e5, #2563eb);
+        color: #ffffff;
+        box-shadow: 0 12px 24px rgba(37, 99, 235, 0.26);
+      }
+
+      .mobile-nav-danger {
+        color: #e11d48;
+      }
+
+      .mobile-nav-icon {
+        display: block;
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .mobile-nav-label {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 10px;
+        letter-spacing: -0.01em;
+      }
+
+      .mobile-floor-scroll {
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .mobile-floor-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      @media (max-width: 767px) {
+        html,
+        body,
+        #root {
+          width: 100%;
+          min-width: 320px;
+          overflow-x: hidden;
+        }
+
+        body {
+          background: #f8fafc;
+        }
+
+        .driver-mobile-shell {
+          display: block;
+          width: 100%;
+          min-height: 100dvh;
+          padding-bottom: calc(var(--driver-bottom-nav-height) + 22px + env(safe-area-inset-bottom));
+        }
+
+        .main-content-area {
+          width: 100%;
+          min-width: 0;
+          margin-left: 0 !important;
+          padding-bottom: calc(var(--driver-bottom-nav-height) + 18px + env(safe-area-inset-bottom));
+        }
+
+        .main-content-area > header {
+          min-height: 64px;
+          align-items: center;
+          padding: 12px 14px;
+          border-bottom-color: rgba(226, 232, 240, 0.75);
+          border-bottom-left-radius: 22px;
+          border-bottom-right-radius: 22px;
+          box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        }
+
+        .main-content-area > header h2 {
+          max-width: 58vw;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 16px;
+          line-height: 1.2;
+        }
+
+        .main-content-area > header p {
+          max-width: 58vw;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .main-content-area > header > div:last-child {
+          gap: 8px;
+        }
+
+        .main-content-area > header button {
+          min-width: 40px;
+          min-height: 40px;
+        }
+
+        .driver-content-section {
+          padding: 14px 14px calc(var(--driver-bottom-nav-height) + 28px + env(safe-area-inset-bottom)) !important;
+          min-height: auto !important;
+        }
+
+        .welcome-banner,
+        .action-panel-item,
+        .stat-card-item,
+        .zone-card-mobile,
+        .profile-mobile-root > section,
+        .profile-mobile-root > div {
+          border-radius: 22px !important;
+        }
+
+        .welcome-banner {
+          padding: 18px !important;
+        }
+
+        .welcome-banner h1,
+        .profile-mobile-root h3 {
+          font-size: clamp(22px, 7vw, 30px) !important;
+          line-height: 1.08 !important;
+        }
+
+        .welcome-banner p,
+        .profile-mobile-root p {
+          line-height: 1.6;
+        }
+
+        .stat-card-item,
+        .action-panel-item,
+        .zone-card-mobile {
+          padding: 16px !important;
+          box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        }
+
+        .profile-mobile-root {
+          gap: 18px;
+        }
+
+        .profile-mobile-root .grid {
+          min-width: 0;
+        }
+
+        .profile-mobile-root input,
+        .profile-mobile-root select,
+        .driver-content-section input,
+        .driver-content-section select {
+          font-size: 16px;
+        }
+
+        .profile-mobile-root input,
+        .profile-mobile-root select,
+        .profile-mobile-root button,
+        .driver-content-section input,
+        .driver-content-section select,
+        .driver-content-section button {
+          touch-action: manipulation;
+        }
+
+        .mobile-driver-nav {
+          display: grid;
+        }
+
+        .mobile-driver-nav .mobile-nav-item {
+          min-height: 54px;
+        }
+
+        .mobile-driver-nav .mobile-nav-label {
+          font-size: 9.5px;
+        }
+
+        .zone-card-head,
+        .zone-card-footer {
+          gap: 10px;
+        }
+
+        .zone-card-metrics {
+          gap: 8px !important;
+        }
+
+        .zone-card-legend {
+          transform: none !important;
+          transform-origin: center !important;
+        }
+
+        .fixed.inset-0[class*="z-[9998]"],
+        .fixed.inset-0[class*="z-[100]"],
+        .fixed.inset-0[class*="z-[9999]"] {
+          align-items: flex-end !important;
+          padding: 12px !important;
+        }
+
+        .fixed.inset-0[class*="z-[9998]"] > div,
+        .fixed.inset-0[class*="z-[100]"] > div,
+        .fixed.inset-0[class*="z-[9999]"] > div {
+          max-height: calc(100dvh - 24px);
+          overflow-y: auto;
+          border-radius: 28px !important;
+        }
+      }
+
+      @media (max-width: 380px) {
+        .mobile-driver-nav {
+          left: 6px;
+          right: 6px;
+          gap: 4px;
+          padding: 6px;
+          border-radius: 20px;
+        }
+
+        .mobile-nav-icon {
+          font-size: 16px;
+        }
+
+        .mobile-nav-label {
+          font-size: 9px;
+        }
+
+        .driver-content-section {
+          padding-left: 10px !important;
+          padding-right: 10px !important;
+        }
+      }
+    `}</style>
+  );
+}
 
 export default function DriverDashboard({ onLogout }) {
   const location = useLocation();
@@ -323,6 +618,8 @@ export default function DriverDashboard({ onLogout }) {
   const [liveDate, setLiveDate] = useState("");
   const [timerSeconds, setTimerSeconds] = useState(0); // Bắt đầu đếm từ 0 giây thực tế
   const [activeTab, setActiveTab] = useState("dashboard"); // 'dashboard', 'session', 'history', 'profile'
+  const [showAllReservations, setShowAllReservations] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false);
 
   const [emergencyStatus, setEmergencyStatus] = useState({
     loading: true,
@@ -413,8 +710,10 @@ export default function DriverDashboard({ onLogout }) {
   }, [activeTab]);
   const [newPlateInput, setNewPlateInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [historyQuickFilter, setHistoryQuickFilter] = useState("ALL");
   const [reservationSearchTerm, setReservationSearchTerm] = useState("");
   const [qrModalData, setQrModalData] = useState(null);
+  const [sessionTicketModal, setSessionTicketModal] = useState(null);
   // Tự động chuyển hướng tab
   const handleScrollTo = (tabId) => {
     if (tabId === "current-session") setActiveTab("session");
@@ -476,19 +775,31 @@ export default function DriverDashboard({ onLogout }) {
 
   const loadUserData = async () => {
     const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+    let registryPlates = [];
     let plates = [];
     let activeSession = null;
+    let activeSessions = [];
     let activeReservation = null;
     let reservations = [];
     let parkingPasses = [];
     let historyList = [];
     let totalAvailable = 0;
-
+    let dashboardPricingPlans = [];
+    let dashboardPricingConfig = {
+      buildings: [],
+      vehicleTypes: [],
+    };
     try {
       const resPlates = await staffApi.getDriverPlates();
-      plates = resPlates.data?.data || [];
+
+      // NOTE Quảng - Driver:
+      // registryPlates là biển số thật trong hồ sơ Driver, dùng cho ProfileTab thêm/xóa.
+      // plates là danh sách lookup mở rộng, dùng nội bộ để tra cứu session/history.
+      registryPlates = resPlates.data?.data || [];
+      plates = [...registryPlates];
     } catch (err) {
       console.error("Không thể tải biển số từ backend:", err);
+      registryPlates = [];
       plates = [];
     }
 
@@ -551,11 +862,7 @@ export default function DriverDashboard({ onLogout }) {
       .forEach((item) => addLookupIdentifierIfMissing(item, "RESERVATION"));
 
     parkingPasses
-      .filter((item) =>
-        ["ACTIVE", "PENDING_PAYMENT", "PENDING"].includes(
-          String(item?.status || "").toUpperCase(),
-        ),
-      )
+      .filter((item) => Boolean(item?.licensePlate))
       .forEach((item) => addLookupIdentifierIfMissing(item, "PASS"));
 
     activeReservation =
@@ -579,48 +886,122 @@ export default function DriverDashboard({ onLogout }) {
           licensePlate: activeReservation.licensePlate,
           vehicleTypeId: activeReservation.vehicleTypeId,
           vehicleTypeName: activeReservation.vehicleTypeName,
+          source: "RESERVATION",
         },
       ];
     }
 
-    if (plates.length > 0) {
+    const uniqueLookupPlates = Array.from(
+      new Map(
+        plates
+          .map((plate) => {
+            const normalizedValue = normalizePlateForApi(getPlateValue(plate));
+
+            if (!normalizedValue || normalizedValue === "--") return null;
+
+            return [
+              normalizedValue,
+              typeof plate === "string"
+                ? normalizedValue
+                : {
+                  ...plate,
+                  licensePlate: normalizedValue,
+                },
+            ];
+          })
+          .filter(Boolean),
+      ).values(),
+    );
+
+    if (uniqueLookupPlates.length > 0) {
+      const toDriverActiveSession = (backendSession) => {
+        if (!backendSession) return null;
+
+        const vehicleTypeName =
+          backendSession.vehicleType ||
+          backendSession.vehicleTypeName ||
+          "--";
+
+        const compactPlate = normalizePlateForApi(backendSession.licensePlate);
+
+        const createdTimestamp = backendSession.entryTime
+          ? new Date(backendSession.entryTime).getTime()
+          : Date.now();
+
+        return {
+          id: [
+            backendSession.sessionId ||
+            backendSession.id ||
+            backendSession.sessionCode ||
+            "session",
+            compactPlate,
+            backendSession.entryTime || "",
+          ]
+            .filter(Boolean)
+            .join("-"),
+
+          sessionId: backendSession.sessionId || backendSession.id || null,
+          sessionCode: backendSession.sessionCode || "--",
+
+          zoneCode: backendSession.zoneCode || "--",
+          zoneName: backendSession.zoneName || "--",
+          floor: backendSession.floorName || "--",
+          floorName: backendSession.floorName || "--",
+          area: backendSession.zoneName || "--",
+
+          vehicle: vehicleTypeName,
+          vehicleTypeName,
+
+          identifierLabel: getVehicleIdentifierLabel(vehicleTypeName),
+          identifierValue: getVehicleIdentifierValue({
+            licensePlate: compactPlate,
+            vehicleTypeName,
+          }),
+
+          licensePlate: compactPlate || backendSession.licensePlate || "--",
+
+          entryTime: backendSession.entryTime,
+          startTime: formatDateTimeText(backendSession.entryTime),
+          zoneEntryTime: formatDateTimeText(backendSession.zoneEntryTime),
+
+          estimatedFee: Number(backendSession.totalFee || 0),
+          totalFee: Number(backendSession.totalFee || 0),
+
+          status: getSessionStatusLabel(backendSession.status),
+          rawStatus: backendSession.status,
+
+          buildingName: backendSession.buildingName || "Smart Parking",
+          buildingAddress: backendSession.buildingAddress || "--",
+
+          entryMainGateName: backendSession.entryMainGateName || "--",
+          entryZoneGateName: backendSession.entryZoneGateName || "--",
+
+          driverType: backendSession.driverType || "--",
+          passType: backendSession.passType || "Vé lượt",
+          paymentStatus: getPaymentStatusLabel(backendSession.paymentStatus),
+
+          createdTimestamp,
+        };
+      };
+
       const sessionResults = await Promise.all(
-        plates.map((plate) =>
+        uniqueLookupPlates.map((plate) =>
           staffApi
             .getActiveSession(getPlateValue(plate))
-            .then((res) => res.data?.data)
+            .then((res) => toDriverActiveSession(res.data?.data))
             .catch(() => null),
         ),
       );
-      const backendSession = sessionResults.find(Boolean);
 
-      if (backendSession) {
-        activeSession = {
-          zoneCode: backendSession.zoneCode || "--",
-          floor: backendSession.floorName || "--",
-          area: backendSession.zoneName || "--",
-          vehicle: backendSession.vehicleType || "--",
-          identifierLabel: getVehicleIdentifierLabel(
-            backendSession.vehicleType,
-          ),
-          identifierValue: formatPlateForDisplay(
-            backendSession.licensePlate,
-            backendSession.vehicleType,
-          ),
-          startTime: formatDateTimeText(backendSession.entryTime),
-          zoneEntryTime: formatDateTimeText(backendSession.zoneEntryTime),
-          estimatedFee: Number(backendSession.totalFee || 0),
-          status: getSessionStatusLabel(backendSession.status),
-          buildingName: backendSession.buildingName || "Smart Parking",
-          buildingAddress: backendSession.buildingAddress || "--",
-          entryMainGateName: backendSession.entryMainGateName || "--",
-          entryZoneGateName: backendSession.entryZoneGateName || "--",
-          licensePlate: backendSession.licensePlate,
-          sessionCode: backendSession.sessionCode,
-          createdTimestamp: backendSession.entryTime
-            ? new Date(backendSession.entryTime).getTime()
-            : Date.now(),
-        };
+      activeSessions = sessionResults
+        .filter(Boolean)
+        .sort((a, b) => {
+          return Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0);
+        });
+
+      activeSession = activeSessions[0] || null;
+
+      if (activeSession) {
         setTimerSeconds(
           Math.max(
             0,
@@ -632,16 +1013,39 @@ export default function DriverDashboard({ onLogout }) {
       }
 
       const historyResults = await Promise.all(
-        plates.map((plate) =>
-          staffApi
-            .getSessionHistory(getPlateValue(plate))
-            .then((res) => res.data?.data || [])
-            .catch(() => []),
-        ),
+        uniqueLookupPlates.map(async (plate) => {
+          const lookupPlate = normalizePlateForApi(getPlateValue(plate));
+          const lookupVehicleTypeName =
+            typeof plate === "string"
+              ? ""
+              : plate?.vehicleTypeName || plate?.vehicleType || "";
+
+          try {
+            const res = await staffApi.getSessionHistory(lookupPlate);
+            const rows = res.data?.data || [];
+
+            return rows
+              .filter((session) => {
+                const sessionPlate = normalizePlateForApi(session.licensePlate);
+
+                // Nếu backend trả đúng plate thì giữ.
+                // Nếu backend trả record khác plate đang query thì bỏ để tránh hiển thị sai.
+                return !sessionPlate || sessionPlate === lookupPlate;
+              })
+              .map((session) => ({
+                ...session,
+                licensePlate: normalizePlateForApi(session.licensePlate || lookupPlate),
+                _lookupPlate: lookupPlate,
+                _lookupVehicleTypeName: lookupVehicleTypeName,
+              }));
+          } catch {
+            return [];
+          }
+        }),
       );
 
-/// xếp cái lịch sử của xe sort theo thời gian 
-// mới nhất sẽ ở trên, cũ hơn sẽ ở dupwsi....
+      /// xếp cái lịch sử của xe sort theo thời gian 
+      // mới nhất sẽ ở trên, cũ hơn sẽ ở dupwsi....
 
       const getHistoryTime = (session) => {
         const rawTime =
@@ -655,25 +1059,58 @@ export default function DriverDashboard({ onLogout }) {
         return Number.isFinite(time) ? time : 0;
       };
 
-      historyList = historyResults
-        .flat()
+      const uniqueHistorySessions = Array.from(
+        new Map(
+          historyResults
+            .flat()
+            .map((session, index) => {
+              const uniqueKey =
+                [
+                  session.sessionId,
+                  session.sessionCode,
+                  normalizePlateForApi(session.licensePlate),
+                  session.entryTime,
+                  session.exitTime,
+                ]
+                  .filter(Boolean)
+                  .join("|") || `history-${index}`;
+
+              return [uniqueKey, session];
+            }),
+        ).values(),
+      );
+
+      historyList = uniqueHistorySessions
         .slice()
         .sort((a, b) => getHistoryTime(b) - getHistoryTime(a))
         .map((s, idx) => {
-          const vehicleTypeName = s.vehicleType || "--";
+          const vehicleTypeName =
+            s.vehicleType || s.vehicleTypeName || s._lookupVehicleTypeName || "--";
+
+          const normalizedHistoryPlate = normalizePlateForApi(
+            s.licensePlate || s._lookupPlate,
+          );
+
           const durationMinutes = Number(s.durationMinutes || 0);
 
           return {
-            id: `${s.sessionId || s.sessionCode || idx}`,
+            id: [
+              s.sessionId || s.sessionCode || "history",
+              normalizedHistoryPlate,
+              s.entryTime || s.sessionCreatedAt || "",
+              s.exitTime || "",
+            ]
+              .filter(Boolean)
+              .join("-"),
             sessionCode: s.sessionCode || "--",
             sessionId: s.sessionId || null,
 
-            licensePlate: s.licensePlate || "--",
+            licensePlate: normalizedHistoryPlate || "--",
             identifierLabel: getVehicleIdentifierLabel(vehicleTypeName),
-            identifierValue: formatPlateForDisplay(
-              s.licensePlate,
+            identifierValue: getVehicleIdentifierValue({
+              licensePlate: normalizedHistoryPlate,
               vehicleTypeName,
-            ),
+            }),
 
             entryTime: s.entryTime,
             exitTime: s.exitTime,
@@ -717,7 +1154,14 @@ export default function DriverDashboard({ onLogout }) {
 
     try {
       const configRes = await staffApi.getParkingConfig();
-      const zones = configRes.data?.data?.zones || [];
+      const configData = configRes.data?.data || {};
+      const zones = configData.zones || [];
+
+      dashboardPricingConfig = {
+        buildings: configData.buildings || [],
+        vehicleTypes: configData.vehicleTypes || [],
+      };
+
       totalAvailable = zones.reduce((sum, z) => {
         const available =
           (z.capacity || 0) - (z.currentCount || 0) - (z.reservedCount || 0);
@@ -726,6 +1170,14 @@ export default function DriverDashboard({ onLogout }) {
     } catch (err) {
       console.error("Không thể tải cấu hình zone từ backend:", err);
       totalAvailable = 0;
+    }
+
+    try {
+      const pricingRes = await staffApi.getDriverPricingPlans();
+      dashboardPricingPlans = pricingRes.data?.data || [];
+    } catch (err) {
+      console.error("Không thể tải bảng giá driver từ backend:", err);
+      dashboardPricingPlans = [];
     }
 
     const totalCost = historyList.reduce(
@@ -744,9 +1196,15 @@ export default function DriverDashboard({ onLogout }) {
         avatar: driverAvatar,
         membership: "Tài khoản tài xế",
         vipExpiry: "--",
-        licensePlates: plates,
+
+        // NOTE Quảng - Driver:
+        // ProfileTab chỉ được nhận biển số thật từ /driver/plates để thêm/xóa.
+        // Không truyền plates mở rộng từ reservation/pass xuống ProfileTab,
+        // tránh lỗi xóa thất bại "Không tìm thấy biển số cần xóa".
+        licensePlates: registryPlates,
       },
       currentSession: activeSession,
+      activeSessions,
       currentBooking: activeReservation
         ? {
           id: activeReservation.id || activeReservation.reservationId,
@@ -805,13 +1263,21 @@ export default function DriverDashboard({ onLogout }) {
         availableSlots: `${totalAvailable} chỗ trống`,
       },
       history: historyList,
+      pricingPlans: dashboardPricingPlans,
+      pricingConfig: dashboardPricingConfig,
     });
     setLoading(false);
   };
 
-  // Hàm: handleAddPlate
-  // Note: Driver đăng ký biển số phải gửi compact uppercase giống StaffCheckIn.
-  // Ví dụ: "51H-123.45" hoặc "51h12345" -> "51H12345".
+  /**
+  * Hàm: handleAddPlate
+  * Note Quảng - Driver:
+  * Thêm biển số xe vào hồ sơ Driver.
+  * - Input UI được normalize nhẹ bằng normalizePlateInput().
+  * - Dữ liệu gửi API dùng normalizePlateForApi() để compact giống Staff.
+  * - Validate dùng getLicensePlateValidationError() từ utils/licensePlate.js
+  *   để đồng bộ với Staff check-in.
+  */
   const handleAddPlate = async (e, vehicleTypeId, vehicleTypeName) => {
     e.preventDefault();
 
@@ -819,6 +1285,7 @@ export default function DriverDashboard({ onLogout }) {
     const compactPlate = normalizePlateForApi(inputPlate);
 
     if (!compactPlate) {
+      alert("Vui lòng nhập biển số xe.");
       return false;
     }
 
@@ -827,13 +1294,13 @@ export default function DriverDashboard({ onLogout }) {
       return false;
     }
 
-    if (!isValidVietnamLicensePlate(compactPlate, vehicleTypeName)) {
-      alert(
-        `Biển số không đúng định dạng cho ${vehicleTypeName || "loại xe đã chọn"}.\n\n` +
-        "Ví dụ xe máy: 51H1-2345, 59X1-123.45, 59AA-729.32\n" +
-        "Ví dụ ô tô: 30A-1234, 30A-123.45, 50AB-123.45\n" +
-        "Ví dụ xe tải: 51C-123.45, 60C-456.78",
-      );
+    const plateError = getLicensePlateValidationError(
+      compactPlate,
+      vehicleTypeName,
+    );
+
+    if (plateError) {
+      alert(plateError);
       return false;
     }
 
@@ -851,8 +1318,9 @@ export default function DriverDashboard({ onLogout }) {
       await staffApi.addDriverPlate(compactPlate, vehicleTypeId);
       setNewPlateInput("");
       await loadUserData();
+
       alert(
-        `Đăng ký biển số ${formatPlateForDisplay(compactPlate, vehicleTypeName)} thành công!`,
+        `Đăng ký biển số ${formatLicensePlate(compactPlate, vehicleTypeName)} thành công!`,
       );
       return true;
     } catch (err) {
@@ -862,30 +1330,50 @@ export default function DriverDashboard({ onLogout }) {
     }
   };
 
-  // Xóa biển số xe khỏi Database
+  /**
+ * Hàm: handleDeletePlate
+ * Note Quảng - Driver:
+ * Xóa biển số thật trong hồ sơ Driver.
+ * Chỉ xóa những biển số lấy từ /driver/plates.
+ * Trước khi gửi API, biển số được normalize compact để khớp backend.
+ */
   const handleDeletePlate = async (plateToDelete) => {
     const plateValue = getPlateValue(plateToDelete);
+    const compactPlate = normalizePlateForApi(plateValue);
 
-    if (!plateValue) {
+    if (!compactPlate) {
       alert("Không tìm thấy biển số xe để xóa.");
       return;
     }
 
     if (
       !confirm(
-        `Bạn có chắc chắn muốn xóa biển số ${plateValue} khỏi tài khoản không?`,
+        `Bạn có chắc chắn muốn xóa biển số ${formatLicensePlate(
+          compactPlate,
+        )} khỏi tài khoản không?`,
       )
     ) {
       return;
     }
 
     try {
-      await staffApi.deleteDriverPlate(plateValue);
+      await staffApi.deleteDriverPlate(compactPlate);
       await loadUserData();
-      alert(`Đã xóa biển số xe ${plateValue} thành công khỏi Database!`);
+
+      alert(
+        `Đã xóa biển số xe ${formatLicensePlate(
+          compactPlate,
+        )} thành công khỏi hồ sơ!`,
+      );
     } catch (err) {
       const errorMsg =
         err.response?.data?.message || err.message || "Lỗi xóa biển số xe";
+
+      // Nếu FE đang hiển thị dữ liệu cũ, reload lại danh sách cho sạch.
+      if (String(errorMsg).toLowerCase().includes("không tìm thấy")) {
+        await loadUserData();
+      }
+
       alert(`Xóa thất bại: ${errorMsg}`);
     }
   };
@@ -963,8 +1451,9 @@ export default function DriverDashboard({ onLogout }) {
       setTimerSeconds((prev) => prev + 1);
     }, 1000);
 
-    // Nạp dữ liệu khởi tạo
+    // Nạp dữ liệu khởi tạo, gom dữ liệu cho dashboard, phiên đang gửi, đặt chỗ, lịch sử, hồ sơ.
     loadUserData();
+
     loadEmergencyStatus();
 
     const emergencyInterval = setInterval(() => {
@@ -1022,22 +1511,15 @@ export default function DriverDashboard({ onLogout }) {
   const {
     user,
     currentSession,
+    activeSessions = [],
     currentBooking,
     stats,
     history,
     reservations = [],
+    pricingPlans = [],
+    pricingConfig = { buildings: [], vehicleTypes: [] },
   } = data;
 
-  const qrPayload = currentSession
-    ? JSON.stringify({
-      type: "SESSION",
-      sessionCode: currentSession.sessionCode,
-      licensePlate: currentSession.licensePlate,
-      vehicleType: currentSession.vehicle,
-      zoneCode: currentSession.zoneCode,
-      floor: currentSession.floor,
-    })
-    : "";
 
   // Format Timer Seconds
   const formatTimer = (totalSecs) => {
@@ -1045,6 +1527,71 @@ export default function DriverDashboard({ onLogout }) {
     const mins = Math.floor((totalSecs % 3600) / 60);
     const secs = totalSecs % 60;
     return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // tính thời gian gửi xe thực tế từ thời điểm tạo session đến hiện tại
+  const formatSessionTimer = (session) => {
+    const startTimestamp = Number(session?.createdTimestamp || 0);
+
+    if (!startTimestamp) return "00:00:00";
+
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((Date.now() - startTimestamp) / 1000),
+    );
+
+    return formatTimer(elapsedSeconds);
+  };
+
+  const formatMoney = (value) => {
+    return `${Number(value || 0).toLocaleString("vi-VN")}đ`;
+  };
+
+  const isPassBasedSession = (session) => {
+    const passType = normalizeVehicleTypeText(session?.passType);
+
+    return (
+      passType.includes("MONTHLY") ||
+      passType.includes("QUARTERLY") ||
+      passType.includes("YEARLY") ||
+      passType.includes("THANG") ||
+      passType.includes("QUY") ||
+      passType.includes("NAM")
+    );
+  };
+
+  const getPassTypeDisplay = (passType) => {
+    const value = normalizeVehicleTypeText(passType);
+
+    if (value.includes("MONTHLY") || value.includes("THANG")) {
+      return "Gói tháng";
+    }
+
+    if (value.includes("QUARTERLY") || value.includes("QUY")) {
+      return "Gói quý";
+    }
+
+    if (value.includes("YEARLY") || value.includes("NAM")) {
+      return "Gói năm";
+    }
+
+    return passType || "Vé lượt";
+  };
+
+  const getActiveSessionFeeText = (session) => {
+    if (isPassBasedSession(session)) {
+      return "Đã bao gồm trong gói";
+    }
+
+    return formatMoney(session?.estimatedFee || session?.totalFee || 0);
+  };
+
+  const getActiveSessionPaymentText = (session) => {
+    if (isPassBasedSession(session)) {
+      return "Đã thanh toán bằng gói";
+    }
+
+    return session?.paymentStatus || "Chưa có thanh toán";
   };
 
   // Chi phí thực tế tạm tính lấy trực tiếp từ hệ thống tính phí Backend
@@ -1068,18 +1615,22 @@ export default function DriverDashboard({ onLogout }) {
     const normalizedStatus = String(status || "").toUpperCase();
 
     if (["PENDING", "CONFIRMED"].includes(normalizedStatus)) {
-      return "bg-emerald-50 text-emerald-700 border-emerald-100";
+      return "border-indigo-100 bg-indigo-50 text-indigo-700";
+    }
+
+    if (normalizedStatus === "COMPLETED") {
+      return "border-emerald-100 bg-emerald-50 text-emerald-700";
     }
 
     if (normalizedStatus === "CANCELLED") {
-      return "bg-rose-50 text-rose-700 border-rose-100";
+      return "border-rose-100 bg-rose-50 text-rose-700";
     }
 
     if (normalizedStatus === "EXPIRED") {
-      return "bg-amber-50 text-amber-700 border-amber-100";
+      return "border-amber-100 bg-amber-50 text-amber-700";
     }
 
-    return "bg-slate-100 text-slate-600 border-slate-200";
+    return "border-slate-200 bg-slate-50 text-slate-500";
   };
 
   const isReservationCancelable = (status) => {
@@ -1089,53 +1640,163 @@ export default function DriverDashboard({ onLogout }) {
   };
 
   const filteredReservations = reservations.filter((item) => {
-    const keyword = reservationSearchTerm.trim().toLowerCase();
+    const keyword = reservationSearchTerm.trim();
 
     if (!keyword) return true;
 
-    return [
-      item.reservationCode,
-      item.licensePlate,
-      item.zoneCode,
-      item.zoneName,
-      item.floorName,
-      item.status,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(keyword));
+    return matchesDriverSmartSearch({
+      keyword,
+      primaryFields: [
+        item.reservationCode,
+        item.licensePlate,
+        getVehicleIdentifierValue(item),
+        item.zoneCode,
+        item.zoneName,
+        item.floorName,
+        `${item.floorName}-${item.zoneCode}`,
+        item.vehicleTypeName,
+        item.vehicleType,
+      ],
+      secondaryFields: [
+        item.buildingName,
+        item.status,
+        formatDateTime(item.reservedFrom),
+        formatDateTime(item.reservedTo),
+        formatDateTime(item.createdAt),
+      ],
+    });
   });
+
+  const RESERVATION_PREVIEW_LIMIT = 4;
+
+  const visibleReservations = showAllReservations
+    ? filteredReservations
+    : filteredReservations.slice(0, RESERVATION_PREVIEW_LIMIT);
+
+  const hasMoreReservations =
+    filteredReservations.length > RESERVATION_PREVIEW_LIMIT;
+
+  const historySearchKeyword = searchTerm.trim();
+
+  const matchesHistoryQuickFilter = (item) => {
+    const statusText = normalizeVehicleTypeText(item.status);
+    const paymentText = normalizeVehicleTypeText(item.paymentStatus);
+
+    if (historyQuickFilter === "ALL") return true;
+
+    if (historyQuickFilter === "ACTIVE") {
+      return statusText.includes("DANG GUI") || statusText.includes("ACTIVE");
+    }
+
+    if (historyQuickFilter === "COMPLETED") {
+      return statusText.includes("HOAN TAT") || statusText.includes("COMPLETED");
+    }
+
+    if (historyQuickFilter === "CANCELLED") {
+      return statusText.includes("HUY") || statusText.includes("CANCEL");
+    }
+
+    if (historyQuickFilter === "PENDING_PAYMENT") {
+      return paymentText.includes("CHO THANH TOAN") || paymentText.includes("PENDING");
+    }
+
+    return true;
+  };
 
   const filteredHistory = history.filter((item) => {
-    const keyword = searchTerm.trim().toLowerCase();
-    if (!keyword) return true;
+    const matchesFilter = matchesHistoryQuickFilter(item);
 
-    return [
-      item.sessionCode,
-      item.identifierValue,
-      item.licensePlate,
-      item.vehicle,
-      item.driverType,
-      item.passType,
-      item.paymentStatus,
-      item.status,
-      item.building,
-      item.buildingAddress,
-      item.floorName,
-      item.zoneCode,
-      item.zoneName,
-      item.entryMainGateName,
-      item.exitMainGateName,
-      item.notes,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(keyword));
+    if (!matchesFilter) return false;
+
+    if (!historySearchKeyword.trim()) return true;
+
+    return matchesDriverSmartSearch({
+      keyword: historySearchKeyword,
+      primaryFields: [
+        item.sessionCode,
+        item.identifierValue,
+        item.licensePlate,
+        item.floorName,
+        item.zoneCode,
+        item.zoneName,
+        `${item.floorName}-${item.zoneCode}`,
+      ],
+      secondaryFields: [
+        item.vehicle,
+        item.driverType,
+        item.passType,
+        item.paymentStatus,
+        item.status,
+        item.building,
+        item.buildingAddress,
+        item.entryMainGateName,
+        item.exitMainGateName,
+        item.notes,
+        item.date,
+        item.exitDate,
+        item.registeredAt,
+      ],
+    });
   });
+
+  const HISTORY_PREVIEW_LIMIT = 4;
+
+  const visibleHistory = showAllHistory
+    ? filteredHistory
+    : filteredHistory.slice(0, HISTORY_PREVIEW_LIMIT);
+
+  const hasMoreHistory = filteredHistory.length > HISTORY_PREVIEW_LIMIT;
+
+  const isHistorySearchActive =
+    searchTerm.trim() || historyQuickFilter !== "ALL";
+
+  const getHistoryStatusStyle = (status) => {
+    const value = normalizeVehicleTypeText(status);
+
+    if (value.includes("DANG GUI") || value.includes("ACTIVE")) {
+      return "border-blue-100 bg-blue-50 text-blue-700";
+    }
+
+    if (value.includes("HOAN TAT") || value.includes("COMPLETED")) {
+      return "border-emerald-100 bg-emerald-50 text-emerald-700";
+    }
+
+    if (value.includes("HUY") || value.includes("CANCEL")) {
+      return "border-rose-100 bg-rose-50 text-rose-700";
+    }
+
+    return "border-slate-200 bg-slate-100 text-slate-600";
+  };
+
+  const getHistoryPaymentStyle = (paymentStatus) => {
+    const value = normalizeVehicleTypeText(paymentStatus);
+
+    if (value.includes("DA THANH TOAN") || value.includes("PAID")) {
+      return "border-emerald-100 bg-emerald-50 text-emerald-700";
+    }
+
+    if (value.includes("CHO THANH TOAN") || value.includes("PENDING")) {
+      return "border-amber-100 bg-amber-50 text-amber-700";
+    }
+
+    if (value.includes("THAT BAI") || value.includes("FAILED")) {
+      return "border-rose-100 bg-rose-50 text-rose-700";
+    }
+
+    return "border-slate-200 bg-slate-100 text-slate-600";
+  };
+
+  const completedHistoryCount = history.filter((item) =>
+    normalizeVehicleTypeText(item.status).includes("HOAN TAT"),
+  ).length;
 
   return (
     <div
       ref={containerRef}
       className="driver-mobile-shell min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-900 flex font-sans"
     >
+      <DriverMobileInlineCSS />
+
       {/* Sidebar - Đồng bộ 100% với DriverMapping.jsx */}
       <DriverSosBanner />
       <aside
@@ -1165,8 +1826,8 @@ export default function DriverDashboard({ onLogout }) {
           <button
             onClick={() => setActiveTab("dashboard")}
             className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "dashboard"
-                ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+              : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
             <span className="flex-shrink-0">
@@ -1212,8 +1873,8 @@ export default function DriverDashboard({ onLogout }) {
           <button
             onClick={() => setActiveTab("session")}
             className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "session"
-                ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+              : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
             <span className="flex-shrink-0">
@@ -1227,8 +1888,8 @@ export default function DriverDashboard({ onLogout }) {
           <button
             onClick={() => setActiveTab("reservations")}
             className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "reservations"
-                ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+              : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
             <span className="flex-shrink-0">
@@ -1242,8 +1903,8 @@ export default function DriverDashboard({ onLogout }) {
           <button
             onClick={() => setActiveTab("history")}
             className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "history"
-                ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+              : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
             <span className="flex-shrink-0">
@@ -1257,8 +1918,8 @@ export default function DriverDashboard({ onLogout }) {
           <button
             onClick={() => setActiveTab("profile")}
             className={`nav-link-item w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${activeTab === "profile"
-                ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+              : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
             <span className="flex-shrink-0">
@@ -1273,17 +1934,17 @@ export default function DriverDashboard({ onLogout }) {
         {!collapsed && (
           <div
             className={`mx-4 mb-4 rounded-2xl border p-4 shadow-lg ${emergencyStatus.active
-                ? "border-rose-500/60 bg-rose-950/70 shadow-rose-950/30"
-                : "border-slate-800 bg-slate-950/70"
+              ? "border-rose-500/60 bg-rose-950/70 shadow-rose-950/30"
+              : "border-slate-800 bg-slate-950/70"
               }`}
           >
             <div className="flex items-center gap-2">
               <span
                 className={`h-2.5 w-2.5 rounded-full ${emergencyStatus.loading
-                    ? "bg-slate-500"
-                    : emergencyStatus.active
-                      ? "bg-rose-400 animate-pulse"
-                      : "bg-emerald-400"
+                  ? "bg-slate-500"
+                  : emergencyStatus.active
+                    ? "bg-rose-400 animate-pulse"
+                    : "bg-emerald-400"
                   }`}
               />
 
@@ -1368,17 +2029,17 @@ export default function DriverDashboard({ onLogout }) {
                     : "Hệ thống bình thường"
                 }
                 className={`relative rounded-full p-2.5 transition-colors ${emergencyStatus.active
-                    ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
-                    : "hover:bg-slate-100/80"
+                  ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
+                  : "hover:bg-slate-100/80"
                   }`}
               >
                 <IconBell />
                 <span
                   className={`absolute right-2 top-2 h-2.5 w-2.5 rounded-full ring-2 ring-white ${emergencyStatus.loading
-                      ? "bg-slate-400"
-                      : emergencyStatus.active
-                        ? "bg-rose-500 animate-pulse"
-                        : "bg-emerald-500"
+                    ? "bg-slate-400"
+                    : emergencyStatus.active
+                      ? "bg-rose-500 animate-pulse"
+                      : "bg-emerald-500"
                     }`}
                 />
               </button>
@@ -1454,28 +2115,33 @@ export default function DriverDashboard({ onLogout }) {
                 <StatItem
                   title="Tổng lượt đỗ"
                   value={stats.totalParking}
-                  icon="🟢"
+                  icon="🅿️"
                   desc="Cập nhật tự động"
                 />
                 <StatItem
-                  title="Tổng số giờ đỗ"
+                  title="Tổng giờ đỗ"
                   value={stats.totalHours}
-                  icon="🕒"
+                  icon="⏱️"
                   desc="Tích lũy từ đầu năm"
                 />
                 <StatItem
                   title="Tổng chi tiêu"
                   value={stats.totalCost}
-                  icon="💰"
+                  icon="💳"
                   desc="Đã thanh toán online"
                 />
                 <StatItem
                   title="Sức chứa trống"
                   value={stats.availableSlots}
-                  icon="CAP"
+                  icon="🚦"
                   desc="Đề xuất zone tối ưu"
                 />
               </div>
+
+              <DashboardPricingBoard
+                pricingPlans={pricingPlans}
+                pricingConfig={pricingConfig}
+              />
 
               {/* Main Interactive Row */}
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
@@ -1515,7 +2181,7 @@ export default function DriverDashboard({ onLogout }) {
                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                             Chi phí tạm tính
                           </p>
-                          <p className="text-sm font-bold text-emerald-650 mt-1">
+                          <p className="text-sm font-bold text-emerald-600 mt-1">
                             {realTimeFee.toLocaleString("vi-VN")}đ
                           </p>
                         </div>
@@ -1569,7 +2235,7 @@ export default function DriverDashboard({ onLogout }) {
                         history.slice(0, 3).map((item) => (
                           <div
                             key={item.id}
-                            className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl"
+                            className="flex justify-between items-center bg-slate-50 border border-slate-200 p-4 rounded-2xl"
                           >
                             <div>
                               <p className="font-bold text-xs text-slate-900">
@@ -1730,14 +2396,11 @@ export default function DriverDashboard({ onLogout }) {
             <div className="space-y-8 animate-fadeIn">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight">
-                    Phiên gửi xe & Vé QR
+                  <h3 className="text-2xl font-black text-blue-600 tracking-tight">
+                    Phiên gửi xe & Vé của bạn
                   </h3>
-                  <p className="text-xs text-slate-455 mt-1">
-                    Quản lý và sử dụng mã QR để tự động ra vào bãi đỗ xe qua
-                    trạm barrier AI.
-                  </p>
                 </div>
+
                 <button
                   onClick={() => setActiveTab("dashboard")}
                   className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all animate-pulse"
@@ -1746,89 +2409,40 @@ export default function DriverDashboard({ onLogout }) {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                {/* Phiên gửi xe hiện tại */}
-                <div className="action-panel-item lg:col-span-7">
-                  {currentSession ? (
-                    <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-5 mb-6">
-                        <div className="flex items-center gap-2">
-                          <span className="relative flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              <div className="grid grid-cols-1 gap-8 items-start">
+                <div className="action-panel-item">
+                  {activeSessions.length > 0 ? (
+                    <div className="space-y-4">
+                      <div className="rounded-[2rem] border border-emerald-100 bg-emerald-50/60 p-5">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-600">
+                              Active sessions
+                            </p>
+                            <h4 className="mt-1 text-xl font-black text-slate-950">
+                              Danh sách xe đang gửi
+                            </h4>
+                            <p className="mt-1 text-xs font-semibold text-slate-500">
+                              Hiện có {activeSessions.length} phiên gửi xe đang hoạt động.
+                            </p>
+                          </div>
+
+                          <span className="w-fit rounded-full border border-emerald-200 bg-white px-4 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                            Đang gửi
                           </span>
-                          <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
-                            Trạng thái gửi thực tế
-                          </h3>
-                        </div>
-                        <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 uppercase tracking-widest">
-                          {currentSession.status}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-6 text-xs font-semibold">
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                            Vị trí đỗ của bạn
-                          </p>
-                          <p className="text-lg font-black text-slate-905 mt-1">
-                            {currentSession.floor} - {currentSession.zoneCode}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                            Tòa nhà
-                          </p>
-                          <p className="text-sm font-bold text-slate-800 mt-2">
-                            {currentSession.buildingName}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                            Phương tiện
-                          </p>
-                          <p className="text-sm font-bold text-slate-800 mt-2">
-                            {currentSession.vehicle}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                            Thời điểm vào
-                          </p>
-                          <p className="text-sm font-semibold text-slate-650 mt-2">
-                            {currentSession.startTime}
-                          </p>
                         </div>
                       </div>
 
-                      <div className="mt-8 pt-6 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-150">
-                        <div className="flex items-center gap-4">
-                          <div className="p-3.5 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 text-lg">
-                            ⏱️
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest block">
-                              Thời gian gửi xe
-                            </span>
-                            <span className="font-mono text-2xl font-black text-slate-900 tracking-widest">
-                              {formatTimer(timerSeconds)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-4 md:border-l md:border-slate-200 md:pl-6">
-                          <div className="p-3.5 rounded-xl bg-emerald-50 text-emerald-650 border border-emerald-100 text-lg">
-                            💰
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest block">
-                              Chi phí tạm tính
-                            </span>
-                            <span className="font-mono text-2xl font-black text-emerald-700">
-                              {realTimeFee.toLocaleString("vi-VN")}đ
-                            </span>
-                          </div>
-                        </div>
+                      <div className="grid grid-cols-1 gap-4">
+                        {activeSessions.map((session) => (
+                          <ActiveSessionCard
+                            key={session.id}
+                            session={session}
+                            elapsedText={formatSessionTimer(session)}
+                            feeText={getActiveSessionFeeText(session)}
+                            onViewDetail={() => setSessionTicketModal(session)}
+                          />
+                        ))}
                       </div>
                     </div>
                   ) : (
@@ -1836,13 +2450,16 @@ export default function DriverDashboard({ onLogout }) {
                       <div className="h-16 w-16 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center text-[10px] font-black text-slate-400 tracking-widest mb-4 shadow-inner">
                         CAR
                       </div>
+
                       <h3 className="text-md font-bold text-slate-900">
                         Không có phiên gửi xe
                       </h3>
+
                       <p className="text-xs text-slate-400 font-medium max-w-sm mt-1.5 leading-relaxed">
-                        Bạn chưa có xe nào đỗ trong hệ thống bãi đỗ. Hãy quét QR
-                        ở trạm kiểm soát hoặc đăng ký trước.
+                        Bạn chưa có xe nào đỗ trong hệ thống bãi đỗ. Hãy quét QR ở trạm kiểm
+                        soát hoặc đăng ký trước.
                       </p>
+
                       <button
                         onClick={() => navigate("/driver/map")}
                         className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-5 py-3 shadow-md shadow-indigo-600/20 transition-all duration-200"
@@ -1853,96 +2470,7 @@ export default function DriverDashboard({ onLogout }) {
                   )}
                 </div>
 
-                <div className="action-panel-item lg:col-span-5">
-                  {currentBooking ? (
-                    <ReservationTicketPreview
-                      booking={currentBooking}
-                      userName={user.name}
-                    />
-                  ) : currentSession ? (
-                    <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-center relative overflow-hidden">
-                      <div className="absolute top-0 right-0 -mt-6 -mr-6 w-20 h-20 bg-indigo-500/10 rounded-full blur-xl" />
 
-                      <span className="text-[9px] font-black text-indigo-700 tracking-widest uppercase bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100 inline-block mb-4">
-                        Session Ticket
-                      </span>
-
-                      <h4 className="text-md font-extrabold text-slate-900">
-                        Thông tin phiên gửi xe
-                      </h4>
-                      <p className="text-xs text-slate-400 font-semibold font-mono mt-1">
-                        {currentSession.sessionCode || "--"}
-                      </p>
-
-                      <div className="mt-6 border-t border-slate-100 pt-5 text-left">
-                        <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-                          <InfoRow
-                            label="Mã phiên"
-                            value={currentSession.sessionCode || "--"}
-                            mono
-                          />
-
-                          <InfoRow label="Chủ xe" value={user.name || "--"} />
-
-                          <InfoRow
-                            label="Loại xe"
-                            value={currentSession.vehicle || "--"}
-                          />
-
-                          <InfoRow
-                            label={currentSession.identifierLabel || "Biển số"}
-                            value={currentSession.identifierValue || "--"}
-                            mono
-                          />
-
-                          <InfoRow
-                            label="Vị trí"
-                            value={`${currentSession.floor || "--"} - ${currentSession.zoneCode || "--"}`}
-                            mono
-                          />
-
-                          <InfoRow
-                            label="Tòa nhà"
-                            value={
-                              currentSession.buildingName || "Smart Parking"
-                            }
-                          />
-
-                          <InfoRow
-                            label="Thời điểm vào"
-                            value={currentSession.startTime || "--"}
-                          />
-
-                          <InfoRow
-                            label="Trạng thái"
-                            value={currentSession.status || "--"}
-                          />
-                        </div>
-
-                        <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
-                          <p className="text-[10px] font-semibold leading-5 text-indigo-700">
-                            Xuất trình thông tin này cho Staff tại cổng khi cần
-                            kiểm tra phiên gửi xe.
-                          </p>
-                        </div>
-                      </div>
-
-                    </div>
-                  ) : (
-                    <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-center">
-                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-[10px] font-black tracking-widest text-slate-400 shadow-inner">
-                        TICKET
-                      </div>
-                      <h4 className="text-sm font-bold text-slate-950">
-                        Chưa có vé giữ chỗ
-                      </h4>
-                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-400">
-                        Khi bạn đặt chỗ thành công, vé giữ chỗ sẽ hiển thị tại
-                        đây.
-                      </p>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           )}
@@ -1951,13 +2479,9 @@ export default function DriverDashboard({ onLogout }) {
             <div className="space-y-8 animate-fadeIn">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight">
+                  <h3 className="text-2xl font-black text-blue-600 tracking-tight">
                     Đặt chỗ của tôi
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Xem thông tin đặt chỗ, mã QR và hủy các đặt chỗ còn hiệu
-                    lực.
-                  </p>
                 </div>
 
                 <div className="flex flex-wrap gap-3">
@@ -1977,20 +2501,37 @@ export default function DriverDashboard({ onLogout }) {
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-center md:justify-between">
+              <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-200/70">
+                <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h4 className="mt-1 text-lg font-black text-slate-950">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">
+                      My reservations
+                    </p>
+
+                    <h4 className="mt-1 text-xl font-black text-slate-950">
                       Danh sách đặt chỗ
                     </h4>
+
+                    <p className="mt-1 text-xs font-semibold text-slate-400">
+                      Theo dõi vé đặt chỗ còn hiệu lực, đã hoàn tất hoặc đã hủy.
+                    </p>
                   </div>
 
-                  <input
-                    value={reservationSearchTerm}
-                    onChange={(e) => setReservationSearchTerm(e.target.value)}
-                    placeholder="Tìm theo mã đặt chỗ, biển số, khu vực hoặc trạng thái..."
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 md:max-w-sm"
-                  />
+                  <div className="relative w-full lg:max-w-md">
+                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                      🔍
+                    </span>
+
+                    <input
+                      value={reservationSearchTerm}
+                      onChange={(e) => {
+                        setReservationSearchTerm(e.target.value);
+                        setShowAllReservations(false);
+                      }}
+                      placeholder="Tìm mã đặt chỗ, biển số/mã xe, khu vực, trạng thái..."
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-11 py-3 text-xs font-bold text-slate-700 outline-none shadow-sm transition placeholder:text-slate-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
+                    />
+                  </div>
                 </div>
 
                 {filteredReservations.length === 0 ? (
@@ -2006,103 +2547,124 @@ export default function DriverDashboard({ onLogout }) {
                     </p>
                   </div>
                 ) : (
-                  <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
-                    {filteredReservations.map((reservation) => {
-                      const canCancel = isReservationCancelable(
-                        reservation.status,
-                      );
+                  <>
+                    <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      {visibleReservations.map((reservation) => {
+                        const canCancel = isReservationCancelable(
+                          reservation.status,
+                        );
 
-                      return (
-                        <div
-                          key={reservation.id}
-                          className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5 text-xs shadow-sm transition hover:border-indigo-100 hover:bg-white"
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                Mã đặt chỗ
-                              </p>
-                              <p className="mt-1 font-mono text-lg font-black text-slate-950">
-                                {reservation.reservationCode}
-                              </p>
-                              <p className="mt-1 font-semibold text-slate-500">
-                                {reservation.buildingName} ·{" "}
-                                {reservation.floorName}-{reservation.zoneCode}
-                              </p>
+                        return (
+                          <div
+                            key={[
+                              reservation.reservationId || reservation.id || reservation.reservationCode || "reservation",
+                              reservation.licensePlate || "",
+                              reservation.createdAt || reservation.reservedFrom || "",
+                            ].join("-")}
+                            className="group rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-br from-white via-white to-slate-50 p-5 text-xs shadow-sm shadow-slate-200/70 transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-100/60"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                  Mã đặt chỗ
+                                </p>
+                                <p className="mt-1 font-mono text-lg font-black text-slate-950">
+                                  {reservation.reservationCode}
+                                </p>
+                                <p className="mt-1 font-semibold text-slate-500">
+                                  {reservation.buildingName} ·{" "}
+                                  {reservation.floorName}-{reservation.zoneCode}
+                                </p>
+                              </div>
+
+                              <span
+                                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-widest ${getReservationStatusStyle(reservation.status)}`}
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                                {reservation.status}
+                              </span>
                             </div>
 
-                            <span
-                              className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${getReservationStatusStyle(reservation.status)}`}
-                            >
-                              {reservation.status}
-                            </span>
-                          </div>
+                            <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
+                              <InfoRow
+                                label={getVehicleIdentifierLabel(
+                                  reservation.vehicleTypeName,
+                                )}
+                                value={getVehicleIdentifierValue(reservation)}
+                                mono
+                              />
+                              <InfoRow
+                                label="Loại phương tiện"
+                                value={reservation.vehicleTypeName}
+                              />
+                              <InfoRow
+                                label="Thời gian bắt đầu"
+                                value={formatDateTime(reservation.reservedFrom)}
+                              />
+                              <InfoRow
+                                label="Thời gian kết thúc"
+                                value={formatDateTime(reservation.reservedTo)}
+                              />
+                              <InfoRow
+                                label="Thời gian tạo"
+                                value={formatDateTime(reservation.createdAt)}
+                              />
+                              <InfoRow
+                                label="Khu vực"
+                                value={`${reservation.floorName}-${reservation.zoneCode}`}
+                                mono
+                              />
+                            </div>
 
-                          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
-                            <InfoRow
-                              label={getVehicleIdentifierLabel(
-                                reservation.vehicleTypeName,
-                              )}
-                              value={getVehicleIdentifierValue(reservation)}
-                              mono
-                            />
-                            <InfoRow
-                              label="Loại phương tiện"
-                              value={reservation.vehicleTypeName}
-                            />
-                            <InfoRow
-                              label="Thời gian bắt đầu"
-                              value={formatDateTime(reservation.reservedFrom)}
-                            />
-                            <InfoRow
-                              label="Thời gian kết thúc"
-                              value={formatDateTime(reservation.reservedTo)}
-                            />
-                            <InfoRow
-                              label="Thời gian tạo"
-                              value={formatDateTime(reservation.createdAt)}
-                            />
-                            <InfoRow
-                              label="Khu vực"
-                              value={`${reservation.floorName}-${reservation.zoneCode}`}
-                              mono
-                            />
-                          </div>
-
-                          <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setQrModalData({
-                                  type: "RESERVATION",
-                                  reservation,
-                                })
-                              }
-                              className="rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-slate-800"
-                            >
-                              Xem vé đặt chỗ
-                            </button>
-
-                            {canCancel ? (
+                            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <button
                                 type="button"
                                 onClick={() =>
-                                  handleCancelReservation(reservation)
+                                  setQrModalData({
+                                    type: "RESERVATION",
+                                    reservation,
+                                  })
                                 }
-                                className="rounded-xl border border-rose-200 bg-white px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-rose-600 transition hover:bg-rose-50"
+                                className="rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 hover:from-indigo-700 hover:to-blue-700 active:scale-[0.98]"
                               >
-                                Hủy đặt chỗ
+                                Xem vé đặt chỗ
                               </button>
-                            ) : (
-                              <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">
-                                Không thể hủy
-                              </div>
-                            )}
+
+                              {canCancel ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleCancelReservation(reservation)
+                                  }
+                                  className="rounded-xl border border-rose-200 bg-white px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] text-rose-600 transition hover:bg-rose-50"
+                                >
+                                  Hủy đặt chỗ
+                                </button>
+                              ) : (
+                                <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-400 shadow-sm">
+                                  Không thể hủy
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+
+                    {hasMoreReservations && (
+                      <div className="mt-5 flex justify-center border-t border-slate-100 pt-5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowAllReservations((prev) => !prev)
+                          }
+                          className="inline-flex items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-4 py-2 text-[11px] font-bold text-blue-600 transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-sm"
+                        >
+                          {showAllReservations ? "Thu gọn" : "Xem thêm"}
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -2112,13 +2674,9 @@ export default function DriverDashboard({ onLogout }) {
             <div className="space-y-8 animate-fadeIn">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight">
+                  <h3 className="text-2xl font-black text-blue-600 tracking-tight">
                     Lịch sử gửi xe của bạn
                   </h3>
-                  <p className="text-xs text-slate-455 mt-1">
-                    Truy lục, kiểm soát toàn bộ lịch sử chi tiêu và thời gian
-                    gửi xe tại hệ thống bãi đỗ.
-                  </p>
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -2131,153 +2689,357 @@ export default function DriverDashboard({ onLogout }) {
                 </div>
               </div>
 
-              <div className="action-panel-item rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-                <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center mb-6">
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="🔍 Tìm mã phiên, mã xe đạp, biển số, khu, tầng, loại xe, trạng thái..."
-                    className="w-full md:max-w-md rounded-xl border border-slate-200 px-4 py-2.5 outline-none text-xs font-semibold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 transition-all bg-slate-50 text-slate-800"
-                  />
+              <div className="action-panel-item overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
+                <div className="border-b border-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-6 text-white">
+                  <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                    <div>
+                      <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-100">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        Parking history
+                      </span>
 
-                  <div className="text-[10px] font-black text-slate-500 bg-slate-100 px-3.5 py-2 rounded-xl">
-                    TỔNG LƯỢT ĐỖ: {history.length} LƯỢT
+                      <h4 className="mt-3 text-xl font-black tracking-tight">
+                        Nhật ký gửi xe
+                      </h4>
+
+                      <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-slate-300">
+                        Theo dõi từng lượt vào bãi, ra bãi, vị trí gửi xe, trạng thái thanh toán
+                        và chi phí phát sinh.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[560px]">
+                      <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          Tổng lượt
+                        </p>
+                        <p className="mt-1 text-lg font-black text-white">
+                          {history.length}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          Hiển thị
+                        </p>
+                        <p className="mt-1 text-lg font-black text-white">
+                          {filteredHistory.length}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          Hoàn tất
+                        </p>
+                        <p className="mt-1 text-lg font-black text-emerald-300">
+                          {completedHistoryCount}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          Tổng phí
+                        </p>
+                        <p className="mt-1 text-lg font-black text-indigo-200">
+                          {stats.totalCost}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-white/10 p-3 shadow-inner shadow-black/10">
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+                      <div className="relative flex-1">
+                        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                          🔍
+                        </span>
+
+                        <input
+                          type="text"
+                          value={searchTerm}
+                          onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            setShowAllHistory(false);
+                          }}
+                          placeholder="Tìm mã phiên, mã xe đạp, biển số, khu, tầng..."
+                          className="h-11 w-full rounded-2xl border border-white/20 bg-white/95 pl-11 pr-11 text-sm font-bold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-400/20"
+                        />
+
+                        {searchTerm && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchTerm("");
+                              setShowAllHistory(false);
+                            }}
+                            className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: "ALL", label: "Tất cả" },
+                          { value: "ACTIVE", label: "Đang gửi" },
+                          { value: "COMPLETED", label: "Hoàn tất" },
+                          { value: "CANCELLED", label: "Đã hủy" },
+                          { value: "PENDING_PAYMENT", label: "Chờ thanh toán" },
+                        ].map((filter) => (
+                          <button
+                            key={filter.value}
+                            type="button"
+                            onClick={() => {
+                              setHistoryQuickFilter(filter.value);
+                              setShowAllHistory(false);
+                            }}
+                            className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-wider transition ${historyQuickFilter === filter.value
+                              ? "border-blue-300 bg-blue-500 text-white shadow-md shadow-blue-950/20"
+                              : "border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
+                              }`}
+                          >
+                            {filter.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-2 border-t border-white/10 pt-3 text-[11px] font-bold text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+                      <span>
+                        Đang hiển thị{" "}
+                        <span className="font-black text-white">{visibleHistory.length}</span>
+                        /{filteredHistory.length} kết quả lọc · Tổng {history.length} lượt
+                      </span>
+
+                      {isHistorySearchActive && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchTerm("");
+                            setHistoryQuickFilter("ALL");
+                            setShowAllHistory(false);
+                          }}
+                          className="w-fit rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-white/20"
+                        >
+                          Xóa bộ lọc
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="min-w-[1200px] w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-150 text-slate-400 font-bold uppercase tracking-wider">
-                        <th className="pb-3 pl-2">Mã phiên</th>
-                        <th className="pb-3">Mã xe / Biển số</th>
-                        <th className="pb-3">Ngày giờ ra vào</th>
-                        <th className="pb-3">Vị trí / Cổng</th>
-                        <th className="pb-3">Thông tin xe</th>
-                        <th className="pb-3">Thanh toán</th>
-                        <th className="pb-3">Chi phí</th>
-                        <th className="pb-3 text-right pr-2">Trạng thái</th>
-                      </tr>
-                    </thead>
+                {filteredHistory.length === 0 ? (
+                  <div className="bg-slate-50 px-6 py-16 text-center">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-xl">
+                      🅿️
+                    </div>
 
-                    <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                      {filteredHistory.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan="8"
-                            className="py-8 text-center text-slate-400 font-bold italic"
-                          >
-                            Không tìm thấy dữ liệu đỗ xe phù hợp.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredHistory.map((item) => (
-                          <tr
-                            key={item.id}
-                            className="hover:bg-slate-50 transition-colors duration-150 align-top"
-                          >
-                            <td className="py-4 pl-2">
-                              <p className="font-mono font-black text-slate-800">
+                    <h4 className="mt-4 text-sm font-black text-slate-900">
+                      Không tìm thấy dữ liệu đỗ xe phù hợp
+                    </h4>
+
+                    <p className="mt-1 text-xs font-semibold text-slate-400">
+                      Thử đổi từ khóa tìm kiếm hoặc kiểm tra lại biển số/mã phiên.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-4 bg-slate-50 p-4 xl:grid-cols-2">
+                      {visibleHistory.map((item) => (
+                        <article
+                          key={item.id}
+                          className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-lg hover:shadow-slate-200/70"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                Mã phiên
+                              </p>
+
+                              <p className="mt-1 font-mono text-base font-black text-slate-950">
                                 {item.sessionCode}
                               </p>
-                              <p className="mt-1 text-[10px] font-semibold text-slate-400">
-                                Tạo: {item.registeredAt}
-                              </p>
-                            </td>
 
-                            <td className="py-4">
-                              <p className="font-mono font-black text-indigo-700">
-                                {item.identifierValue}
+                              <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                                Tạo lúc {item.registeredAt}
                               </p>
-                              <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            </div>
+
+                            <span
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider ${getHistoryStatusStyle(
+                                item.status,
+                              )}`}
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                              {item.status}
+                            </span>
+                          </div>
+
+                          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-indigo-400">
                                 {item.identifierLabel}
                               </p>
-                            </td>
 
-                            <td className="py-4 min-w-[190px]">
-                              <p>
-                                Vào bãi:{" "}
-                                <span className="font-bold">{item.date}</span>
+                              <p className="mt-1 font-mono text-sm font-black text-indigo-800">
+                                {item.identifierValue}
                               </p>
-                              <p className="mt-1 text-slate-500">
-                                Ra bãi:{" "}
-                                <span className="font-bold">
-                                  {item.exitDate}
-                                </span>
-                              </p>
-                              <p className="mt-1 text-slate-500">
-                                Vào zone:{" "}
-                                <span className="font-bold">
-                                  {item.zoneEntryDate}
-                                </span>
-                              </p>
-                              <p className="mt-1 text-slate-500">
-                                Ra zone:{" "}
-                                <span className="font-bold">
-                                  {item.zoneExitDate}
-                                </span>
-                              </p>
-                              <p className="mt-1 text-[10px] font-black text-slate-400">
-                                Thời lượng: {item.durationText}
-                              </p>
-                            </td>
+                            </div>
 
-                            <td className="py-4 min-w-[180px]">
-                              <p className="font-mono font-black text-indigo-600">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                                Vị trí
+                              </p>
+
+                              <p className="mt-1 font-mono text-sm font-black text-slate-900">
                                 {item.floorName}-{item.zoneCode}
                               </p>
-                              <p className="mt-1 text-[10px] font-bold text-slate-500">
-                                {item.zoneName}
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500">
+                                Chi phí
                               </p>
-                              <p className="mt-1 text-[10px] text-slate-400">
+
+                              <p className="mt-1 text-sm font-black text-emerald-800">
+                                {item.cost}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                  Timeline
+                                </p>
+
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">
+                                  {item.durationText}
+                                </span>
+                              </div>
+
+                              <div className="mt-3 space-y-2 text-xs font-semibold text-slate-600">
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Vào bãi</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.date}
+                                  </span>
+                                </div>
+
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Ra bãi</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.exitDate}
+                                  </span>
+                                </div>
+
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Vào zone</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.zoneEntryDate}
+                                  </span>
+                                </div>
+
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Ra zone</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.zoneExitDate}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                  Thông tin xe
+                                </p>
+
+                                <span
+                                  className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${getHistoryPaymentStyle(
+                                    item.paymentStatus,
+                                  )}`}
+                                >
+                                  {item.paymentStatus}
+                                </span>
+                              </div>
+
+                              <div className="mt-3 space-y-2 text-xs font-semibold text-slate-600">
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Loại xe</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.vehicle}
+                                  </span>
+                                </div>
+
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Loại khách</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.driverType}
+                                  </span>
+                                </div>
+
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Hình thức</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.passType}
+                                  </span>
+                                </div>
+
+                                <div className="flex justify-between gap-3">
+                                  <span className="text-slate-400">Khu</span>
+                                  <span className="text-right font-black text-slate-800">
+                                    {item.zoneName}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="grid grid-cols-1 gap-3 text-[11px] font-semibold text-slate-500 sm:grid-cols-2">
+                              <p>
+                                <span className="font-black text-slate-700">Tòa nhà:</span>{" "}
                                 {item.building}
                               </p>
-                              <p className="mt-2 text-[10px] text-slate-500">
-                                Cổng vào: {item.entryMainGateName}
-                              </p>
-                              <p className="mt-1 text-[10px] text-slate-500">
-                                Cổng ra: {item.exitMainGateName}
-                              </p>
-                            </td>
 
-                            <td className="py-4">
-                              <p className="font-black text-slate-800">
-                                {item.vehicle}
+                              <p>
+                                <span className="font-black text-slate-700">Cổng vào:</span>{" "}
+                                {item.entryMainGateName}
                               </p>
-                              <p className="mt-1 text-[10px] font-bold text-slate-400">
-                                Loại khách: {item.driverType}
-                              </p>
-                              <p className="mt-1 text-[10px] text-slate-400">
-                                Ghi chú: {item.notes}
-                              </p>
-                            </td>
 
-                            <td className="py-4">
-                              <p className="font-bold text-slate-700">
-                                {item.passType}
+                              <p>
+                                <span className="font-black text-slate-700">Cổng ra:</span>{" "}
+                                {item.exitMainGateName}
                               </p>
-                              <p className="mt-1 text-[10px] text-slate-400">
-                                {item.paymentStatus}
+
+                              <p>
+                                <span className="font-black text-slate-700">Ghi chú:</span>{" "}
+                                {item.notes}
                               </p>
-                            </td>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
 
-                            <td className="py-4 font-black text-slate-900">
-                              {item.cost}
-                            </td>
-
-                            <td className="py-4 text-right pr-2">
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[10px] font-black text-emerald-700 uppercase tracking-wider">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                {item.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                    {hasMoreHistory && (
+                      <div className="flex justify-center border-t border-slate-100 bg-slate-50 px-4 pb-6 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowAllHistory((prev) => !prev)}
+                          className="inline-flex items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest text-blue-600 transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-sm"
+                        >
+                          {showAllHistory
+                            ? "Thu gọn"
+                            : `Xem thêm ${filteredHistory.length - HISTORY_PREVIEW_LIMIT} lượt`}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -2303,14 +3065,26 @@ export default function DriverDashboard({ onLogout }) {
         onLogout={onLogout}
       />
 
-      {qrModalData && (
-        <DriverQrModal
-          data={qrModalData}
+      {
+        qrModalData && (
+          <DriverQrModal
+            data={qrModalData}
+            userName={user.name}
+            onClose={() => setQrModalData(null)}
+          />
+        )
+      }
+
+      {sessionTicketModal && (
+        <ActiveSessionTicketModal
+          session={sessionTicketModal}
           userName={user.name}
-          onClose={() => setQrModalData(null)}
+          elapsedText={formatSessionTimer(sessionTicketModal)}
+          onClose={() => setSessionTicketModal(null)}
         />
       )}
-    </div>
+
+    </div >
   );
 }
 function ReservationTicketPreview({ booking, userName }) {
@@ -2322,12 +3096,12 @@ function ReservationTicketPreview({ booking, userName }) {
   const identifierLabel = isBike ? "Mã xe đạp" : "Biển số";
   const identifierValue = isBike
     ? booking.licensePlate || "--"
-    : formatPlateForDisplay(booking.licensePlate, vehicleTypeName);
+    : formatLicensePlate(booking.licensePlate, vehicleTypeName);
 
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-left">
       <div className="rounded-[1.5rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-slate-50 p-5 text-center">
-        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-500">
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-600">
           Reservation Ticket
         </p>
 
@@ -2339,8 +3113,8 @@ function ReservationTicketPreview({ booking, userName }) {
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-        <InfoRow label="Chủ xe" value={userName || "--"} />
-        <InfoRow label="Loại xe" value={vehicleTypeName} />
+        <InfoRow label="Chủ xe" value={userName || "--"} tone="primary" />
+        <InfoRow label="Loại xe" value={vehicleTypeName || "--"} />
         <InfoRow label={identifierLabel} value={identifierValue} mono />
         <InfoRow
           label="Zone"
@@ -2374,17 +3148,315 @@ function ReservationTicketPreview({ booking, userName }) {
   );
 }
 
-function InfoRow({ label, value, mono = false }) {
+function InfoRow({ label, value, mono = false, tone = "default" }) {
+  const toneClass =
+    tone === "primary"
+      ? "border-indigo-100 bg-indigo-50/70 text-indigo-800"
+      : tone === "success"
+        ? "border-emerald-100 bg-emerald-50 text-emerald-800"
+        : tone === "warning"
+          ? "border-amber-100 bg-amber-50 text-amber-800"
+          : "border-slate-200 bg-white text-slate-800";
+
+  const labelClass =
+    tone === "primary"
+      ? "text-indigo-500"
+      : tone === "success"
+        ? "text-emerald-500"
+        : tone === "warning"
+          ? "text-amber-500"
+          : "text-slate-500";
+
   return (
-    <div className="rounded-xl border border-slate-100 bg-white px-3 py-2.5">
-      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+    <div
+      className={`rounded-xl border px-3 py-2.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+    >
+      <p className={`text-[9px] font-black uppercase tracking-widest ${labelClass}`}>
         {label}
       </p>
-      <p
-        className={`mt-1 text-xs font-black text-slate-800 ${mono ? "font-mono" : ""}`}
-      >
+
+      <p className={`mt-1 text-xs font-black ${mono ? "font-mono" : ""}`}>
         {value || "--"}
       </p>
+    </div>
+  );
+}
+
+function ActiveSessionCard({ session, elapsedText, feeText, onViewDetail }) {
+  return (
+    <div className="relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-gradient-to-br from-white via-white to-emerald-50/40 p-6 shadow-lg shadow-slate-200/70">
+      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-100/60 blur-3xl" />
+
+      <div className="relative z-10 flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+            </span>
+
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+              Trạng thái gửi thực tế
+            </p>
+          </div>
+
+          <h4 className="mt-2 font-mono text-lg font-black text-slate-950">
+            {session.sessionCode || "--"}
+          </h4>
+
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {session.buildingName || "Smart Parking"} ·{" "}
+            {session.floorName || session.floor}-{session.zoneCode}
+          </p>
+        </div>
+
+        <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+          {session.status || "Đang gửi"}
+        </span>
+      </div>
+
+      <div className="relative z-10 mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <InfoRow
+          label={session.identifierLabel || "Biển số"}
+          value={session.identifierValue || "--"}
+          mono
+        />
+
+        <InfoRow label="Loại xe" value={session.vehicle || "--"} />
+
+        <InfoRow
+          label="Vị trí đỗ"
+          value={`${session.floor || "--"} - ${session.zoneCode || "--"}`}
+          mono
+        />
+
+        <InfoRow label="Thời điểm vào" value={session.startTime || "--"} />
+
+        <InfoRow label="Thời gian gửi" value={elapsedText} mono />
+
+        <InfoRow label="Chi phí tạm tính" value={feeText} mono />
+      </div>
+
+      <button
+        type="button"
+        onClick={onViewDetail}
+        className="relative z-10 mt-5 w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:from-indigo-700 hover:to-blue-700 hover:shadow-blue-500/35 active:scale-[0.98]"
+      >
+        Xem chi tiết vé
+      </button>
+    </div>
+  );
+}
+
+function ActiveSessionTicketModal({ session, userName, elapsedText, onClose }) {
+  if (!session) return null;
+
+  const normalizeTicketText = (value) => {
+    return String(value || "")
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/Đ/g, "D")
+      .replace(/đ/g, "D")
+      .trim();
+  };
+
+  const isPassBased = (() => {
+    const passType = normalizeTicketText(session?.passType);
+
+    return (
+      passType.includes("MONTHLY") ||
+      passType.includes("QUARTERLY") ||
+      passType.includes("YEARLY") ||
+      passType.includes("THANG") ||
+      passType.includes("QUY") ||
+      passType.includes("NAM")
+    );
+  })();
+
+  const getTicketPassTypeDisplay = () => {
+    const value = normalizeTicketText(session?.passType);
+
+    if (value.includes("MONTHLY") || value.includes("THANG")) {
+      return "Gói tháng";
+    }
+
+    if (value.includes("QUARTERLY") || value.includes("QUY")) {
+      return "Gói quý";
+    }
+
+    if (value.includes("YEARLY") || value.includes("NAM")) {
+      return "Gói năm";
+    }
+
+    return session?.passType || "Vé lượt";
+  };
+
+  const getTicketPaymentText = () => {
+    if (isPassBased) {
+      return "Đã thanh toán bằng gói";
+    }
+
+    return session?.paymentStatus || "Chưa có thanh toán";
+  };
+
+  const totalFee = isPassBased
+    ? 0
+    : Number(session.estimatedFee || session.totalFee || 0);
+
+  const buildSessionQrValue = () => {
+    return JSON.stringify({
+      type: "SMART_PARKING_SESSION_TICKET",
+      sessionCode: session.sessionCode || "",
+      ownerName: userName || "",
+      identifierLabel: session.identifierLabel || "Biển số",
+      identifierValue: session.identifierValue || "",
+      vehicleType: session.vehicle || "",
+      ticketType: getTicketPassTypeDisplay(),
+      location: `${session.floor || "--"}-${session.zoneCode || "--"}`,
+      checkInTime: session.startTime || "",
+      elapsedTime: elapsedText || "",
+      paymentStatus: getTicketPaymentText(),
+      estimatedFee: isPassBased ? 0 : totalFee,
+      status: session.status || "Đang gửi",
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-[2px]">
+      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-[1.75rem] bg-white shadow-2xl">
+        <div className="h-3 bg-gradient-to-r from-indigo-600 via-violet-600 to-blue-600" />
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-5 top-7 text-3xl font-light leading-none text-slate-400 transition hover:text-slate-700"
+        >
+          ×
+        </button>
+
+        <div className="px-8 pb-8 pt-7">
+          <div className="text-center">
+            <h3 className="text-lg font-black uppercase tracking-[0.12em] text-slate-800">
+              Smart Session Ticket
+            </h3>
+
+            <p className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-emerald-600">
+              {session.status || "Đang gửi"}
+            </p>
+          </div>
+
+          <div className="my-5 border-t border-dashed border-slate-200" />
+
+          <div className="space-y-3 text-sm">
+            <TicketLine
+              label="Mã phiên gửi:"
+              value={`#${session.sessionCode || "--"}`}
+              mono
+            />
+
+            <TicketLine
+              label={`${session.identifierLabel || "Biển số"}:`}
+              value={session.identifierValue || "--"}
+              mono
+              highlight
+            />
+
+            <TicketLine label="Loại xe:" value={session.vehicle || "--"} />
+
+            <TicketLine label="Loại vé:" value={getTicketPassTypeDisplay()} />
+
+            <TicketLine
+              label="Vị trí đỗ:"
+              value={`${session.floor || "--"}-${session.zoneCode || "--"}`}
+              mono
+            />
+
+            <TicketLine
+              label="Thời gian vào:"
+              value={session.startTime || "--"}
+            />
+
+            <TicketLine label="Thời gian gửi:" value={elapsedText || "--"} />
+
+            <TicketLine label="Hình thức:" value={getTicketPaymentText()} />
+          </div>
+
+          <div className="my-5 border-t border-dashed border-slate-200" />
+
+          {/* QR vé xe */}
+          <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-blue-50 px-4 py-5 text-center shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-500">
+              Mã QR vé xe
+            </p>
+
+            <div className="mt-3 flex justify-center">
+              <div className="rounded-2xl border border-indigo-100 bg-white p-3 shadow-md shadow-indigo-100/70">
+                <QRCodeCanvas
+                  value={buildSessionQrValue()}
+                  size={140}
+                  level="M"
+                  includeMargin={true}
+                />
+              </div>
+            </div>
+
+            <p className="mt-3 font-mono text-xs font-black text-indigo-700">
+              {session.sessionCode || "--"}
+            </p>
+
+            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+              Quét mã để tra cứu nhanh thông tin vé
+            </p>
+          </div>
+
+          <div className="my-5 border-t border-dashed border-slate-200" />
+
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+              Tổng tạm tính:
+            </p>
+
+            <p className="mt-1 text-2xl font-black text-slate-900">
+              {isPassBased ? "0đ" : `${totalFee.toLocaleString("vi-VN")}đ`}
+            </p>
+
+            {isPassBased && (
+              <p className="mt-1 text-xs font-bold text-emerald-600">
+                Phí gửi xe đã được bao gồm trong gói đăng ký.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-7">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:from-indigo-700 hover:to-blue-700"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TicketLine({ label, value, mono = false, highlight = false }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-sm font-bold text-slate-500">{label}</span>
+
+      <span
+        className={`text-right text-sm font-black text-slate-800 ${mono ? "font-mono" : ""
+          } ${highlight
+            ? "rounded-lg bg-slate-100 px-3 py-1 text-slate-900"
+            : ""
+          }`}
+      >
+        {value || "--"}
+      </span>
     </div>
   );
 }
@@ -2392,29 +3464,54 @@ function InfoRow({ label, value, mono = false }) {
 function DriverQrModal({ data, userName, onClose }) {
   const isSession = data.type === "SESSION";
   const item = isSession ? data.session : data.reservation;
+
   const code = isSession
     ? item.sessionCode
     : item.reservationCode || item.bookingCode;
 
-  const payload = isSession
-    ? JSON.stringify({
-      type: "SESSION",
-      sessionCode: item.sessionCode,
-      licensePlate: item.licensePlate,
-      vehicleType: item.vehicle,
-      zoneCode: item.zoneCode,
-      floor: item.floor,
-    })
-    : "";
-
   const vehicleTypeName =
-    item.vehicleTypeName || item.vehicleType || item.vehicle;
+    item.vehicleTypeName || item.vehicleType || item.vehicle || "--";
+
   const identifierLabel = getVehicleIdentifierLabel(vehicleTypeName);
 
+  const identifierValue = isBicycleVehicleTypeName(vehicleTypeName)
+    ? item.licensePlate || "--"
+    : formatLicensePlate(item.licensePlate, vehicleTypeName);
+
+  const qrPayload = JSON.stringify(
+    isSession
+      ? {
+        type: "SMART_PARKING_SESSION",
+        sessionCode: item.sessionCode || "",
+        driverName: userName || "",
+        identifierLabel,
+        identifierValue,
+        licensePlate: item.licensePlate || "",
+        vehicleType: vehicleTypeName,
+        zoneCode: item.zoneCode || "",
+        floor: item.floorName || item.floor || "",
+        status: item.status || "",
+      }
+      : {
+        type: "SMART_PARKING_RESERVATION",
+        reservationCode: code || "",
+        driverName: userName || "",
+        identifierLabel,
+        identifierValue,
+        licensePlate: item.licensePlate || "",
+        vehicleType: vehicleTypeName,
+        zoneCode: item.zoneCode || "",
+        zoneName: item.zoneName || "",
+        floor: item.floorName || item.floor || "",
+        reservedFrom: item.reservedFrom || "",
+        reservedTo: item.reservedTo || "",
+        status: item.status || "",
+      },
+  );
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between bg-slate-950 px-6 py-5 text-white">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-md">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-hidden rounded-[2rem] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
+        <div className="flex items-start justify-between bg-gradient-to-r from-slate-950 via-indigo-950 to-blue-950 px-6 py-5 text-white">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200">
               {isSession ? "Mã QR phiên gửi xe" : "Vé giữ chỗ"}
@@ -2429,18 +3526,18 @@ function DriverQrModal({ data, userName, onClose }) {
 
           <button
             onClick={onClose}
-            className="rounded-xl bg-white/10 px-3 py-1.5 text-xs font-black transition hover:bg-white/20"
+            className="rounded-xl bg-white/15 px-3 py-1.5 text-xs font-black text-white shadow-sm transition hover:bg-white/25"
           >
             Đóng
           </button>
         </div>
 
-        <div className="p-7 text-center">
+        <div className="max-h-[calc(90vh-112px)] overflow-y-auto bg-gradient-to-b from-white via-slate-50 to-white p-7 text-center">
           {isSession ? (
             <>
               <div className="mx-auto flex h-64 w-64 items-center justify-center rounded-3xl border border-slate-200 bg-white p-4 shadow-inner">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(payload)}`}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qrPayload)}`}
                   alt="Driver QR Code"
                   className="h-full w-full object-contain"
                 />
@@ -2453,7 +3550,7 @@ function DriverQrModal({ data, userName, onClose }) {
                   value={
                     isBicycleVehicleTypeName(vehicleTypeName)
                       ? item.licensePlate || "--"
-                      : formatPlateForDisplay(
+                      : formatLicensePlate(
                         item.licensePlate,
                         vehicleTypeName,
                       )
@@ -2475,33 +3572,53 @@ function DriverQrModal({ data, userName, onClose }) {
             </>
           ) : (
             <>
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm">
+              <div className="rounded-3xl border border-indigo-100 bg-gradient-to-br from-white via-slate-50 to-indigo-50/50 p-5 text-left shadow-lg shadow-indigo-100/40">
                 <div className="text-center">
-                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-500">
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-600">
                     Reservation Ticket
                   </p>
                   <h3 className="mt-2 text-lg font-black text-slate-900">
                     Vé giữ chỗ
                   </h3>
-                  <p className="mt-1 font-mono text-xs font-bold text-slate-400">
+                  <p className="mt-1 font-mono text-xs font-black text-indigo-500">
                     {code || "--"}
                   </p>
                 </div>
 
+                {/* QR vé đặt chỗ */}
+                <div className="mt-5 rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-blue-50 px-4 py-5 text-center shadow-sm">
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-500">
+                    Mã QR vé đặt chỗ
+                  </p>
+
+                  <div className="mt-3 flex justify-center">
+                    <div className="rounded-2xl border border-indigo-100 bg-white p-3 shadow-md shadow-indigo-100/70">
+                      <QRCodeCanvas
+                        value={qrPayload}
+                        size={150}
+                        level="M"
+                        includeMargin={true}
+                      />
+                    </div>
+                  </div>
+
+                  <p className="mt-3 font-mono text-xs font-black text-indigo-700">
+                    {code || "--"}
+                  </p>
+
+                  <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                    Quét mã để xem nhanh thông tin đặt chỗ
+                  </p>
+                </div>
+
                 <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-                  <InfoRow label="Chủ xe" value={userName || "--"} />
+                  <InfoRow label="Chủ xe" value={userName || "--"} tone="primary" />
                   <InfoRow label="Loại xe" value={vehicleTypeName || "--"} />
                   <InfoRow
                     label={identifierLabel}
-                    value={
-                      isBicycleVehicleTypeName(vehicleTypeName)
-                        ? item.licensePlate || "--"
-                        : formatPlateForDisplay(
-                          item.licensePlate,
-                          vehicleTypeName,
-                        )
-                    }
+                    value={identifierValue}
                     mono
+                    tone="primary"
                   />
                   <InfoRow
                     label="Khu vực"
@@ -2524,10 +3641,10 @@ function DriverQrModal({ data, userName, onClose }) {
                         : "--"
                     }
                   />
-                  <InfoRow label="Trạng thái" value={item.status || "--"} />
+                  <InfoRow label="Trạng thái" value={item.status || "--"} tone="warning" />
                 </div>
 
-                <p className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-center text-xs font-semibold leading-5 text-indigo-700">
+                <p className="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-blue-50 px-4 py-3 text-center text-xs font-bold leading-5 text-indigo-700 shadow-sm">
                   Xuất trình mã đặt chỗ hoặc {identifierLabel.toLowerCase()} cho
                   nhân viên tại cổng.
                 </p>
@@ -2600,8 +3717,8 @@ function SideLink({ to, icon, label, active, collapsed }) {
     <Link
       to={to}
       className={`nav-link-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold transition-all duration-200 ${active
-          ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
-          : "text-slate-400 hover:bg-slate-800 hover:text-white"
+        ? "bg-slate-800 text-blue-400 border border-slate-700 shadow-inner"
+        : "text-slate-400 hover:bg-slate-800 hover:text-white"
         }`}
     >
       <span className="flex-shrink-0">{icon}</span>
@@ -2610,36 +3727,282 @@ function SideLink({ to, icon, label, active, collapsed }) {
   );
 }
 
-function ButtonLink({ icon, label, collapsed, onClick }) {
+function DashboardPricingBoard({
+  pricingPlans = [],
+  pricingConfig = { buildings: [], vehicleTypes: [] },
+}) {
+  const getRawVehicleTypeName = (plan) => {
+    return (
+      plan.vehicleType?.name ||
+      plan.vehicleTypeName ||
+      pricingConfig.vehicleTypes.find((v) => v.id === plan.vehicleTypeId)
+        ?.name ||
+      "Phương tiện"
+    );
+  };
+
+  const getDisplayVehicleTypeName = (name) => {
+    const text = normalizeVehicleTypeText(name);
+
+    if (text.includes("XE DAP") || text.includes("BICYCLE")) return "Xe đạp";
+    if (text.includes("XE MAY") || text.includes("MOTORBIKE")) return "Xe máy";
+    if (text.includes("O TO") || text.includes("OTO") || text.includes("CAR")) {
+      return "Ô tô";
+    }
+    if (text.includes("XE TAI") || text.includes("TRUCK")) return "Xe tải";
+
+    return name || "Phương tiện";
+  };
+
+  const getBuildingName = (plan) => {
+    return (
+      plan.building?.name ||
+      plan.building?.buildingName ||
+      plan.buildingName ||
+      pricingConfig.buildings.find((b) => b.id === plan.buildingId)?.name ||
+      pricingConfig.buildings.find((b) => b.id === plan.buildingId)
+        ?.buildingName ||
+      "Smart Parking"
+    );
+  };
+
+  const getPriceValue = (plan) => {
+    return Number(plan.pricePerUnit ?? plan.price ?? plan.amount ?? 0);
+  };
+
+  const formatPrice = (price) => {
+    return `${Number(price || 0).toLocaleString("vi-VN")}đ`;
+  };
+
+  const getPricingTypeLabel = (type) => {
+    const value = String(type || "").toUpperCase();
+
+    if (value === "HOURLY") return "Theo giờ";
+    if (value === "DAILY") return "Theo ngày";
+    if (value === "MONTHLY") return "Theo tháng";
+    if (value === "QUARTERLY") return "Theo quý";
+    if (value === "YEARLY") return "Theo năm";
+
+    return value || "Không rõ";
+  };
+
+  const getPricingUnitLabel = (type) => {
+    const value = String(type || "").toUpperCase();
+
+    if (value === "HOURLY") return "/ giờ";
+    if (value === "DAILY") return "/ ngày";
+    if (value === "MONTHLY") return "/ tháng";
+    if (value === "QUARTERLY") return "/ quý";
+    if (value === "YEARLY") return "/ năm";
+
+    return "";
+  };
+
+  const getPricingOrder = (type) => {
+    const value = String(type || "").toUpperCase();
+
+    if (value === "HOURLY") return 1;
+    if (value === "DAILY") return 2;
+    if (value === "MONTHLY") return 3;
+    if (value === "QUARTERLY") return 4;
+    if (value === "YEARLY") return 5;
+
+    return 99;
+  };
+
+  const getVehicleIcon = (vehicleTypeName) => {
+    const text = normalizeVehicleTypeText(vehicleTypeName);
+
+    if (text.includes("XE DAP")) return "🚲";
+    if (text.includes("XE MAY")) return "🛵";
+    if (text.includes("O TO")) return "🚗";
+    if (text.includes("XE TAI")) return "🚚";
+
+    return "🅿️";
+  };
+
+  const getPricingBadgeStyle = (type) => {
+    const value = String(type || "").toUpperCase();
+
+    if (value === "HOURLY") {
+      return "border-blue-100 bg-blue-50 text-blue-700";
+    }
+
+    if (value === "DAILY") {
+      return "border-emerald-100 bg-emerald-50 text-emerald-700";
+    }
+
+    if (value === "MONTHLY") {
+      return "border-indigo-100 bg-indigo-50 text-indigo-700";
+    }
+
+    if (value === "QUARTERLY" || value === "YEARLY") {
+      return "border-amber-100 bg-amber-50 text-amber-700";
+    }
+
+    return "border-slate-200 bg-slate-50 text-slate-600";
+  };
+
+  const normalizedPlans = pricingPlans
+    .map((plan, index) => {
+      const vehicleTypeName = getDisplayVehicleTypeName(
+        getRawVehicleTypeName(plan),
+      );
+
+      return {
+        ...plan,
+        _key:
+          plan.id ||
+          `${plan.vehicleTypeId || vehicleTypeName}-${plan.pricingType}-${index}`,
+        _vehicleTypeName: vehicleTypeName,
+        _vehicleKey: normalizeVehicleTypeText(vehicleTypeName),
+        _buildingName: getBuildingName(plan),
+        _price: getPriceValue(plan),
+        _pricingType: String(plan.pricingType || "").toUpperCase(),
+      };
+    })
+    .sort((a, b) => {
+      const vehicleCompare = a._vehicleTypeName.localeCompare(
+        b._vehicleTypeName,
+        "vi",
+      );
+
+      if (vehicleCompare !== 0) return vehicleCompare;
+
+      return getPricingOrder(a._pricingType) - getPricingOrder(b._pricingType);
+    });
+
+  const groupedPlans = Object.values(
+    normalizedPlans.reduce((groups, plan) => {
+      if (!groups[plan._vehicleKey]) {
+        groups[plan._vehicleKey] = {
+          vehicleTypeName: plan._vehicleTypeName,
+          buildingName: plan._buildingName,
+          plans: [],
+        };
+      }
+
+      groups[plan._vehicleKey].plans.push(plan);
+      return groups;
+    }, {}),
+  ).map((group) => ({
+    ...group,
+    plans: group.plans.sort(
+      (a, b) => getPricingOrder(a._pricingType) - getPricingOrder(b._pricingType),
+    ),
+  }));
+
   return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 rounded-xl px-4 py-3 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white transition-all duration-200"
-    >
-      <span className="flex-shrink-0">{icon}</span>
-      {!collapsed && <span className="whitespace-nowrap">{label}</span>}
-    </button>
+    <div className="action-panel-item overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm shadow-slate-200/70">
+      <div className="bg-gradient-to-br from-indigo-50/80 via-white to-slate-50 p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="mt-1 text-xl font-black text-slate-950">
+              Bảng giá xe
+            </h3>
+          </div>
+
+          <div className="flex w-fit items-center gap-2 rounded-full border border-indigo-100 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-600 shadow-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            {groupedPlans.length} loại xe
+          </div>
+        </div>
+
+        {groupedPlans.length === 0 ? (
+          <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 text-xl">
+              💳
+            </div>
+
+            <h4 className="mt-4 text-sm font-black text-slate-900">
+              Chưa có bảng giá
+            </h4>
+
+            <p className="mt-1 text-xs font-semibold text-slate-400">
+              Kiểm tra lại API bảng giá hoặc dữ liệu pricing plan.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {groupedPlans.map((group) => {
+              const primaryPlan =
+                group.plans.find((plan) => plan._pricingType === "HOURLY") ||
+                group.plans.find((plan) => plan._pricingType === "DAILY") ||
+                group.plans[0];
+
+              return (
+                <div
+                  key={group.vehicleTypeName}
+                  className="rounded-[1.5rem] border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/70 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg hover:shadow-indigo-100/60"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {group.vehicleTypeName}
+                      </p>
+
+                      <p className="mt-2 text-2xl font-black text-slate-950">
+                        {formatPrice(primaryPlan?._price)}
+                      </p>
+
+                      <p className="mt-1 text-[11px] font-bold text-slate-400">
+                        {getPricingUnitLabel(primaryPlan?._pricingType)}
+                      </p>
+                    </div>
+
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 text-lg">
+                      {getVehicleIcon(group.vehicleTypeName)}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {group.plans.map((plan) => (
+                      <span
+                        key={plan._key}
+                        className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${getPricingBadgeStyle(
+                          plan._pricingType,
+                        )}`}
+                      >
+                        {getPricingTypeLabel(plan._pricingType)} ·{" "}
+                        {formatPrice(plan._price)}
+                      </span>
+                    ))}
+                  </div>
+
+                  <p className="mt-4 truncate border-t border-slate-100 pt-3 text-[10px] font-bold text-slate-400">
+                    {group.buildingName}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 function StatItem({ title, value, icon, desc }) {
   return (
-    <div className="stat-card-item rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-          {title}
-        </span>
-        <span className="text-md bg-slate-50 p-2 rounded-xl border border-slate-100">
+    <div className="stat-card-item group rounded-[1.5rem] border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/70 transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-lg hover:shadow-slate-200/80">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            {title}
+          </p>
+
+          <p className="mt-4 font-mono text-2xl font-black leading-tight text-slate-950">
+            {value}
+          </p>
+
+          <p className="mt-2 text-[11px] font-semibold text-slate-400">
+            {desc}
+          </p>
+        </div>
+
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-base shadow-sm transition group-hover:border-indigo-100 group-hover:bg-indigo-50">
           {icon}
-        </span>
-      </div>
-      <div className="mt-4 flex flex-col">
-        <span className="text-2xl font-black text-slate-900 font-mono">
-          {value}
-        </span>
-        <span className="text-[10px] font-semibold text-slate-400 mt-1">
-          {desc}
-        </span>
+        </div>
       </div>
     </div>
   );
