@@ -109,9 +109,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
     existingImages: [],
   });
 
-  const handleLicensePlateBlur = () => {
+  const handleLicensePlateBlur = async () => {
     if (!isVehicleRelated) return;
-    
+
     const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleTypeName);
 
     if (formattedPlate.trim()) {
@@ -120,9 +120,11 @@ export default function ExceptionLogsPage({ showToast, user }) {
         setForm(prev => ({ ...prev, licensePlate: "" }));
         return;
       }
-    }
 
-    setForm(prev => ({ ...prev, licensePlate: formattedPlate }));
+      setForm(prev => ({ ...prev, licensePlate: formattedPlate }));
+
+
+    }
   };
 
   const handleSessionIdChange = (e) => {
@@ -135,7 +137,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
     setLoading(true);
     try {
       const res = await staffApi.getSecurityExceptions();
-      setLogs(res.data.data || []);
+      const sortedLogs = (res.data.data || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setLogs(sortedLogs);
     } catch (err) {
       console.error("Fetch exception logs error:", err);
       showToast(err.response?.data?.message || "Không tải được danh sách sự cố.", "error");
@@ -259,13 +262,12 @@ export default function ExceptionLogsPage({ showToast, user }) {
       formattedPlate = formatLicensePlate(formattedPlate, defaultVt.name);
     }
 
-    // Nếu log có biển số hoặc ID phiên, coi như có liên quan xe
-    setIsVehicleRelated(!!log.licensePlate || !!log.sessionId);
+    // Nếu log có biển số coi như có liên quan xe
+    setIsVehicleRelated(!!log.licensePlate);
 
     setForm({
       exceptionType: log.exceptionType || "LOST_TICKET",
       description: log.description || "",
-      sessionId: log.sessionId || "",
       licensePlate: formattedPlate,
       vehicleTypeId: defaultVt?.id || "",
       vehicleTypeName: defaultVt?.name || "",
@@ -289,7 +291,6 @@ export default function ExceptionLogsPage({ showToast, user }) {
     setForm({
       exceptionType: "LOST_TICKET",
       description: "",
-      sessionId: "",
       licensePlate: "",
       vehicleTypeId: vehicleTypes[0]?.id || "",
       vehicleTypeName: vehicleTypes[0]?.name || "",
@@ -356,7 +357,6 @@ export default function ExceptionLogsPage({ showToast, user }) {
       const payload = {
         exceptionType: form.exceptionType,
         description: form.description.trim(),
-        sessionId: isVehicleRelated ? (form.sessionId || null) : null,
         handledByUserId: user.id,
       };
 
@@ -373,7 +373,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
         if (uploadedUrls.length > 0) payload.imageUrls = uploadedUrls;
         await staffApi.logSecurityException(payload);
         showToast("✅ Đã ghi nhận sự cố mới", "success");
-        setForm(prev => ({ ...prev, exceptionType: "LOST_TICKET", description: "", sessionId: "", licensePlate: "", existingImages: [] }));
+        setForm(prev => ({ ...prev, exceptionType: "LOST_TICKET", description: "", licensePlate: "", existingImages: [] }));
         setIsVehicleRelated(true);
         selectedFiles.forEach(f => URL.revokeObjectURL(f.preview));
         setSelectedFiles([]);
@@ -390,7 +390,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
   const filteredLogs = logs.filter((log) => {
     const matchType = filterType === "all" || log.exceptionType === filterType;
-    const matchStatus = 
+    const matchStatus =
       filterStatus === "all" ||
       (filterStatus === "pending" && log.status !== "RESOLVED") ||
       (filterStatus === "resolved" && log.status === "RESOLVED");
@@ -407,9 +407,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
       <Panel title={editingId ? "✏️ Chỉnh sửa sự cố" : "📝 Ghi nhận sự cố mới"}>
         <form onSubmit={submitException} className="space-y-4">
           <div className="flex items-center gap-2 mb-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-            <input 
-              type="checkbox" 
-              id="isVehicleRelated" 
+            <input
+              type="checkbox"
+              id="isVehicleRelated"
               checked={isVehicleRelated}
               onChange={(e) => setIsVehicleRelated(e.target.checked)}
               className="w-4 h-4 text-red-600 rounded border-slate-300 focus:ring-red-500"
@@ -423,17 +423,17 @@ export default function ExceptionLogsPage({ showToast, user }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Loại phương tiện">
                 <select
-                value={form.vehicleTypeId}
-                onChange={(e) => {
-                  const selected = vehicleTypes.find(v => String(v.id) === String(e.target.value));
-                  setForm({ ...form, vehicleTypeId: e.target.value, vehicleTypeName: selected?.name || "", licensePlate: "" });
-                }}
-                disabled={loadingConfig || vehicleTypes.length === 0}
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 outline-none"
-              >
-                {vehicleTypes.map(vt => <option key={vt.id} value={vt.id}>{vt.name}</option>)}
-              </select>
-            </Field>
+                  value={form.vehicleTypeId}
+                  onChange={(e) => {
+                    const selected = vehicleTypes.find(v => String(v.id) === String(e.target.value));
+                    setForm({ ...form, vehicleTypeId: e.target.value, vehicleTypeName: selected?.name || "", licensePlate: "" });
+                  }}
+                  disabled={loadingConfig || vehicleTypes.length === 0}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 outline-none"
+                >
+                  {vehicleTypes.map(vt => <option key={vt.id} value={vt.id}>{vt.name}</option>)}
+                </select>
+              </Field>
 
               <Field label="Biển số xe">
                 <input
@@ -470,16 +470,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
             />
           </Field>
 
-          {isVehicleRelated && (
-            <Field label="ID Phiên gửi xe (tuỳ chọn)">
-              <input
-                value={form.sessionId}
-                onChange={handleSessionIdChange}
-                placeholder="Nhập session ID nếu có"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-mono font-medium text-slate-900 outline-none"
-              />
-            </Field>
-          )}
+
 
           <Field label={editingId ? "Tải lên ảnh mới (Ghi đè ảnh cũ - tuỳ chọn)" : "Đính kèm ảnh minh chứng (tuỳ chọn)"}>
             <div className="flex flex-col gap-3">
@@ -629,17 +620,20 @@ export default function ExceptionLogsPage({ showToast, user }) {
                   <p className="text-sm font-medium leading-relaxed text-slate-700 my-1">{log.description || "—"}</p>
 
                   {/* Image Thumbnails */}
-                  {log.imageUrls && log.imageUrls.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {log.imageUrls.map((url, idx) => (
-                        <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
-                          <img src={url} alt="Sự cố" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Không có ảnh</p>
-                  )}
+                  {(() => {
+                    const validImages = log.imageUrls ? log.imageUrls.filter(url => url && url.startsWith('http')) : [];
+                    return validImages.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {validImages.map((url, idx) => (
+                          <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
+                            <img src={url} alt="Sự cố" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">Không có ảnh</p>
+                    );
+                  })()}
 
                   {/* Footer */}
                   <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 border-t border-slate-200 pt-2 mt-1">
@@ -675,11 +669,11 @@ export default function ExceptionLogsPage({ showToast, user }) {
             <button onClick={() => setViewingLogDetail(null)} className="absolute top-6 right-6 text-slate-400 hover:bg-slate-100 hover:text-slate-800 p-2 rounded-full transition-colors">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
-            
+
             <h3 className="text-2xl font-black text-slate-900 mb-6 flex items-center gap-3">
               <span className="text-3xl">📋</span> Chi tiết sự cố
             </h3>
-            
+
             <div className="space-y-6">
               {/* Type and Status */}
               <div className="grid grid-cols-2 gap-4">
@@ -709,14 +703,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
                     </div>
                   )}
 
-                  {viewingLogDetail.sessionId && (
-                    <div>
-                      <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Phiên gửi xe ID</span>
-                      <span className="inline-block px-4 py-2 font-mono text-sm font-bold text-slate-700 bg-slate-100 rounded-xl">
-                        {viewingLogDetail.sessionId}
-                      </span>
-                    </div>
-                  )}
+
                 </div>
               )}
 
@@ -763,7 +750,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
                 )}
               </div>
             </div>
-            
+
             <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end">
               <button onClick={() => setViewingLogDetail(null)} className="rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-8 py-3.5 transition-colors active:scale-95 shadow-sm">
                 Đóng

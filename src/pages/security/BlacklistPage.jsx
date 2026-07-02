@@ -720,17 +720,20 @@ export default function BlacklistPage({ showToast, user }) {
                     {item.description && <p className="text-sm font-medium leading-relaxed text-slate-700 my-1">{item.description}</p>}
 
                     {/* Image Thumbnails */}
-                    {item.imageUrls && item.imageUrls.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {item.imageUrls.map((url, idx) => (
-                          <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
-                            <img src={url} alt="Sự cố" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-400 italic">Không có ảnh</p>
-                    )}
+                    {(() => {
+                      const validImages = item.imageUrls ? item.imageUrls.filter(url => url && url.startsWith('http')) : [];
+                      return validImages.length > 0 ? (
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {validImages.map((url, idx) => (
+                            <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
+                              <img src={url} alt="Sự cố" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">Không có ảnh</p>
+                      );
+                    })()}
 
                     {/* Footer */}
                     <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 border-t border-slate-200 pt-2 mt-1">
