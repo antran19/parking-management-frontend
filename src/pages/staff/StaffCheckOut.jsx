@@ -148,6 +148,8 @@ export default function StaffCheckOut() {
 
   const [exitGates, setExitGates] = useState(fallbackExitGates);
   const [selectedGateId, setSelectedGateId] = useState(fallbackExitGates[0].id);
+  const [vehicleTypes, setVehicleTypes] = useState([]);
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState("");
 
   // Widget thời gian realtime
   const [liveTime, setLiveTime] = useState(new Date().toLocaleTimeString("vi-VN", { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
@@ -568,80 +570,44 @@ export default function StaffCheckOut() {
     setApiError('');
 
     const isSessionCode = searchTerm.startsWith("PS");
+    let plateParam = "";
+    let codeParam = "";
 
     if (isSessionCode) {
-      try {
-        const res = await staffApi.getAllSessionsHistory();
-        const sessions = res.data.data || [];
-        const activeSession = sessions.find(s => s.sessionCode === searchTerm && s.status === "ACTIVE");
-
-        if (activeSession) {
-          setSessionData(activeSession);
-          setIsSearching(false);
-          return;
-        }
-      } catch (err) {
-        console.warn("Lỗi tra cứu mã phiên từ API:", err);
+      codeParam = searchTerm;
+    } else {
+      plateParam = normalizeLicensePlate(searchTerm);
+      const plateError = getLicensePlateValidationError(plateParam);
+      if (plateError) {
+        setApiError(plateError);
+        setIsSearching(false);
+        return;
       }
-
-      const storedSession = JSON.parse(localStorage.getItem("driver_session") || "null");
-      if (storedSession) {
-        const storedCode = storedSession.sessionCode || "";
-        const cleanStoredCode = storedCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-        const cleanSearchTerm = searchTerm.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-        if (cleanStoredCode === cleanSearchTerm) {
-          const minutes = Math.max(1, Math.round((Date.now() - (storedSession.createdTimestamp || Date.now() - 300000)) / 60000));
-          const hourlyRate = storedSession.vehicle?.includes("My") ? 5000 : 15000;
-          const fee = Math.max(hourlyRate, Math.ceil(minutes / 60) * hourlyRate);
-
-          const mockSession = {
-            sessionId: "demo-session-id",
-            sessionCode: storedSession.sessionCode || searchTerm,
-            licensePlate: storedSession.licensePlate,
-            entryTime: new Date(storedSession.createdTimestamp || Date.now() - 300000).toISOString(),
-            floorName: storedSession.floor || "Tầng 3",
-            zoneName: storedSession.slot || "T3-CAR-C",
-            vehicleType: storedSession.vehicle || "Ô tô (Đang gửi)",
-            durationMinutes: minutes,
-            totalFee: fee,
-            guideMessage: `Thời gian đỗ thực tế: ${minutes} phút. Đơn giá: ${hourlyRate.toLocaleString("vi-VN")}đ/giờ.`
-          };
-          setSessionData(mockSession);
-          setIsSearching(false);
-          return;
-        }
-      }
-
-      setSessionData(null);
-      setApiError(`Không tìm thấy phiên gửi xe hoạt động với mã vé: ${searchTerm}`);
-      setIsSearching(false);
-      return;
-    }
-
-    const normalizedPlate = normalizeLicensePlate(searchTerm);
-    const plateError = getLicensePlateValidationError(normalizedPlate);
-    if (plateError) {
-      setApiError(plateError);
-      setIsSearching(false);
-      return;
     }
 
     try {
-      const res = await staffApi.getActiveSession(normalizedPlate);
+      const res = await staffApi.getActiveSession(
+        plateParam || null,
+        codeParam || null,
+        null
+      );
       setSessionData(res.data.data);
     } catch (err) {
       console.warn("Backend getActiveSession failed, falling back to LocalStorage Demo:", err);
+      
+      const searchForPlate = plateParam || (isSessionCode ? "30G-888.88" : searchTerm);
+      const normalizedPlate = normalizeLicensePlate(searchForPlate);
       const storedSession = JSON.parse(localStorage.getItem("driver_session") || "null");
       const normalizePlate = (p) => (p || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 
-      if (storedSession && normalizePlate(storedSession.licensePlate) === normalizePlate(normalizedPlate)) {
+      if (storedSession && (normalizePlate(storedSession.licensePlate) === normalizePlate(normalizedPlate) || isSessionCode)) {
         const minutes = Math.max(1, Math.round((Date.now() - (storedSession.createdTimestamp || Date.now() - 300000)) / 60000));
         const hourlyRate = storedSession.vehicle?.includes("My") ? 5000 : 15000;
         const fee = Math.max(hourlyRate, Math.ceil(minutes / 60) * hourlyRate);
 
         setSessionData({
           sessionId: "demo-session-id",
-          sessionCode: `SS-${(storedSession.createdTimestamp || Date.now()).toString().slice(-6)}`,
+          sessionCode: storedSession.sessionCode || (isSessionCode ? searchTerm : `SS-${(storedSession.createdTimestamp || Date.now()).toString().slice(-6)}`),
           licensePlate: storedSession.licensePlate,
           entryTime: new Date(storedSession.createdTimestamp || Date.now() - 300000).toISOString(),
           floorName: storedSession.floor || "Tầng 3",
@@ -950,6 +916,10 @@ export default function StaffCheckOut() {
       try {
         const res = await staffApi.getParkingConfig();
         const config = res.data.data;
+        setVehicleTypes(config.vehicleTypes || []);
+        if (config.vehicleTypes && config.vehicleTypes.length > 0) {
+          setSelectedVehicleTypeId(config.vehicleTypes[0].id);
+        }
         const exits = (config.gates || []).filter(g => g.gateType === 'MAIN_EXIT' || g.gateType === 'MAIN_BOTH');
         if (exits && exits.length > 0) {
           setExitGates(exits);

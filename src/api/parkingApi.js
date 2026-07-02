@@ -34,6 +34,11 @@ export const staffApi = {
     return axiosClient.post("/staff/sessions/zone-entry", data);
   },
 
+  // Check-out xe ra khỏi Zone (Check-out lần 2)
+  zoneExit(data) {
+    return axiosClient.post("/staff/sessions/zone-exit", data);
+  },
+
   // Lấy danh sách phân khu khả dụng để thay đổi gợi ý
   getEligibleZones(sessionId) {
     return axiosClient.get(`/staff/sessions/${sessionId}/eligible-zones`);
@@ -51,8 +56,13 @@ export const staffApi = {
 
   // === Tác vụ của Tài xế (Driver) / Tra cứu session ===
   // Tra cứu session đang hoạt động
-  getActiveSession(licensePlate) {
-    return axiosClient.get(`/driver/sessions/active?plate=${encodeURIComponent(licensePlate)}`);
+  getActiveSession(licensePlate, code = null, vehicleTypeId = null) {
+    let url = `/driver/sessions/active?`;
+    const params = [];
+    if (licensePlate) params.push(`plate=${encodeURIComponent(licensePlate)}`);
+    if (code) params.push(`code=${encodeURIComponent(code)}`);
+    if (vehicleTypeId) params.push(`vehicleTypeId=${encodeURIComponent(vehicleTypeId)}`);
+    return axiosClient.get(url + params.join("&"));
   },
 
   // Xác nhận thanh toán chuyển khoản (Real-time)
@@ -114,8 +124,8 @@ export const staffApi = {
   },
 
   cancelDriverPass(passId) {
-  return axiosClient.delete(`/driver/parking-passes/${passId}/cancel`);
-},
+    return axiosClient.delete(`/driver/parking-passes/${passId}/cancel`);
+  },
 
   getVnPayPassReturn(queryString) {
     return axiosClient.get(`/driver/payments/vnpay-return${queryString}`);
@@ -216,6 +226,10 @@ export const staffApi = {
   // === Quản lý toàn bộ phiên gửi xe dành cho Staff/Manager — Lưu DB ===
   getAllSessionsHistory(params) {
     return axiosClient.get("/staff/sessions/history", { params });
+  },
+
+  getAllReservations(params) {
+    return axiosClient.get("/staff/reservations", { params });
   },
 
   // === Quản lý Exception Logs dành cho Security & Admin — Lưu DB thật ===

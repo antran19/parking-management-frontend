@@ -1,13 +1,27 @@
 import { useEffect, useState } from "react";
 import { staffApi } from "../../api/parkingApi";
-import { formatLicensePlate } from "../../utils/licensePlate";
+import { formatLicensePlate, normalizeLicensePlate } from "../../utils/licensePlate";
 
-const LicensePlate = ({ plate, vehicleType }) => (
-  <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-slate-350 bg-white font-mono font-bold text-slate-800 shadow-sm text-xs tracking-widest">
-    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block mr-1"></span>
-    {formatLicensePlate(plate, vehicleType)}
-  </span>
-);
+const LicensePlate = ({ plate, vehicleType }) => {
+  const formatted = formatLicensePlate(plate, vehicleType);
+  const isBicycle = 
+    String(vehicleType || "").toUpperCase().includes("BICYCLE") || 
+    String(plate || "").toUpperCase().startsWith("BC");
+
+  if (isBicycle) {
+    return (
+      <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded border border-slate-300 bg-slate-50 font-mono font-bold text-slate-750 text-xs tracking-wider whitespace-nowrap select-text mx-auto">
+        {formatted}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center justify-center p-1.5 px-2 rounded-xs border-2 border-slate-850 bg-white font-mono font-extrabold text-slate-950 shadow-xs text-md tracking-wider w-[90px] text-center break-words leading-tight select-text mx-auto">
+      {formatted}
+    </span>
+  );
+};
 
 const getTicketTypeLabel = (driverType, passType) => {
   const dType = (driverType || "").toUpperCase();
@@ -82,13 +96,13 @@ export default function StaffHistory() {
         rawFee: item.totalFee || 0,
         inTime: item.entryTime
           ? new Date(item.entryTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
-            " • " +
-            new Date(item.entryTime).toLocaleDateString("vi-VN")
+          " • " +
+          new Date(item.entryTime).toLocaleDateString("vi-VN")
           : "--",
         outTime: item.exitTime
           ? new Date(item.exitTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
-            " • " +
-            new Date(item.exitTime).toLocaleDateString("vi-VN")
+          " • " +
+          new Date(item.exitTime).toLocaleDateString("vi-VN")
           : "--",
         slot: item.zoneCode ? `${item.floorName}-ZONE-${item.zoneCode}` : "--",
         floor: item.floorName ? `Tầng ${item.floorName}` : "--",
@@ -124,8 +138,14 @@ export default function StaffHistory() {
 
   const filteredHistory = historyList.filter((item) => {
     const keyword = search.toLowerCase();
+    const normalizedKeyword = normalizeLicensePlate(search).toLowerCase();
+    const normalizedPlate = normalizeLicensePlate(item.plate).toLowerCase();
+    const formattedPlate = (formatLicensePlate(item.plate, item.type) || "").toLowerCase();
+
     const matchSearch =
       (item.plate || "").toLowerCase().includes(keyword) ||
+      formattedPlate.includes(keyword) ||
+      (normalizedPlate && normalizedKeyword && normalizedPlate.includes(normalizedKeyword)) ||
       (item.id || "").toLowerCase().includes(keyword) ||
       (item.slot || "").toLowerCase().includes(keyword);
 
@@ -135,9 +155,9 @@ export default function StaffHistory() {
     return matchSearch && matchStatus && matchType;
   }).sort((a, b) => {
     switch (sortOrder) {
-      case "checkin_desc": 
+      case "checkin_desc":
         return b.rawEntryTime - a.rawEntryTime;
-      case "checkin_asc": 
+      case "checkin_asc":
         return a.rawEntryTime - b.rawEntryTime;
       case "checkout_desc":
         if (a.rawExitTime === Number.MAX_SAFE_INTEGER && b.rawExitTime === Number.MAX_SAFE_INTEGER) return b.rawEntryTime - a.rawEntryTime;
@@ -218,7 +238,7 @@ export default function StaffHistory() {
   };
 
   return (
-    <section className="flex-1 space-y-6 p-5">
+    <section className="flex-1 space-y-6 p-3">
       {/* Quick Metrics Bar */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
@@ -314,7 +334,7 @@ export default function StaffHistory() {
       <div className="history-table-container overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-600 border-b border-slate-100">
               <tr>
                 <th className="px-6 py-4">Mã vé</th>
                 <th className="px-6 py-4">Biển số</th>
@@ -350,10 +370,10 @@ export default function StaffHistory() {
                   <td className="px-6 py-4 text-slate-700 font-semibold text-xs">
                     {row.slot} ({row.floor})
                   </td>
-                  <td className="px-6 py-4 text-slate-500 font-medium font-mono text-xs">
+                  <td className="px-6 py-4 text-slate-600 font-medium font-mono text-xs">
                     {row.inTime}
                   </td>
-                  <td className="px-6 py-4 text-slate-500 font-medium font-mono text-xs">
+                  <td className="px-6 py-4 text-slate-600 font-medium font-mono text-xs">
                     {row.outTime}
                   </td>
                   <td className="px-6 py-4 text-slate-900 font-extrabold text-xs">
@@ -361,11 +381,10 @@ export default function StaffHistory() {
                   </td>
                   <td className="px-6 py-4">
                     <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                        row.status === "checked_out"
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${row.status === "checked_out"
                           ? "bg-slate-100 text-slate-755 border-slate-200"
                           : "bg-emerald-50 text-emerald-700 border-emerald-100 "
-                      }`}
+                        }`}
                     >
                       <span className={`h-1.5 w-1.5 rounded-full ${row.status === "checked_out" ? "bg-slate-500" : "bg-emerald-500"}`} />
                       {row.status === "checked_out" ? "Đã ra" : "Đang đỗ"}
