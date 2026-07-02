@@ -323,6 +323,12 @@ export const managerApi = {
   getSecuritySummary(params) {
     return axiosClient.get("/manager/security/summary", { params });
   },
+  getSecurityIncidents(params) {
+    return axiosClient.get("/manager/security/incidents", { params });
+  },
+  getSecurityIncidentDetail(id) {
+    return axiosClient.get(`/manager/security/incidents/${id}`);
+  },
   getBlacklist() {
     return axiosClient.get("/manager/blacklist");
   },

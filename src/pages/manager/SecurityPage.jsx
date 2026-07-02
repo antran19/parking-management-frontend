@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useMemo } from "react";
 import { managerApi } from "../../api/parkingApi";
 import { Spinner } from "../components/Spinner";
 import { ManagerContext } from "./ManagerLayout";
@@ -13,23 +13,22 @@ const INCIDENT_TYPE_LABELS = {
 
 const SecurityPage = () => {
   const { triggerToast } = useContext(ManagerContext);
-  const [summary, setSummary] = useState(null);
+  const [incidents, setIncidents] = useState([]);
+  const [selectedIncident, setSelectedIncident] = useState(null);
   const [blacklist, setBlacklist] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState("summary");
-  const [filterFrom, setFilterFrom] = useState("");
-  const [filterTo, setFilterTo] = useState("");
+  const [tab, setTab] = useState("incidents");
+  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [showResolved, setShowResolved] = useState(false); // mặc định chỉ show việc cần làm
 
-  const fetchSummary = async () => {
+  const fetchIncidents = async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (filterFrom) params.from = new Date(filterFrom).toISOString();
-      if (filterTo)   params.to   = new Date(filterTo).toISOString();
-      const res = await managerApi.getSecuritySummary(params);
-      setSummary(res.data.data);
+      const res = await managerApi.getSecurityIncidents({});
+      setIncidents(res.data.data || []);
+      setSelectedIncident(null);
     } catch (err) {
-      triggerToast("Lỗi lấy dữ liệu sự cố", "error");
+      triggerToast("Lỗi lấy danh sách sự cố", "error");
     } finally {
       setLoading(false);
     }
@@ -48,91 +47,171 @@ const SecurityPage = () => {
   };
 
   useEffect(() => {
-    if (tab === "summary") fetchSummary();
+    if (tab === "incidents") fetchIncidents();
     if (tab === "blacklist") fetchBlacklist();
-  }, [tab, filterFrom, filterTo]);
+  }, [tab]);
+
+  const unresolvedCount = incidents.filter(i => !i.resolvedAt).length;
+
+  const visibleIncidents = useMemo(() => {
+    let list = showResolved ? incidents : incidents.filter(i => !i.resolvedAt);
+    if (typeFilter !== "ALL") list = list.filter(i => i.exceptionType === typeFilter);
+    return [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [incidents, showResolved, typeFilter]);
 
   return (
-    <section className="flex-1 space-y-8 p-8">
+    <section className="flex-1 space-y-6 p-8">
       <div className="space-y-6 fade-up-element">
-        <div>
-          <h3 className="text-2xl font-black text-slate-900 tracking-tight">Quản lý Sự cố An ninh</h3>
-          <p className="text-xs text-slate-500 mt-1">Tổng hợp sự cố và danh sách biển số đen.</p>
-        </div>
+        {/* Header + segmented control */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Sự cố An ninh</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {unresolvedCount > 0
+                ? `${unresolvedCount} sự cố đang chờ xử lý`
+                : "Không có sự cố nào đang chờ xử lý"}
+            </p>
+          </div>
 
-        {/* Tab */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
-          {[
-            { value: "summary",   label: "Tổng hợp sự cố" },
-            { value: "blacklist", label: "Biển số đen"     },
-          ].map(t => (
+          <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1">
             <button
-              key={t.value}
-              onClick={() => setTab(t.value)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                tab === t.value
-                  ? "bg-indigo-600 text-white shadow"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              onClick={() => setTab("incidents")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                tab === "incidents"
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              {t.label}
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              Sự cố
+              {unresolvedCount > 0 && (
+                <span className="bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                  {unresolvedCount}
+                </span>
+              )}
             </button>
-          ))}
-
-          {tab === "summary" && (
-            <div className="flex items-center gap-2 ml-auto">
-              <input
-                type="date"
-                value={filterFrom}
-                onChange={e => setFilterFrom(e.target.value)}
-                className="border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <span className="text-sm text-slate-500">đến</span>
-              <input
-                type="date"
-                value={filterTo}
-                onChange={e => setFilterTo(e.target.value)}
-                className="border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-          )}
+            <button
+              onClick={() => setTab("blacklist")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                tab === "blacklist"
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              Biển số đen
+            </button>
+          </div>
         </div>
 
         {loading ? <Spinner /> : (
           <>
-            {/* Tab: Tổng hợp sự cố */}
-            {tab === "summary" && summary && (
-              <div className="space-y-6">
-                {/* KPI cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-gradient-to-br from-rose-500 to-rose-700 rounded-2xl p-6 text-white shadow-lg shadow-rose-500/30">
-                    <p className="text-rose-100 text-xs font-bold uppercase tracking-widest mb-2">Tổng sự cố</p>
-                    <h4 className="text-3xl font-black">{summary.totalIncidents}</h4>
-                  </div>
-                  <div className="bg-gradient-to-br from-amber-500 to-amber-700 rounded-2xl p-6 text-white shadow-lg shadow-amber-500/30">
-                    <p className="text-amber-100 text-xs font-bold uppercase tracking-widest mb-2">Chưa giải quyết</p>
-                    <h4 className="text-3xl font-black">{summary.unresolvedIncidents}</h4>
-                  </div>
+            {/* Tab: Sự cố */}
+            {tab === "incidents" && (
+              <div className="space-y-4">
+                {/* Bộ lọc gọn: trạng thái + loại */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => setShowResolved(false)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                      !showResolved ? "bg-rose-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Chưa giải quyết ({unresolvedCount})
+                  </button>
+                  <button
+                    onClick={() => setShowResolved(true)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                      showResolved ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Tất cả ({incidents.length})
+                  </button>
+
+                  <span className="w-px h-5 bg-slate-200 mx-1" />
+
+                  <select
+                    value={typeFilter}
+                    onChange={e => setTypeFilter(e.target.value)}
+                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 bg-white"
+                  >
+                    <option value="ALL">Tất cả loại</option>
+                    {Object.entries(INCIDENT_TYPE_LABELS).map(([type, label]) => (
+                      <option key={type} value={type}>{label}</option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* Phân loại theo type */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h4 className="text-sm font-bold text-slate-700 mb-4">Phân loại theo loại sự cố</h4>
-                  <div className="space-y-3">
-                    {Object.entries(summary.byType || {}).map(([type, count]) => (
-                      <div key={type} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-                        <span className="text-sm text-slate-600">
-                          {INCIDENT_TYPE_LABELS[type] || type}
-                        </span>
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                          count > 0
-                            ? "bg-rose-100 text-rose-700"
-                            : "bg-slate-100 text-slate-400"
-                        }`}>
-                          {count}
-                        </span>
+                <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_0.9fr] gap-6">
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    {visibleIncidents.length === 0 ? (
+                      <div className="text-center py-16 text-slate-400 text-sm">
+                        {!showResolved ? "Không có sự cố nào cần xử lý. 🎉" : "Không có sự cố phù hợp."}
                       </div>
-                    ))}
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                          <tr>
+                            <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Biển số</th>
+                            <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Loại</th>
+                            <th className="text-left px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">Thời gian</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {visibleIncidents.map(item => (
+                            <tr
+                              key={item.id}
+                              className={`cursor-pointer hover:bg-slate-50 transition-colors ${selectedIncident?.id === item.id ? "bg-indigo-50" : ""}`}
+                              onClick={() => setSelectedIncident(item)}
+                            >
+                              <td className="px-6 py-4 font-mono font-semibold text-slate-800">
+                                <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2 ${item.resolvedAt ? "bg-emerald-400" : "bg-rose-500"}`} />
+                                {item.licensePlate || "—"}
+                              </td>
+                              <td className="px-6 py-4 text-slate-600">{INCIDENT_TYPE_LABELS[item.exceptionType] || item.exceptionType || "—"}</td>
+                              <td className="px-6 py-4 text-slate-500 text-xs">{item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 min-h-[240px]">
+                    {!selectedIncident ? (
+                      <div className="text-slate-500 text-sm">Chọn một sự cố bên trái để xem chi tiết.</div>
+                    ) : (
+                      <div className="space-y-4 text-sm text-slate-700">
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-slate-900 text-lg">{selectedIncident.licensePlate || "—"}</p>
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            selectedIncident.resolvedAt ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                          }`}>
+                            {selectedIncident.resolvedAt ? "Đã giải quyết" : "Chưa giải quyết"}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Loại sự cố</p>
+                          <p className="font-semibold">{INCIDENT_TYPE_LABELS[selectedIncident.exceptionType] || selectedIncident.exceptionType || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Mô tả</p>
+                          <p className="whitespace-pre-wrap text-slate-700">{selectedIncident.description || "Không có mô tả."}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Người xử lý</p>
+                          <p className="font-semibold">{selectedIncident.handledBy || "Chưa có"}</p>
+                        </div>
+                        <div className="text-slate-500 text-xs pt-2 border-t border-slate-100">
+                          Tạo lúc {selectedIncident.createdAt ? new Date(selectedIncident.createdAt).toLocaleString("vi-VN") : "—"}
+                          {selectedIncident.resolvedAt && ` · Giải quyết lúc ${new Date(selectedIncident.resolvedAt).toLocaleString("vi-VN")}`}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -163,9 +242,7 @@ const SecurityPage = () => {
                           </td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                              item.isActive
-                                ? "bg-rose-100 text-rose-700"
-                                : "bg-slate-100 text-slate-400"
+                              item.isActive ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-400"
                             }`}>
                               {item.isActive ? "Đang chặn" : "Đã gỡ"}
                             </span>

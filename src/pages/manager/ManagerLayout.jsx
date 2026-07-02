@@ -100,7 +100,6 @@ const ManagerLayout = ({ onLogout }) => {
           </nav>
           <div className="border-t border-slate-800 p-4 overflow-hidden">
             <button onClick={onLogout} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 font-semibold text-rose-400 hover:bg-rose-955/30 hover:text-rose-300 transition-all duration-200 cursor-pointer">
-              <span>🔓</span>
               {!collapsed && <span className="whitespace-nowrap">Đăng xuất</span>}
             </button>
           </div>

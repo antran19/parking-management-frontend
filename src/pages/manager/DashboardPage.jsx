@@ -50,7 +50,7 @@ const DashboardPage = () => {
 
             <div className="stat-card-item rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-450">Session Active</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-450">Session Hoạt Động</span>
                 <span className="text-sm bg-blue-50 p-2.5 rounded-xl border border-blue-100">🚗</span>
               </div>
               <div className="mt-4 flex flex-col">
