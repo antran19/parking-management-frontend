@@ -68,6 +68,13 @@ export default function StaffLayout({ onLogout }) {
     return `${h}:${m}:${s}`;
   };
 
+  const formatRealTime = (date = new Date()) => {
+    const h = String(date.getHours()).padStart(2, '0');
+    const m = String(date.getMinutes()).padStart(2, '0');
+    const s = String(date.getSeconds()).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  };
+
   // Khởi tạo thời gian bắt đầu ca làm việc
   const [loginTime] = useState(() => {
     const stored = localStorage.getItem("staff_login_time");
@@ -77,7 +84,7 @@ export default function StaffLayout({ onLogout }) {
     return now;
   });
 
-  const [liveTime, setLiveTime] = useState(() => formatDuration(Date.now() - loginTime));
+  const [liveTime, setLiveTime] = useState(() => formatRealTime());
   const [liveDate, setLiveDate] = useState("");
 
   // Lấy thông tin tài khoản đăng nhập từ localStorage
@@ -105,9 +112,10 @@ export default function StaffLayout({ onLogout }) {
 
   // Exception Modal States
   const [showExceptionModal, setShowExceptionModal] = useState(false);
-  const [exceptionData, setExceptionData] = useState({ type: "LOST_TICKET", description: "", plate: "" });
+  const [exceptionData, setExceptionData] = useState({ type: "LOST_TICKET", description: "", plate: "", vehicleType: "NONE" });
   const [exceptionSubmitting, setExceptionSubmitting] = useState(false);
   const [apiMessage, setApiMessage] = useState("");
+  const [vehicleTypes, setVehicleTypes] = useState([]);
 
   // Modal Dragging State
   const modalPos = useRef({ x: 0, y: 0 });
@@ -146,26 +154,47 @@ export default function StaffLayout({ onLogout }) {
   const submitException = async () => {
     if (!exceptionData.description) return;
 
-    const plateError = getLicensePlateValidationError(exceptionData.plate);
-    if (plateError) {
-      setApiMessage(`❌ Lỗi biển số: ${plateError}`);
+    const isPlateRequired = exceptionData.vehicleType !== "NONE";
+
+    // Nếu chọn loại xe thì bắt buộc nhập biển số
+    if (isPlateRequired && (!exceptionData.plate || exceptionData.plate.trim() === "")) {
+      setApiMessage("❌ Lỗi: Bạn phải nhập biển số xe khi chọn loại phương tiện!");
       setTimeout(() => setApiMessage(""), 5000);
       return;
     }
 
+    // Validate biển số nếu có nhập biển số
+    if (exceptionData.plate && exceptionData.plate.trim() !== "") {
+      const plateError = getLicensePlateValidationError(exceptionData.plate);
+      if (plateError) {
+        setApiMessage(`❌ Lỗi biển số: ${plateError}`);
+        setTimeout(() => setApiMessage(""), 5000);
+        return;
+      }
+    }
+
     setExceptionSubmitting(true);
     try {
+      const selectedVt = vehicleTypes.find(vt => vt.id === exceptionData.vehicleType);
+      const vehicleTypeLabel = selectedVt 
+        ? selectedVt.name 
+        : (exceptionData.vehicleType === "OTHER" ? "Khác" : "");
+
+      const finalDescription = vehicleTypeLabel
+        ? `[Loại xe: ${vehicleTypeLabel}] ${exceptionData.description}`
+        : exceptionData.description;
+
       await staffApi.logSecurityException({
         exceptionType: exceptionData.type,
-        description: exceptionData.description,
-        licensePlate: exceptionData.plate || "Chưa xác định",
+        description: finalDescription,
+        licensePlate: exceptionData.plate && exceptionData.plate.trim() !== "" ? exceptionData.plate : "Chưa xác định",
         gateId: "staff-ui", // Gửi từ Header UI chung
         images: []
       });
       setApiMessage("✅ Báo sự cố thành công tới Bảo vệ!");
       setShowExceptionModal(false);
       modalPos.current = { x: 0, y: 0 }; // reset position on close
-      setExceptionData({ type: "LOST_TICKET", description: "", plate: "" });
+      setExceptionData({ type: "LOST_TICKET", description: "", plate: "", vehicleType: "NONE" });
       setTimeout(() => setApiMessage(""), 10000);
     } catch (err) {
       setApiMessage("❌ Lỗi khi báo sự cố. Vui lòng thử lại!");
@@ -175,10 +204,22 @@ export default function StaffLayout({ onLogout }) {
     }
   };
 
-  // Cập nhật đồng hồ ca làm việc và ngày tháng
+  // Tải cấu hình loại xe từ API
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await staffApi.getParkingConfig();
+        setVehicleTypes(res.data?.data?.vehicleTypes || []);
+      } catch (err) {
+        console.warn("Failed to load vehicle types for Exception Modal", err);
+      }
+    })();
+  }, []);
+
+  // Cập nhật đồng hồ xem giờ thực tế và ngày tháng
   useEffect(() => {
     const clockTimer = setInterval(() => {
-      setLiveTime(formatDuration(Date.now() - loginTime));
+      setLiveTime(formatRealTime());
     }, 1000);
 
     const today = new Date();
@@ -188,7 +229,7 @@ export default function StaffLayout({ onLogout }) {
     return () => {
       clearInterval(clockTimer);
     };
-  }, [loginTime]);
+  }, []);
 
   // Lắng nghe SOS từ hệ thống qua WebSocket
   useEffect(() => {
@@ -430,15 +471,35 @@ export default function StaffLayout({ onLogout }) {
                     <option value="OTHER">Lý do khác</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Biển số xe (Bắt buộc) *</label>
-                  <input
-                    type="text"
-                    className="w-full text-sm font-mono border border-slate-300 rounded-lg p-2.5 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
-                    placeholder="VD: 30A-123.45"
-                    value={exceptionData.plate}
-                    onChange={(e) => setExceptionData({ ...exceptionData, plate: formatLicensePlate(e.target.value) })}
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      {exceptionData.vehicleType !== "NONE" ? "Biển số xe (Bắt buộc) *" : "Biển số xe (Nếu có)"}
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full text-sm font-mono border border-slate-300 rounded-lg p-2.5 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                      placeholder="VD: 30A-123.45"
+                      value={exceptionData.plate}
+                      onChange={(e) => setExceptionData({ ...exceptionData, plate: formatLicensePlate(e.target.value) })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Loại phương tiện</label>
+                    <select
+                      className="w-full text-sm border border-slate-300 rounded-lg p-2.5 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 bg-slate-50"
+                      value={exceptionData.vehicleType}
+                      onChange={(e) => setExceptionData({ ...exceptionData, vehicleType: e.target.value })}
+                    >
+                      
+                      {vehicleTypes.map((vt) => (
+                        <option key={vt.id} value={vt.id}>
+                          {vt.name}
+                        </option>
+                      ))}
+                      <option value="OTHER">Không áp dụng</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Mô tả tình hình (Bắt buộc) *</label>
@@ -462,7 +523,11 @@ export default function StaffLayout({ onLogout }) {
                 </button>
                 <button
                   onClick={submitException}
-                  disabled={!exceptionData.description || !exceptionData.plate || exceptionSubmitting}
+                  disabled={
+                    !exceptionData.description ||
+                    (exceptionData.vehicleType !== "NONE" && !exceptionData.plate?.trim()) ||
+                    exceptionSubmitting
+                  }
                   className="px-4 py-2 text-sm font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center gap-2 cursor-pointer"
                 >
                   {exceptionSubmitting ? "Đang gửi..." : "GỬI BÁO CÁO TỚI BẢO VỆ"}

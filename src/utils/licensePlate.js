@@ -88,9 +88,9 @@ export function getLicensePlateValidationError(value, vehicleType = "ANY") {
   const tailPattern = "\\d{4,5}";
 
   // NOTE:
-  // Cho phép ô tô / xe tải có 1 hoặc 2 chữ cái sau mã tỉnh.
-  // Ví dụ hợp lệ theo UI: 30A12345, 49AB12345, 50AB12345.
-  const carSeries = `(?:[A-Z]{1,2}|${carSpecial})`;
+  // Ô tô chỉ có 1 chữ cái sau mã tỉnh (ví dụ: A, B, C...) hoặc sê-ri đặc chủng (LD, DA...).
+  // Các biển số có 2 chữ cái thường (ví dụ: AA, AB, AC...) là của xe máy dưới 50cc.
+  const carSeries = `(?:[A-Z]{1}|${carSpecial})`;
 
   // Xe máy vẫn cho các dạng phổ biến: 59X112345, 59AA72932, 29MD112345.
   const motoSeries = `(?:(?!(?:${carSpecial}))[A-Z]{2}|[A-Z][0-9]|MD[0-9]?)`;

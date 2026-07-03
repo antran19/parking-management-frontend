@@ -323,25 +323,46 @@ export default function StaffDashboard() {
             {recentExceptions.map((ex, idx) => {
               const typeColors = {
                 WRONG_ZONE: "bg-amber-50/50 border-amber-200/60 text-amber-900",
-                SOS: "bg-rose-50/70 border-rose-200 text-rose-900 animate-pulse",
+                WRONG_PLATE: "bg-amber-50/50 border-amber-200/60 text-amber-900",
                 LOST_TICKET: "bg-blue-50/50 border-blue-200 text-blue-900",
+                OVERTIME: "bg-indigo-50/50 border-indigo-200 text-indigo-900",
                 UNPAID: "bg-rose-50/50 border-rose-200 text-rose-900",
+                SUSPICIOUS_BEHAVIOR: "bg-rose-50/70 border-rose-200 text-rose-900 animate-pulse",
                 OTHER: "bg-slate-50 border-slate-200 text-slate-800"
               };
+              const typeLabels = {
+                LOST_TICKET: "🎟️ Mất vé/thẻ",
+                WRONG_PLATE: "🔍 Sai biển số",
+                OVERTIME: "⏳ Gửi quá hạn",
+                WRONG_ZONE: "⚠️ Sai phân khu",
+                UNPAID: "💸 Trốn/quỵt phí",
+                SUSPICIOUS_BEHAVIOR: "🚨 Đáng nghi ngờ",
+                OTHER: "📝 Sự cố khác"
+              };
+
               const colorClass = typeColors[ex.exceptionType] || typeColors.OTHER;
+
+              const vehicleTypeMatch = ex.description ? ex.description.match(/^\[Loại xe:\s*([^\]]+)\]/) : null;
+              const vehicleType = vehicleTypeMatch ? vehicleTypeMatch[1] : "";
+              const cleanDescription = ex.description 
+                ? ex.description.replace(/^\[Loại xe:\s*[^\]]+\]\s*/, "") 
+                : "";
 
               return (
                 <div key={ex.id || idx} className={`p-3.5 rounded-2xl border text-xs leading-relaxed space-y-2 relative overflow-hidden ${colorClass}`}>
                   <div className="flex justify-between items-center">
                     <span className="font-extrabold uppercase text-[9px] tracking-wider bg-white/70 px-1.5 py-0.5 rounded border border-black/5">
-                      {ex.exceptionType === "WRONG_ZONE" ? "⚠️ Đỗ sai Zone" : (ex.exceptionType === "SOS" ? "🚨 SOS Báo động" : `⚠️ ${ex.exceptionType}`)}
+                      {typeLabels[ex.exceptionType] || `⚠️ ${ex.exceptionType}`}
                     </span>
                     <span className="text-[11px] font-mono font-bold opacity-75">{ex.timeAgo}</span>
                   </div>
-                  <p className="font-bold text-slate-800 text-[11px] leading-tight">{ex.description}</p>
-                  {ex.licensePlate && (
+                  <p className="font-bold text-slate-800 text-[11px] leading-tight">
+                    {vehicleType && <span className="text-rose-700 font-extrabold mr-1">[{vehicleType}]</span>}
+                    {cleanDescription}
+                  </p>
+                  {ex.licensePlate && ex.licensePlate !== "Chưa xác định" && (
                     <div className="flex justify-between items-center pt-2 border-t border-black/5">
-                      <span className="font-extrabold text-[10px] font-mono tracking-wider bg-slate-900 text-white px-2 py-0.5 rounded-md select-none">{formatLicensePlate(ex.licensePlate, ex.vehicleType)}</span>
+                      <LicensePlate plate={ex.licensePlate} vehicleType={vehicleType} />
                     </div>
                   )}
                 </div>

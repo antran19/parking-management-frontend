@@ -124,6 +124,7 @@ export default function StaffCheckIn() {
   const [isChangingZone, setIsChangingZone] = useState(false);
   const [eligibleZones, setEligibleZones] = useState([]);
   const [selectedZoneId, setSelectedZoneId] = useState("");
+  const [tempZoneId, setTempZoneId] = useState("");
   const [isUpdatingZone, setIsUpdatingZone] = useState(false);
   const [showAllZones, setShowAllZones] = useState(false);
 
@@ -501,7 +502,7 @@ export default function StaffCheckIn() {
     // 1. Dừng camera và đóng modal ngay
     await handleCloseQrScanner();
 
-    const isReservation = cleanedCode.startsWith("RS") || cleanedCode.startsWith("BK-");
+    const isReservation = cleanedCode.startsWith("RS");
     const isPass = cleanedCode.startsWith("PP");
 
     if (!isReservation && !isPass) {
@@ -523,72 +524,12 @@ export default function StaffCheckIn() {
         }
       } catch (e) {}
 
-      // Nếu không khớp định dạng gì, xem như biển số xe thông thường quét được
-      setFormData(prev => ({ ...prev, plateNumber: qrText }));
-      setScannedTicketInfo({
-        type: "WALK_IN",
-        licensePlate: qrText,
-        code: "Vé lượt"
-      });
-      setTimeout(() => {
-        handleLoadPreCheckIn(qrText);
-      }, 300);
+      // Báo lỗi không đúng định dạng vé và dừng xử lý
+      setApiError("Mã vé không hợp lệ! Vui lòng nhập hoặc quét đúng mã đặt giữ chỗ (RS-) hoặc vé tháng (PP-).");
       return;
     }
 
-    // 2. Chế độ Demo với LocalStorage (Đặt trước)
-    const storedBooking = JSON.parse(localStorage.getItem("driver_booking") || "null");
-    if (storedBooking && (storedBooking.bookingCode === cleanedCode || storedBooking.reservationCode === cleanedCode || cleanedCode.startsWith("BK-"))) {
-      const demoPlate = storedBooking.licensePlate || "30G-888.88";
-      let targetType = storedBooking.vehicleType || "Ô tô";
-      const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetType.toLowerCase())) || vehicleTypes[0];
-      
-      setFormData(prev => ({
-        ...prev,
-        plateNumber: demoPlate,
-        vehicleTypeId: vt?.id || prev.vehicleTypeId,
-        reservationCode: cleanedCode,
-        parkingPassCode: "",
-        driverType: "PRE_BOOKED"
-      }));
-
-      try {
-        const res = await staffApi.checkIn({
-          licensePlate: demoPlate,
-          vehicleTypeId: vt?.id,
-          gateEntryId: formData.gateEntryId,
-          reservationCode: cleanedCode,
-          isPreview: true
-        });
-        const preview = res.data.data;
-        setPreCheckInResult(preview);
-        setEligibleZones(preview.eligibleZones || []);
-        setSelectedZoneId(preview.zoneId || "");
-        setIsPreCheckedIn(true);
-        setScannedTicketInfo({
-          type: "PRE_BOOKED",
-          code: cleanedCode,
-          licensePlate: demoPlate,
-          vehicleTypeName: vt?.name || "Phương tiện",
-          customerName: "Nguyễn Văn A (Demo)",
-          zoneName: preview.zoneName ? `${preview.floorName} - ${preview.zoneName}` : "Khu vực đặt trước"
-        });
-        return;
-      } catch (e) {
-        setIsPreCheckedIn(true);
-        setScannedTicketInfo({
-          type: "PRE_BOOKED",
-          code: cleanedCode,
-          licensePlate: demoPlate,
-          vehicleTypeName: vt?.name || "Phương tiện",
-          customerName: "Nguyễn Văn A (Demo)",
-          zoneName: "Tầng 3 - Zone A (Demo)"
-        });
-        return;
-      }
-    }
-
-    // 3. Gọi API đối soát check-in preview chính thức
+    // Gọi API đối soát check-in preview chính thức
     try {
       setIsLoadingPreview(true);
       setApiError("");
@@ -630,47 +571,8 @@ export default function StaffCheckIn() {
 
     } catch (err) {
       console.error("Lỗi đối soát vé từ API checkin:", err);
-      const errorMsg = err.response?.data?.message || err.message || "";
-      
-      if (errorMsg.includes("không tồn tại") || errorMsg.includes("not found") || errorMsg.includes("máy chủ")) {
-        // Fallback Mockup cho chế độ demo offline nếu chưa cấu hình DB
-        const demoPlate = isPass ? "BC260701-0001" : "30G-888.88";
-        const demoDriverType = isPass ? "SUBSCRIBER" : "PRE_BOOKED";
-        const demoVehicleType = isPass ? "Xe đạp" : "Ô tô";
-        const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(demoVehicleType.toLowerCase())) || vehicleTypes[0];
-
-        setFormData(prev => ({
-          ...prev,
-          plateNumber: demoPlate,
-          vehicleTypeId: vt?.id || prev.vehicleTypeId,
-          reservationCode: isReservation ? cleanedCode : "",
-          parkingPassCode: isPass ? cleanedCode : "",
-          driverType: demoDriverType
-        }));
-
-        setIsPreCheckedIn(true);
-        setPreCheckInResult({
-          licensePlate: demoPlate,
-          vehicleType: vt?.name || demoVehicleType,
-          driverType: demoDriverType,
-          zoneName: "Zone A - Tầng 1",
-          floorName: "Tầng 1",
-          entryTime: new Date().toISOString()
-        });
-
-        setScannedTicketInfo({
-          type: demoDriverType,
-          code: cleanedCode,
-          licensePlate: demoPlate,
-          vehicleTypeName: vt?.name || demoVehicleType,
-          customerName: isPass ? "Trần Nguyễn Minh An (Vé tháng)" : "Lê Hoàng Long (Đặt chỗ)",
-          zoneName: "Tầng 1 - Zone A"
-        });
-        
-        setApiError(`⚠️ Môi trường Demo: Tự động tải thông tin vé giả lập cho [${cleanedCode}].`);
-      } else {
-        setApiError(errorMsg || "Lỗi kết nối đối soát.");
-      }
+      const errorMsg = err.response?.data?.message || err.message || "Lỗi kết nối đối soát.";
+      setApiError(errorMsg);
     } finally {
       setIsLoadingPreview(false);
     }
@@ -987,11 +889,9 @@ export default function StaffCheckIn() {
       setEligibleZones(zones);
       if (zones.length > 0) {
         const firstSelectable = zones.find(z => z.isSelectable);
-        if (firstSelectable) {
-          setSelectedZoneId(firstSelectable.zoneId || "");
-        } else {
-          setSelectedZoneId(zones[0].zoneId || "");
-        }
+        const zId = firstSelectable ? (firstSelectable.zoneId || "") : (zones[0].zoneId || "");
+        setSelectedZoneId(zId);
+        setTempZoneId(zId);
       }
     } catch (err) {
       console.error("Lỗi lấy danh sách phân khu khả dụng:", err);
@@ -1001,16 +901,17 @@ export default function StaffCheckIn() {
     }
   };
 
-  const handleConfirmChangeZone = async () => {
-    if (!checkInResult?.sessionId || !selectedZoneId) return;
+  const handleConfirmChangeZone = async (zoneIdToApply = tempZoneId) => {
+    if (!checkInResult?.sessionId || !zoneIdToApply) return;
     setIsUpdatingZone(true);
     setApiError('');
     try {
-      const res = await staffApi.changeZone(checkInResult.sessionId, selectedZoneId);
+      const res = await staffApi.changeZone(checkInResult.sessionId, zoneIdToApply);
       const updatedSession = res.data.data;
 
       setCheckInResult(updatedSession);
       setTicketCode(updatedSession.sessionCode);
+      setSelectedZoneId(zoneIdToApply);
 
       if (updatedSession) {
         const realSlot = (updatedSession.floorName && updatedSession.zoneCode)
@@ -1378,7 +1279,7 @@ export default function StaffCheckIn() {
                   </div>
 
                   {/* Cụm nhập nhanh hoặc giả lập */}
-                  <div className="flex gap-1 items-center mt-0.5 h-[22px]">
+                  <div className="flex gap-10 items-center mt-0.5 h-[22px]">
                     <input
                       placeholder="Nhập biển số..."
                       value={formData.plateNumber}
@@ -1412,7 +1313,7 @@ export default function StaffCheckIn() {
                     <button
                       type="button"
                       onClick={handleOpenQrScanner}
-                      className="px-2 py-0.5 bg-indigo-650 hover:bg-indigo-700 text-black rounded text-[8px] font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0 flex items-center gap-1 shadow-sm h-[20px] active:scale-[0.98]"
+                      className="px-5 py-4 bg-slate-400 hover:bg-indigo-600 text-black rounded text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0 flex items-center gap-1 shadow-sm h-[20px] active:scale-[0.98]"
                     >
                       <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m0 14v1m8-9h-1m-14 0H3m2 2h2a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2zM17 11h2a2 2 0 002-2V5a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM5 19h2a2 2 0 002-2v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2zM19 19a2 2 0 01-2-2v-2a2 2 0 00-2-2h-2m4 4v1" />
@@ -1508,11 +1409,12 @@ export default function StaffCheckIn() {
                   }
                 </span>
               </span>
-              {((isSuccess && checkInResult) || (!isSuccess && isPreCheckedIn)) && !isChangingZone && (
+              {!isSuccess && isPreCheckedIn && !isChangingZone && (
                 <button
                   type="button"
                   onClick={() => {
                     setIsChangingZone(true);
+                    setTempZoneId(selectedZoneId);
                     setShowAllZones(false);
                     setApiError('');
                   }}
@@ -1540,7 +1442,7 @@ export default function StaffCheckIn() {
                         const reserved = zone.reservedCount || 0;
                         const occupied = current + reserved;
                         const percent = capacity > 0 ? Math.round((occupied * 100) / capacity) : 0;
-                        const isSelected = selectedZoneId === zone.zoneId;
+                        const isSelected = tempZoneId === zone.zoneId;
                         const isMaintenance = zone.isMaintenance;
                         const isSelectable = zone.isSelectable;
 
@@ -1566,7 +1468,7 @@ export default function StaffCheckIn() {
                           <button
                             key={zone.zoneId}
                             type="button"
-                            onClick={() => isSelectable && !isMaintenance && setSelectedZoneId(zone.zoneId)}
+                            onClick={() => isSelectable && !isMaintenance && setTempZoneId(zone.zoneId)}
                             disabled={!isSelectable || isMaintenance}
                             className={`w-full flex items-center justify-between p-1.5 rounded-lg border text-left transition-all font-sans ${buttonStyles}`}
                           >
@@ -1612,13 +1514,14 @@ export default function StaffCheckIn() {
                     type="button"
                     onClick={() => {
                       if (isSuccess && checkInResult) {
-                        handleConfirmChangeZone();
+                        handleConfirmChangeZone(tempZoneId);
                       } else {
+                        setSelectedZoneId(tempZoneId);
                         setIsChangingZone(false);
                         setShowAllZones(false);
                       }
                     }}
-                    disabled={(!isSuccess && !selectedZoneId) || (isSuccess && (isUpdatingZone || eligibleZones.length === 0))}
+                    disabled={(!isSuccess && !tempZoneId) || (isSuccess && (isUpdatingZone || eligibleZones.length === 0))}
                     className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 font-sans"
                   >
                     {isSuccess && isUpdatingZone ? "Lưu..." : "Xác nhận"}
@@ -1691,12 +1594,7 @@ export default function StaffCheckIn() {
                 </span>
               </div>
 
-              {(checkInResult?.reservationCode || formData.reservationCode) && (
-                <div className="flex justify-between text-indigo-600 font-extrabold">
-                  <span>Mã đặt chỗ:</span>
-                  <span>{checkInResult?.reservationCode || formData.reservationCode}</span>
-                </div>
-              )}
+
 
               <div className="flex justify-between">
                 <span>Vị trí đỗ:</span>
@@ -1819,7 +1717,7 @@ export default function StaffCheckIn() {
                 <div className="flex justify-between items-center border-t border-indigo-100/50 pt-1 mt-1">
                   <span>Biển số vé:</span>
                   <span className="font-mono font-bold text-indigo-900 bg-indigo-100/50 px-1 rounded border border-indigo-150">
-                    {scannedTicketInfo.licensePlate || "N/A"}
+                    {formatLicensePlate(scannedTicketInfo.licensePlate, scannedTicketInfo.vehicleTypeName) || "N/A"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -1848,23 +1746,22 @@ export default function StaffCheckIn() {
 
       {/* Modal Quét QR Vé */}
       {isQrScanning && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/70 p-4 ">
-          <div className="w-full max-w-[25%] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-fade-in flex flex-col">
-            <div className="flex items-center justify-between bg-slate-900 px-6 py-2 text-white">
+        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-slate-950/50 p-4 pt-[9vh]">
+          <div className="w-full max-w-[25%] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-fade-in flex flex-col translate-x-46">
+            <div className="flex items-center justify-between bg-indigo-600 px-6 py-2 text-white">
               <div>
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-300">QUÉT QR CODE</p>
-                <h3 className="text-sm font-black mt-0.5">Vé đặt trước & Vé tháng</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white">QUÉT QR ĐẶT TRƯỚC/VÉ THÁNG</p>
               </div>
               <button
                 type="button"
                 onClick={handleCloseQrScanner}
-                className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-black transition hover:bg-white/20 cursor-pointer"
+                className="rounded-lg bg-white/10 px-2 py-1.5 text-xs font-black transition hover:bg-white/30 cursor-pointer"
               >
                 Đóng
               </button>
             </div>
             
-            <div className=" flex flex-col items-center justify-center gap-0 text-center">
+            <div className=" flex flex-col items-center justify-center gap-1 text-center">
               <div 
                 id="ticket-checkin-reader" 
                 className="w-full aspect-[4/3] bg-slate-900  overflow-hidden shadow-inner border border-slate-200 relative [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
@@ -1877,7 +1774,7 @@ export default function StaffCheckIn() {
               </p>
               
               {/* Ô nhập dự phòng ở dưới */}
-              <div className="flex gap-1 items-center mt-2 w-full my-2">
+              <div className="flex gap-3 items-center mt-2 w-full my-1 px-2">
                 <input
                   placeholder="Nhập mã đặt chỗ / vé tháng..."
                   value={manualTicketCode}
