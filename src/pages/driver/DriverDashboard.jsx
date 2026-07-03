@@ -1519,17 +1519,20 @@ export default function DriverDashboard({ onLogout }) {
 
   // Format Timer Seconds
   const formatTimer = (totalSecs) => {
-    const hrs = Math.floor(totalSecs / 3600);
-    const mins = Math.floor((totalSecs % 3600) / 60);
-    const secs = totalSecs % 60;
-    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    const mins = Math.max(0, Math.floor(totalSecs / 60));
+    if (mins < 60) {
+      return `${mins} phút`;
+    }
+    const hrs = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+    return remainingMins > 0 ? `${hrs}h ${remainingMins} phút` : `${hrs}h`;
   };
 
   // tính thời gian gửi xe thực tế từ thời điểm tạo session đến hiện tại
   const formatSessionTimer = (session) => {
     const startTimestamp = Number(session?.createdTimestamp || 0);
 
-    if (!startTimestamp) return "00:00:00";
+    if (!startTimestamp) return "0 phút";
 
     const elapsedSeconds = Math.max(
       0,
@@ -3083,6 +3086,7 @@ export default function DriverDashboard({ onLogout }) {
     </div >
   );
 }
+
 function ReservationTicketPreview({ booking, userName }) {
   if (!booking) return null;
 
@@ -3092,6 +3096,23 @@ function ReservationTicketPreview({ booking, userName }) {
   const identifierLabel = isBike ? "Mã xe đạp" : "Biển số";
   const identifierValue = formatLicensePlate(booking.licensePlate, vehicleTypeName);
 
+  const getReservationStatusLabel = (status) => {
+    const s = String(status || "").toUpperCase();
+    if (s === "PENDING") return "Chờ thanh toán";
+    if (s === "CONFIRMED") return "Đã xác nhận";
+    if (s === "CANCELLED") return "Đã hủy";
+    if (s === "COMPLETED") return "Đã hoàn tất";
+    if (s === "EXPIRED") return "Đã hết hạn";
+    return s || "--";
+  };
+
+  const getReservationStatusTone = (status) => {
+    const s = String(status || "").toUpperCase();
+    if (s === "CONFIRMED" || s === "COMPLETED") return "success";
+    if (s === "PENDING") return "warning";
+    return "default";
+  };
+
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-left">
       <div className="rounded-[1.5rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-slate-50 p-5 text-center">
@@ -3099,7 +3120,7 @@ function ReservationTicketPreview({ booking, userName }) {
           Reservation Ticket
         </p>
 
-        <h3 className="mt-2 text-xl font-black text-slate-950">Vé giữ chỗ</h3>
+        <h3 className="mt-2 text-xl font-black text-slate-955">Vé giữ chỗ</h3>
 
         <p className="mt-1 font-mono text-xs font-black text-slate-500">
           {booking.reservationCode || booking.bookingCode || "--"}
@@ -3131,7 +3152,11 @@ function ReservationTicketPreview({ booking, userName }) {
               : "--"
           }
         />
-        <InfoRow label="Trạng thái" value={booking.status || "--"} />
+        <InfoRow
+          label="Trạng thái"
+          value={getReservationStatusLabel(booking.status)}
+          tone={getReservationStatusTone(booking.status)}
+        />
       </div>
 
       <p className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-xs font-semibold leading-5 text-slate-600">
@@ -3298,139 +3323,142 @@ function ActiveSessionTicketModal({ session, userName, elapsedText, onClose }) {
     ? 0
     : Number(session.estimatedFee || session.totalFee || 0);
 
-  const buildSessionQrValue = () => {
-    return JSON.stringify({
-      type: "SMART_PARKING_SESSION_TICKET",
-      sessionCode: session.sessionCode || "",
-      ownerName: userName || "",
-      identifierLabel: session.identifierLabel || "Biển số",
-      identifierValue: session.identifierValue || "",
-      vehicleType: session.vehicle || "",
-      ticketType: getTicketPassTypeDisplay(),
-      location: `${session.floor || "--"}-${session.zoneCode || "--"}`,
-      checkInTime: session.startTime || "",
-      elapsedTime: elapsedText || "",
-      paymentStatus: getTicketPaymentText(),
-      estimatedFee: isPassBased ? 0 : totalFee,
-      status: session.status || "Đang gửi",
-    });
-  };
+  const code = session.sessionCode || "";
+  const identifierValue = session.identifierValue || "--";
+  const identifierLabel = session.identifierLabel || "Biển số";
+  const vehicleTypeName = session.vehicle || "--";
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-[2px]">
-      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-[1.75rem] bg-white shadow-2xl">
-        <div className="h-3 bg-gradient-to-r from-indigo-600 via-violet-600 to-blue-600" />
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-955/75 p-3 backdrop-blur-md">
+      <div className="relative w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl flex flex-col gap-4 border-t-8 border-t-indigo-600 animate-scale-in">
+        {/* Decorative punch holes */}
+        <div className="absolute left-0 top-[105px] -ml-2.5 w-5 h-5 rounded-full bg-[#020617] border-r border-slate-200/80 z-10"></div>
+        <div className="absolute right-0 top-[105px] -mr-2.5 w-5 h-5 rounded-full bg-[#020617] border-l border-slate-200/80 z-10"></div>
 
+        {/* Close icon button */}
         <button
-          type="button"
           onClick={onClose}
-          className="absolute right-5 top-7 text-3xl font-light leading-none text-slate-400 transition hover:text-slate-700"
+          className="absolute top-4 right-4 rounded-full p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
         >
-          ×
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+          </svg>
         </button>
 
-        <div className="px-8 pb-8 pt-7">
-          <div className="text-center">
-            <h3 className="text-lg font-black uppercase tracking-[0.12em] text-slate-800">
-              Smart Session Ticket
-            </h3>
+        {/* Ticket Header */}
+        <div className="text-center border-b border-dashed border-slate-200 pb-3">
+          <h4 className="font-extrabold text-sm text-slate-800 tracking-wider">
+            SMART PARKING TICKET
+          </h4>
+          <p className="text-[10px] text-indigo-600 font-extrabold uppercase tracking-wider mt-1">
+            VÉ PHIÊN GỬI XE 
+          </p>
+        </div>
 
-            <p className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-emerald-600">
-              {session.status || "Đang gửi"}
-            </p>
+        {/* QR Code at the top */}
+        <div className="flex flex-col items-center justify-center py-1">
+          <div className="p-1.5 bg-white rounded-xl shadow-inner border border-slate-100 flex items-center justify-center">
+            <QRCodeCanvas
+              value={code}
+              size={120}
+              level="M"
+              includeMargin={true}
+            />
+          </div>
+          <span className="font-mono text-[10px] text-slate-600 font-black tracking-wider mt-2 uppercase">
+            {code}
+          </span>
+        </div>
+
+        {/* Ticket Details */}
+        <div className="space-y-2.5 text-xs font-semibold text-slate-500 pt-1">
+          <div className="flex justify-between items-center">
+            <span>Mã vé:</span>
+            <span className="text-slate-800 font-mono font-black">
+              #{code}
+            </span>
           </div>
 
-          <div className="my-5 border-t border-dashed border-slate-200" />
-
-          <div className="space-y-3 text-sm">
-            <TicketLine
-              label="Mã phiên gửi:"
-              value={`#${session.sessionCode || "--"}`}
-              mono
-            />
-
-            <TicketLine
-              label={`${session.identifierLabel || "Biển số"}:`}
-              value={session.identifierValue || "--"}
-              mono
-              highlight
-            />
-
-            <TicketLine label="Loại xe:" value={session.vehicle || "--"} />
-
-            <TicketLine label="Loại vé:" value={getTicketPassTypeDisplay()} />
-
-            <TicketLine
-              label="Vị trí đỗ:"
-              value={`${session.floor || "--"}-${session.zoneCode || "--"}`}
-              mono
-            />
-
-            <TicketLine
-              label="Thời gian vào:"
-              value={session.startTime || "--"}
-            />
-
-            <TicketLine label="Thời gian gửi:" value={elapsedText || "--"} />
-
-            <TicketLine label="Hình thức:" value={getTicketPaymentText()} />
+          <div className="flex justify-between items-center">
+            <span>Chủ xe:</span>
+            <span className="text-slate-800 font-extrabold">
+              {userName || "--"}
+            </span>
           </div>
 
-          <div className="my-5 border-t border-dashed border-slate-200" />
+          <div className="flex justify-between items-center">
+            <span>{identifierLabel}:</span>
+            <span className="text-slate-850 text-xs font-black tracking-wide uppercase px-2 py-0.5 bg-slate-100 rounded border border-slate-200 font-mono">
+              {identifierValue}
+            </span>
+          </div>
 
-          {/* QR vé xe */}
-          <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-blue-50 px-4 py-5 text-center shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-500">
-              Mã QR vé xe
-            </p>
+          <div className="flex justify-between">
+            <span>Loại xe:</span>
+            <span className="text-slate-800 font-extrabold">
+              {vehicleTypeName}
+            </span>
+          </div>
 
-            <div className="mt-3 flex justify-center">
-              <div className="rounded-2xl border border-indigo-100 bg-white p-3 shadow-md shadow-indigo-100/70">
-                <QRCodeCanvas
-                  value={buildSessionQrValue()}
-                  size={140}
-                  level="M"
-                  includeMargin={true}
-                />
-              </div>
+          <div className="flex justify-between">
+            <span>Loại vé:</span>
+            <span className="text-slate-800 font-extrabold">
+              {getTicketPassTypeDisplay()}
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>Vị trí:</span>
+            <span className="text-indigo-700 font-mono font-black">
+              {session.floorName || session.floor || "--"}-ZONE-{session.zoneCode || "--"}
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>Thời gian vào:</span>
+            <span className="text-slate-800 font-mono font-semibold">
+              {session.startTime || (session.entryTime ? new Date(session.entryTime).toLocaleString("vi-VN") : "--")}
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>Thời gian gửi:</span>
+            <span className="text-slate-850 font-mono font-bold">
+              {elapsedText || "--"}
+            </span>
+          </div>
+
+        
+
+          <div className="flex justify-between">
+            <span>Hình thức:</span>
+            <span className="text-slate-800 font-extrabold">
+              {getTicketPaymentText()}
+            </span>
+          </div>
+
+          <div className="border-t border-dashed border-slate-200 pt-3 flex flex-col gap-1">
+            <div className="flex justify-between items-end">
+              <span className="text-slate-400 font-bold uppercase text-[10px]">Tổng tạm tính:</span>
+              <span className="text-slate-800 text-base font-black">
+                {isPassBased ? "0đ" : `${totalFee.toLocaleString("vi-VN")}đ`}
+              </span>
             </div>
-
-            <p className="mt-3 font-mono text-xs font-black text-indigo-700">
-              {session.sessionCode || "--"}
-            </p>
-
-            <p className="mt-1 text-[11px] font-semibold text-slate-500">
-              Quét mã để tra cứu nhanh thông tin vé
-            </p>
-          </div>
-
-          <div className="my-5 border-t border-dashed border-slate-200" />
-
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest text-slate-400">
-              Tổng tạm tính:
-            </p>
-
-            <p className="mt-1 text-2xl font-black text-slate-900">
-              {isPassBased ? "0đ" : `${totalFee.toLocaleString("vi-VN")}đ`}
-            </p>
-
             {isPassBased && (
-              <p className="mt-1 text-xs font-bold text-emerald-600">
+              <p className="text-[10px] font-bold text-emerald-600 leading-normal text-left">
                 Phí gửi xe đã được bao gồm trong gói đăng ký.
               </p>
             )}
           </div>
+        </div>
 
-          <div className="mt-7">
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:from-indigo-700 hover:to-blue-700"
-            >
-              Đóng
-            </button>
-          </div>
+        <div className="flex border-t border-slate-100 pt-3 mt-1 shrink-0">
+          <button
+            onClick={onClose}
+            className="w-full rounded-xl border border-slate-250 bg-slate-50 py-2 text-slate-700 hover:bg-slate-100 text-xs font-bold transition-colors cursor-pointer text-center"
+          >
+            Đóng
+          </button>
         </div>
       </div>
     </div>
@@ -3469,6 +3497,26 @@ function DriverQrModal({ data, userName, onClose }) {
   const identifierLabel = getVehicleIdentifierLabel(vehicleTypeName);
 
   const identifierValue = formatLicensePlate(item.licensePlate, vehicleTypeName);
+
+  const getReservationStatusDetails = (status) => {
+    const s = String(status || "").toUpperCase();
+    switch (s) {
+      case "PENDING":
+        return { label: "CHỜ THANH TOÁN", color: "text-amber-600" };
+      case "CONFIRMED":
+        return { label: "ĐÃ XÁC NHẬN", color: "text-blue-600" };
+      case "CANCELLED":
+        return { label: "ĐÃ HỦY", color: "text-rose-600" };
+      case "COMPLETED":
+        return { label: "ĐÃ HOÀN TẤT", color: "text-emerald-600" };
+      case "EXPIRED":
+        return { label: "ĐÃ HẾT HẠN", color: "text-slate-500" };
+      default:
+        return { label: s || "CHỜ THANH TOÁN", color: "text-amber-600" };
+    }
+  };
+
+  const reservationStatus = getReservationStatusDetails(item.status);
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-md">
@@ -3585,8 +3633,8 @@ function DriverQrModal({ data, userName, onClose }) {
               </div>
               <div className="flex justify-between">
                 <span>Trạng thái:</span>
-                <span className="text-amber-600 font-extrabold uppercase text-[10px]">
-                  {item.status || "CHỜ THANH TOÁN"}
+                <span className={`${reservationStatus.color} font-extrabold uppercase text-[10px]`}>
+                  {reservationStatus.label}
                 </span>
               </div>
             </>
