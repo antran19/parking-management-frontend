@@ -1,4 +1,4 @@
-﻿// src/pages/driver/DriverDashboard.jsx
+// src/pages/driver/DriverDashboard.jsx
 import DriverSosBanner from "./DriverSosBanner";
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -52,10 +52,6 @@ const getVehicleIdentifierLabel = (vehicleTypeName) =>
 const getVehicleIdentifierValue = (item) => {
   const vehicleTypeName =
     item?.vehicleTypeName || item?.vehicleType || item?.vehicle || "";
-
-  if (isBicycleVehicleTypeName(vehicleTypeName)) {
-    return item?.licensePlate || "--";
-  }
 
   return formatLicensePlate(item?.licensePlate, vehicleTypeName);
 };
@@ -3094,9 +3090,7 @@ function ReservationTicketPreview({ booking, userName }) {
     booking.vehicleTypeName || booking.vehicleType || "--";
   const isBike = isBicycleVehicleTypeName(vehicleTypeName);
   const identifierLabel = isBike ? "Mã xe đạp" : "Biển số";
-  const identifierValue = isBike
-    ? booking.licensePlate || "--"
-    : formatLicensePlate(booking.licensePlate, vehicleTypeName);
+  const identifierValue = formatLicensePlate(booking.licensePlate, vehicleTypeName);
 
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-left">
@@ -3474,183 +3468,142 @@ function DriverQrModal({ data, userName, onClose }) {
 
   const identifierLabel = getVehicleIdentifierLabel(vehicleTypeName);
 
-  const identifierValue = isBicycleVehicleTypeName(vehicleTypeName)
-    ? item.licensePlate || "--"
-    : formatLicensePlate(item.licensePlate, vehicleTypeName);
+  const identifierValue = formatLicensePlate(item.licensePlate, vehicleTypeName);
 
-  const qrPayload = JSON.stringify(
-    isSession
-      ? {
-        type: "SMART_PARKING_SESSION",
-        sessionCode: item.sessionCode || "",
-        driverName: userName || "",
-        identifierLabel,
-        identifierValue,
-        licensePlate: item.licensePlate || "",
-        vehicleType: vehicleTypeName,
-        zoneCode: item.zoneCode || "",
-        floor: item.floorName || item.floor || "",
-        status: item.status || "",
-      }
-      : {
-        type: "SMART_PARKING_RESERVATION",
-        reservationCode: code || "",
-        driverName: userName || "",
-        identifierLabel,
-        identifierValue,
-        licensePlate: item.licensePlate || "",
-        vehicleType: vehicleTypeName,
-        zoneCode: item.zoneCode || "",
-        zoneName: item.zoneName || "",
-        floor: item.floorName || item.floor || "",
-        reservedFrom: item.reservedFrom || "",
-        reservedTo: item.reservedTo || "",
-        status: item.status || "",
-      },
-  );
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-md">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-hidden rounded-[2rem] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
-        <div className="flex items-start justify-between bg-gradient-to-r from-slate-950 via-indigo-950 to-blue-950 px-6 py-5 text-white">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200">
-              {isSession ? "Mã QR phiên gửi xe" : "Vé giữ chỗ"}
-            </p>
-            <h3 className="mt-2 text-xl font-black">
-              {isSession ? "Mã phiên gửi xe" : "Thông tin vé đặt chỗ"}
-            </h3>
-            <p className="mt-1 font-mono text-xs font-bold text-slate-300">
-              {code || "--"}
-            </p>
-          </div>
+      <div className={`relative w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl flex flex-col gap-4 border-t-8 ${isSession ? "border-t-indigo-600" : "border-t-amber-500"} animate-scale-in`}>
+        {/* Decorative punch holes */}
+        <div className="absolute left-0 top-[105px] -ml-2.5 w-5 h-5 rounded-full bg-[#020617] border-r border-slate-200/80 z-10"></div>
+        <div className="absolute right-0 top-[105px] -mr-2.5 w-5 h-5 rounded-full bg-[#020617] border-l border-slate-200/80 z-10"></div>
 
-          <button
-            onClick={onClose}
-            className="rounded-xl bg-white/15 px-3 py-1.5 text-xs font-black text-white shadow-sm transition hover:bg-white/25"
-          >
-            Đóng
-          </button>
+        {/* Close icon button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 rounded-full p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        {/* Ticket Header */}
+        <div className="text-center border-b border-dashed border-slate-200 pb-3">
+          <h4 className="font-extrabold text-sm text-slate-800 tracking-wider">
+            {isSession ? "PARKING TICKET" : "RESERVATION TICKET"}
+          </h4>
+          <p className={`text-[10px] ${isSession ? "text-indigo-600" : "text-amber-600"} font-extrabold uppercase tracking-wider mt-1`}>
+            {isSession ? "VÉ PHIÊN GỬI XE THỰC TẾ" : "VÉ ĐẶT GIỮ CHỖ TRƯỚC"}
+          </p>
         </div>
 
-        <div className="max-h-[calc(90vh-112px)] overflow-y-auto bg-gradient-to-b from-white via-slate-50 to-white p-7 text-center">
+        {/* QR Code at the top - encodes ONLY the code (not JSON) so it matches manual search! */}
+        <div className="flex flex-col items-center justify-center py-1">
+          <div className="p-1.5 bg-white rounded-xl shadow-inner border border-slate-100 flex items-center justify-center">
+            <QRCodeCanvas
+              value={code}
+              size={120}
+              level="M"
+              includeMargin={true}
+            />
+          </div>
+          <span className="font-mono text-[10px] text-slate-600 font-black tracking-wider mt-2 uppercase">
+            {code}
+          </span>
+        </div>
+
+        {/* Ticket Details */}
+        <div className="space-y-2.5 text-xs font-semibold text-slate-500 pt-1">
+          <div className="flex justify-between items-center">
+            <span>Mã vé:</span>
+            <span className="text-slate-800 font-mono font-black">
+              #{code}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span>Chủ xe:</span>
+            <span className="text-slate-800 font-extrabold">
+              {userName || "--"}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span>{identifierLabel}:</span>
+            <span className="text-slate-850 text-xs font-black tracking-wide uppercase px-2 py-0.5 bg-slate-100 rounded border border-slate-200 font-mono">
+              {identifierValue}
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>Loại xe:</span>
+            <span className="text-slate-800 font-extrabold">
+              {vehicleTypeName}
+            </span>
+          </div>
+
           {isSession ? (
             <>
-              <div className="mx-auto flex h-64 w-64 items-center justify-center rounded-3xl border border-slate-200 bg-white p-4 shadow-inner">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qrPayload)}`}
-                  alt="Driver QR Code"
-                  className="h-full w-full object-contain"
-                />
+              <div className="flex justify-between">
+                <span>Vị trí:</span>
+                <span className="text-indigo-700 font-mono font-black">
+                  {item.floorName || item.floor || "--"}-ZONE-{item.zoneCode || "--"}
+                </span>
               </div>
-
-              <div className="mt-6 grid grid-cols-1 gap-3 text-left sm:grid-cols-2">
-                <InfoRow label="Tài xế" value={userName} />
-                <InfoRow
-                  label={identifierLabel}
-                  value={
-                    isBicycleVehicleTypeName(vehicleTypeName)
-                      ? item.licensePlate || "--"
-                      : formatLicensePlate(
-                        item.licensePlate,
-                        vehicleTypeName,
-                      )
-                  }
-                  mono
-                />
-                <InfoRow
-                  label="Khu vực"
-                  value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`}
-                  mono
-                />
-                <InfoRow label="Trạng thái" value={item.status} />
+              <div className="flex justify-between">
+                <span>Thời gian vào:</span>
+                <span className="text-slate-800 font-mono font-semibold">
+                  {item.startTime || (item.entryTime ? new Date(item.entryTime).toLocaleString("vi-VN") : "--")}
+                </span>
               </div>
-
-              <p className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs font-semibold leading-5 text-indigo-700">
-                Xuất trình mã QR phiên gửi xe cho nhân viên tại cổng khi cần hỗ
-                trợ.
-              </p>
+              <div className="flex justify-between">
+                <span>Trạng thái:</span>
+                <span className="text-emerald-600 font-extrabold uppercase text-[10px]">
+                  {item.status || "ĐANG GỬI"}
+                </span>
+              </div>
             </>
           ) : (
             <>
-              <div className="rounded-3xl border border-indigo-100 bg-gradient-to-br from-white via-slate-50 to-indigo-50/50 p-5 text-left shadow-lg shadow-indigo-100/40">
-                <div className="text-center">
-                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-600">
-                    Reservation Ticket
-                  </p>
-                  <h3 className="mt-2 text-lg font-black text-slate-900">
-                    Vé giữ chỗ
-                  </h3>
-                  <p className="mt-1 font-mono text-xs font-black text-indigo-500">
-                    {code || "--"}
-                  </p>
-                </div>
-
-                {/* QR vé đặt chỗ */}
-                <div className="mt-5 rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-blue-50 px-4 py-5 text-center shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-500">
-                    Mã QR vé đặt chỗ
-                  </p>
-
-                  <div className="mt-3 flex justify-center">
-                    <div className="rounded-2xl border border-indigo-100 bg-white p-3 shadow-md shadow-indigo-100/70">
-                      <QRCodeCanvas
-                        value={qrPayload}
-                        size={150}
-                        level="M"
-                        includeMargin={true}
-                      />
-                    </div>
-                  </div>
-
-                  <p className="mt-3 font-mono text-xs font-black text-indigo-700">
-                    {code || "--"}
-                  </p>
-
-                  <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                    Quét mã để xem nhanh thông tin đặt chỗ
-                  </p>
-                </div>
-
-                <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-                  <InfoRow label="Chủ xe" value={userName || "--"} tone="primary" />
-                  <InfoRow label="Loại xe" value={vehicleTypeName || "--"} />
-                  <InfoRow
-                    label={identifierLabel}
-                    value={identifierValue}
-                    mono
-                    tone="primary"
-                  />
-                  <InfoRow
-                    label="Khu vực"
-                    value={`${item.floorName || item.floor || "--"}-${item.zoneCode || "--"}`}
-                    mono
-                  />
-                  <InfoRow
-                    label="Bắt đầu"
-                    value={
-                      item.reservedFrom
-                        ? new Date(item.reservedFrom).toLocaleString("vi-VN")
-                        : "--"
-                    }
-                  />
-                  <InfoRow
-                    label="Kết thúc"
-                    value={
-                      item.reservedTo
-                        ? new Date(item.reservedTo).toLocaleString("vi-VN")
-                        : "--"
-                    }
-                  />
-                  <InfoRow label="Trạng thái" value={item.status || "--"} tone="warning" />
-                </div>
-
-                <p className="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-blue-50 px-4 py-3 text-center text-xs font-bold leading-5 text-indigo-700 shadow-sm">
-                  Xuất trình mã đặt chỗ hoặc {identifierLabel.toLowerCase()} cho
-                  nhân viên tại cổng.
-                </p>
+              <div className="flex justify-between">
+                <span>Vị trí đỗ:</span>
+                <span className="text-indigo-750 font-mono font-black">
+                  {item.floorName || item.floor || "--"}-ZONE-{item.zoneCode || "--"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Thời gian hẹn:</span>
+                <span className="text-slate-800 font-mono font-semibold text-right max-w-[180px]">
+                  {item.reservedFrom ? new Date(item.reservedFrom).toLocaleString("vi-VN") : "--"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Hạn đến:</span>
+                <span className="text-slate-800 font-mono font-semibold text-right max-w-[180px]">
+                  {item.reservedTo ? new Date(item.reservedTo).toLocaleString("vi-VN") : "--"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Trạng thái:</span>
+                <span className="text-amber-600 font-extrabold uppercase text-[10px]">
+                  {item.status || "CHỜ THANH TOÁN"}
+                </span>
               </div>
             </>
           )}
+
+          <div className="border-t border-dashed border-slate-200 pt-3 text-center text-[10px] text-slate-400 font-medium leading-normal mt-1">
+            Xuất trình mã QR này tại cổng kiểm soát.
+          </div>
+        </div>
+
+        <div className="flex border-t border-slate-100 pt-3 mt-1 shrink-0">
+          <button
+            onClick={onClose}
+            className="w-full rounded-xl border border-slate-250 bg-slate-50 py-2 text-slate-700 hover:bg-slate-100 text-xs font-bold transition-colors cursor-pointer text-center animate-pulse"
+          >
+            Đóng
+          </button>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * DriverMapping — Bản đồ bãi xe cho Driver (Quảng phụ trách)
  *
  * TODO (Quảng): Implement sơ đồ bãi xe visual
@@ -2020,34 +2020,6 @@ function ZoneModal({
     );
   }, [realtimeNow]);
 
-  const formatReservationTimeLabel = (value) => {
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) return "--";
-
-    return date.toLocaleString("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-    });
-  };
-
-  const formatReservationDateTimeFull = (value) => {
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) return "--";
-
-    return date.toLocaleString("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  };
-
   const plateOptions = isBicycle
     ? []
     : (plates || [])
@@ -2100,195 +2072,187 @@ function ZoneModal({
 
     try {
       await onReserve(isBicycle ? null : finalPlate);
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl shadow-slate-950/30">
-        <div className="flex items-center justify-between bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-6 py-5 text-white">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl animate-scale-in">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 px-6 py-5 text-white">
           <div>
-            <h3 className="text-lg font-bold">Zone {zone.zoneCode}</h3>
-            <p className="mt-0.5 text-xs uppercase tracking-widest text-slate-400">
+            <h3 className="text-lg font-black tracking-tight">Giữ chỗ phân khu {zone.zoneCode}</h3>
+            <p className="mt-1 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
               {zone.name} • {getVehicleLabel(zone.type)}
             </p>
           </div>
-
           <button
             onClick={onClose}
-            className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10"
+            className="rounded-full p-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
-            ✕
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
-        <div className="max-h-[68vh] space-y-4 overflow-y-auto bg-slate-50 p-5">
+        {/* Modal Body */}
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto bg-slate-50/50 p-6 scrollbar-none">
           {emergencyActive && (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left">
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left animate-pulse">
               <p className="text-xs font-black uppercase tracking-widest text-rose-700">
-                🚨 Đang báo động khẩn cấp
+                🚨 ĐANG CÓ SOS BÁO ĐỘNG
               </p>
-              <p className="mt-2 text-xs font-semibold leading-5 text-rose-800">
-                Tài xế không thể tạo đặt chỗ mới trong lúc SOS đang bật. Vui
-                lòng quay về Dashboard và làm theo hướng dẫn an toàn.
+              <p className="mt-2 text-xs font-semibold leading-relaxed text-rose-800">
+                Hệ thống đang trong tình trạng khẩn cấp. Tài xế không thể tạo đặt chỗ mới. Vui lòng làm theo hướng dẫn của nhân viên bãi xe.
               </p>
               {emergencyMessage && (
-                <p className="mt-2 rounded-xl bg-white/70 px-3 py-2 text-[11px] font-bold text-rose-700">
-                  {emergencyMessage}
+                <p className="mt-2 rounded-xl bg-white/70 px-3 py-2 text-[11px] font-bold text-rose-700 font-mono">
+                  Lý do: {emergencyMessage}
                 </p>
               )}
             </div>
           )}
-          <div
-            className={`rounded-2xl border p-5 text-center flex flex-col items-center ${zone.status === "CLOSED"
-              ? "bg-slate-100 border-slate-200 text-slate-600"
-              : isCurrent
-                ? "bg-indigo-50 border-indigo-100 text-indigo-800"
-                : status === "available"
-                  ? "bg-emerald-50 border-emerald-100 text-emerald-800"
-                  : status === "nearFull"
-                    ? "bg-amber-50 border-amber-100 text-amber-800"
-                    : "bg-rose-50 border-rose-100 text-rose-800"
-              }`}
-          >
-            <div className="text-[11px] font-black tracking-widest">
-              {zone.status === "CLOSED"
-                ? "CLOSED"
-                : isCurrent
-                  ? "ACTIVE"
-                  : available > 0
-                    ? "OPEN"
-                    : "FULL"}
-            </div>
 
-            <h4 className="mt-2 text-sm font-bold uppercase tracking-wider">
-              {zone.status === "CLOSED"
-                ? "Zone này đã tạm đóng bởi nhân viên"
+          {/* Status badge representing availability */}
+          <div
+            className={`rounded-2xl border px-4 py-3 flex items-center justify-between text-xs font-bold ${
+              zone.status === "CLOSED"
+                ? "bg-slate-100 border-slate-200 text-slate-600"
                 : isCurrent
-                  ? "Xe của bạn đang ở zone này"
-                  : getStatusLabel(status)}
-            </h4>
+                  ? "bg-indigo-50 border-indigo-100 text-indigo-800"
+                  : status === "available"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-850"
+                    : status === "nearFull"
+                      ? "bg-amber-50 border-amber-200 text-amber-850"
+                      : "bg-rose-50 border-rose-200 text-rose-850"
+            }`}
+          >
+            <span>Trạng thái zone:</span>
+            <span className="uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-white shadow-xs">
+              {zone.status === "CLOSED"
+                ? "Đã đóng"
+                : isCurrent
+                  ? "Xe đang gửi"
+                  : status === "available"
+                    ? "Còn chỗ trống"
+                    : status === "nearFull"
+                      ? "Sắp đầy"
+                      : "Đã đầy"}
+            </span>
           </div>
 
-          <Info label="Tổng sức chứa" value={zone.capacity} />
-          <Info label="Đang gửi" value={zone.currentCount} />
-          <Info label="Đã giữ chỗ" value={zone.reservedCount} />
-          <Info label="Còn nhận thêm" value={available} />
-
           {canReserve && (
-            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left">
-              {!isBicycle && (
-                <div>
-                  <p className="text-xs font-black uppercase tracking-wider text-slate-600">
-                    Biển số được quản lý
-                  </p>
+            <div className="space-y-4">
+              {/* License Plate selection section */}
+              {!isBicycle ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-2">
+                      Chọn biển số xe đỗ
+                    </label>
 
-                  {plateOptions.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {plateOptions.map((plate) => (
-                        <button
-                          key={plate.licensePlate}
-                          type="button"
-                          onClick={() => {
-                            setSelectedPlate(plate.licensePlate);
-                            setNewPlate("");
-                          }}
-                          className={`rounded-lg border px-3 py-2 text-xs font-bold transition-all ${selectedPlate === plate.licensePlate && !newPlate
-                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    {plateOptions.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {plateOptions.map((plate) => (
+                          <button
+                            key={plate.licensePlate}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPlate(plate.licensePlate);
+                              setNewPlate("");
+                            }}
+                            className={`rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
+                              selectedPlate === plate.licensePlate && !newPlate
+                                ? "border-indigo-500 bg-indigo-50 text-indigo-700 shadow-xs"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                             }`}
-                        >
-                          {formatLicensePlate(
-                            plate.licensePlate,
-                            plate.vehicleTypeName,
-                          )}
-                          <span className="ml-1 text-[9px] font-black uppercase text-slate-400">
-                            {plate.vehicleTypeName}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
-                      Chưa có biển số {getVehicleLabel(zone.type)} trong hồ sơ.
-                      Bạn có thể nhập biển số mới, hệ thống sẽ lưu kèm loại xe
-                      của zone này.
-                    </p>
-                  )}
+                          >
+                            {formatLicensePlate(plate.licensePlate, plate.vehicleTypeName)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3.5 py-2.5 text-[11px] font-bold leading-normal text-amber-800">
+                        Chưa có biển số {getVehicleLabel(zone.type)} nào trong hồ sơ của bạn. Hãy nhập biển số mới ở ô dưới.
+                      </div>
+                    )}
+                  </div>
 
-                  <div className="mt-3">
-                    <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Đăng ký biển số mới
+                  <div className="border-t border-slate-100 pt-3">
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-2">
+                      Hoặc nhập biển số xe khác
                     </label>
                     <input
                       value={newPlate}
                       onChange={(event) =>
                         setNewPlate(normalizePlateInput(event.target.value))
                       }
-                      placeholder="Ví dụ: 59A1-12345"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50"
+                      placeholder="Ví dụ: 30A-123.45"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-slate-800 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-50"
                     />
-
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-5 text-left flex items-start gap-3 animate-fade-in">
+                  <span className="text-xl">🚲</span>
+                  <div className="text-xs text-indigo-900/80 leading-relaxed font-semibold">
+                    <p className="font-extrabold text-indigo-950 text-sm mb-1">Vé đặt giữ chỗ Xe đạp</p>
+                    Hệ thống tự động sinh mã định danh vé xe đạp ngẫu nhiên dạng <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-150 text-indigo-800 font-extrabold">BCyymmdd-xxxx</code> cho bạn khi đến cổng check-in. Bạn không cần khai báo biển số.
                   </div>
                 </div>
               )}
 
-              <div className="rounded-[1.75rem] border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm shadow-slate-200/70">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-wider text-slate-700">
-                      Thời gian giữ chỗ
-                    </p>
-                  </div>
+              {/* Booking hold time preview */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4 text-left">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                  Thời hạn hiệu lực vé giữ chỗ
+                </h4>
 
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/80 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
-                    Thời điểm hiện tại
-                  </p>
-                  <p className="mt-2 text-base font-black text-indigo-900">
-                    {formatReservationDateTimeFull(realtimeNow)}
-                  </p>
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 flex items-center justify-between text-center relative">
+                  <div className="text-left space-y-1">
+                    <span className="block text-[9px] font-black uppercase tracking-wider text-indigo-455">
                       Bắt đầu
-                    </p>
-                    <p className="mt-2 text-sm font-black text-slate-900">
-                      {formatReservationDateTimeFull(realtimeNow)}
-                    </p>
-
+                    </span>
+                    <span className="block text-xs font-black text-indigo-900 font-mono">
+                      {realtimeNow.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span className="block text-[9px] font-bold text-slate-400">
+                      Hôm nay
+                    </span>
                   </div>
 
-                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 shadow-sm">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
-                      Hết hạn
-                    </p>
-                    <p className="mt-2 text-sm font-black text-indigo-900">
-                      {formatReservationDateTimeFull(reservedToPreview)}
-                    </p>
+                  {/* Horizontal arrow path */}
+                  <div className="flex-1 flex flex-col items-center justify-center px-4">
+                    <span className="text-[10px] font-black text-indigo-650 tracking-wider bg-white border border-indigo-100 px-2 py-0.5 rounded-full shadow-xs">
+                      {DRIVER_RESERVATION_HOLD_MINUTES} PHÚT
+                    </span>
+                    <div className="w-full h-0.5 border-t border-dashed border-indigo-300 mt-2 relative">
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+                    </div>
+                  </div>
 
+                  <div className="text-right space-y-1">
+                    <span className="block text-[9px] font-black uppercase tracking-wider text-indigo-455">
+                      Hết hạn
+                    </span>
+                    <span className="block text-xs font-black text-indigo-950 font-mono">
+                      {reservedToPreview.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span className="block text-[9px] font-bold text-slate-400">
+                      Hôm nay
+                    </span>
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
-                    Lưu ý check-in
-                  </p>
-                  <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">
-                    Vui lòng{" "}
-                    <span className="font-black">
-                      check-in đúng trong khoảng thời gian từ{" "}
-                      {formatReservationDateTimeFull(realtimeNow)} đến{" "}
-                      {formatReservationDateTimeFull(reservedToPreview)}
-                    </span>
-                    . Nếu quá thời gian này, đặt chỗ có thể hết hiệu lực và hệ thống có quyền
-                    từ chối giữ chỗ.
+                <div className="rounded-xl bg-amber-50 border border-amber-200/60 p-3 flex items-start gap-2.5">
+                  <span className="text-sm">⚠️</span>
+                  <p className="text-[10.5px] font-bold leading-normal text-amber-800">
+                    Vui lòng check-in trước <span className="font-extrabold text-amber-950 font-mono">{reservedToPreview.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>. Sau thời điểm này, vé đặt chỗ của bạn sẽ tự động hủy để giải phóng mặt bằng cho xe khác.
                   </p>
                 </div>
               </div>
@@ -2296,10 +2260,11 @@ function ZoneModal({
           )}
         </div>
 
+        {/* Modal Footer */}
         <div className="flex gap-3 border-t border-slate-200 bg-white p-5">
           <button
             onClick={onClose}
-            className="flex-1 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-white"
+            className="flex-1 rounded-xl border border-slate-200 py-3 text-xs font-bold text-slate-500 transition-colors hover:bg-slate-50 cursor-pointer text-center"
           >
             Đóng
           </button>
@@ -2308,18 +2273,18 @@ function ZoneModal({
             <button
               type="button"
               disabled
-              className="flex-1 rounded-xl bg-rose-100 py-3 text-sm font-black text-rose-700 opacity-80"
+              className="flex-1 rounded-xl bg-rose-100 py-3 text-xs font-black text-rose-700 opacity-80"
             >
-              Đặt chỗ đang tạm khóa
+              Đang tạm khóa
             </button>
           ) : canReserve ? (
             <button
               type="button"
               onClick={submitReservation}
               disabled={isSubmitting}
-              className="flex-1 rounded-xl bg-slate-900 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex-1 rounded-xl bg-slate-950 py-3 text-xs font-black text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer shadow-md text-center"
             >
-              {isSubmitting ? "Đang tạo..." : "Tạo đặt chỗ"}
+              {isSubmitting ? "Đang tạo..." : "Xác nhận giữ chỗ"}
             </button>
           ) : null}
         </div>
