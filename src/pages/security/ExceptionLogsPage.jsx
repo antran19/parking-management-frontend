@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { staffApi } from "../../api/parkingApi";
-import { formatLicensePlate, isValidVietnamLicensePlate } from "../../utils/licensePlate";
+import { formatLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
 
 // ==============================================================
 // CONSTANTS — Nhãn hiển thị cho từng loại sự cố an ninh
@@ -95,8 +95,19 @@ export default function ExceptionLogsPage({ showToast, user }) {
   // Detail Modal
   const [viewingLogDetail, setViewingLogDetail] = useState(null);
 
+  // Resolve Modal
+  const [resolvingLog, setResolvingLog] = useState(null);
+  const [resolveForm, setResolveForm] = useState({
+    resolutionNote: "",
+    selectedFiles: [],
+  });
+  const [resolvingSubmitting, setResolvingSubmitting] = useState(false);
+  const [showResolveWebcam, setShowResolveWebcam] = useState(false);
+  const resolveVideoRef = useRef(null);
+  const resolveStreamRef = useRef(null);
+
   // State: Có liên quan phương tiện hay không?
-  const [isVehicleRelated, setIsVehicleRelated] = useState(true);
+  const [isVehicleRelated, setIsVehicleRelated] = useState(false);
 
   // Form
   const [form, setForm] = useState({
@@ -115,14 +126,23 @@ export default function ExceptionLogsPage({ showToast, user }) {
     const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleTypeName);
 
     if (formattedPlate.trim()) {
-      if (!isValidVietnamLicensePlate(formattedPlate)) {
-        showToast("Biển số xe không đúng định dạng. Vui lòng kiểm tra lại!", "error");
+      const validationError = getLicensePlateValidationError(formattedPlate, form.vehicleTypeName);
+      if (validationError) {
+        showToast(validationError, "error");
         setForm(prev => ({ ...prev, licensePlate: "" }));
         return;
       }
 
       setForm(prev => ({ ...prev, licensePlate: formattedPlate }));
 
+      if (!editingId) {
+        try {
+          await staffApi.getActiveSessionByPlate(formattedPlate);
+        } catch (err) {
+          showToast("Hiện tại xe chưa có trong bãi", "error");
+          setForm(prev => ({ ...prev, licensePlate: "" }));
+        }
+      }
 
     }
   };
@@ -184,8 +204,11 @@ export default function ExceptionLogsPage({ showToast, user }) {
   }, [viewingImage, viewingLogDetail]);
 
   useEffect(() => {
-    return () => selectedFiles.forEach(file => URL.revokeObjectURL(file.preview));
-  }, [selectedFiles]);
+    return () => {
+      selectedFiles.forEach(file => URL.revokeObjectURL(file.preview));
+      resolveForm.selectedFiles.forEach(file => URL.revokeObjectURL(file.preview));
+    }
+  }, [selectedFiles, resolveForm.selectedFiles]);
 
   const handleAddFiles = (files) => {
     if (!files || !files.length) return;
@@ -287,7 +310,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
   const cancelEdit = () => {
     setEditingId(null);
-    setIsVehicleRelated(true);
+    setIsVehicleRelated(false);
     setForm({
       exceptionType: "LOST_TICKET",
       description: "",
@@ -299,14 +322,121 @@ export default function ExceptionLogsPage({ showToast, user }) {
     setSelectedFiles([]);
   };
 
-  // Resolve Click
-  const handleResolve = async (logId) => {
+  // Resolve Modal Handlers
+  const openResolveModal = (log) => {
+    setResolvingLog(log);
+    setResolveForm({ resolutionNote: "", selectedFiles: [] });
+  };
+
+  const closeResolveModal = () => {
+    setResolvingLog(null);
+    if (resolveStreamRef.current) {
+      resolveStreamRef.current.getTracks().forEach(track => track.stop());
+      resolveStreamRef.current = null;
+    }
+    setShowResolveWebcam(false);
+  };
+
+  const handleResolveImageUpload = (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const newFiles = files.map(file => Object.assign(file, { preview: URL.createObjectURL(file) }));
+    setResolveForm(prev => ({ ...prev, selectedFiles: [...prev.selectedFiles, ...newFiles] }));
+    e.target.value = null;
+  };
+
+  const handleRemoveResolveImage = (indexToRemove) => {
+    setResolveForm(prev => {
+      const newFiles = [...prev.selectedFiles];
+      URL.revokeObjectURL(newFiles[indexToRemove].preview);
+      newFiles.splice(indexToRemove, 1);
+      return { ...prev, selectedFiles: newFiles };
+    });
+  };
+
+  const startResolveWebcam = async () => {
+    setShowResolveWebcam(true);
     try {
-      await staffApi.resolveSecurityException(logId, { handledByUserId: user.id });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      if (resolveVideoRef.current) resolveVideoRef.current.srcObject = stream;
+      resolveStreamRef.current = stream;
+    } catch (err) {
+      showToast("Không thể truy cập camera.", "error");
+      setShowResolveWebcam(false);
+    }
+  };
+
+  const stopResolveWebcam = () => {
+    if (resolveStreamRef.current) {
+      resolveStreamRef.current.getTracks().forEach(track => track.stop());
+      resolveStreamRef.current = null;
+    }
+    setShowResolveWebcam(false);
+  };
+
+  const captureResolveImage = () => {
+    if (resolveVideoRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = resolveVideoRef.current.videoWidth;
+      canvas.height = resolveVideoRef.current.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(resolveVideoRef.current, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const newFile = new File([blob], `webcam_${Date.now()}.jpg`, { type: "image/jpeg" });
+          Object.assign(newFile, { preview: URL.createObjectURL(newFile) });
+          setResolveForm(prev => ({ ...prev, selectedFiles: [...prev.selectedFiles, newFile] }));
+          stopResolveWebcam();
+        }
+      }, "image/jpeg", 0.9);
+    }
+  };
+
+  const submitResolve = async (e) => {
+    e.preventDefault();
+    if (!user?.id) {
+      showToast("Thiếu thông tin người dùng, vui lòng đăng nhập lại.", "error");
+      return;
+    }
+
+    setResolvingSubmitting(true);
+    let uploadedUrls = [];
+
+    try {
+      if (resolveForm.selectedFiles.length > 0) {
+        showToast("Đang tải ảnh lên Cloudinary...", "warning");
+        for (const file of resolveForm.selectedFiles) {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_PRESET_EXCEPTIONS);
+
+          const res = await fetch(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME_EXCEPTIONS}/image/upload`,
+            { method: "POST", body: formData }
+          );
+          const data = await res.json();
+          if (data.secure_url) {
+            uploadedUrls.push("[RESOLVE]" + data.secure_url);
+          } else {
+            throw new Error(data.error?.message || "Lỗi khi upload ảnh");
+          }
+        }
+      }
+
+      const payload = {
+        handledByUserId: user.id,
+        resolutionNote: resolveForm.resolutionNote.trim(),
+        imageUrls: uploadedUrls.length > 0 ? uploadedUrls : undefined
+      };
+
+      await staffApi.resolveSecurityException(resolvingLog.id, payload);
       showToast("Đã giải quyết sự cố!", "success");
+      closeResolveModal();
       fetchLogs();
     } catch (err) {
-      showToast(err.response?.data?.message || "Lỗi khi giải quyết sự cố", "error");
+      showToast(err.response?.data?.message || err.message || "Lỗi khi giải quyết sự cố", "error");
+    } finally {
+      setResolvingSubmitting(false);
     }
   };
 
@@ -319,10 +449,20 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
     if (isVehicleRelated && form.licensePlate.trim()) {
       const formattedPlate = formatLicensePlate(form.licensePlate, form.vehicleTypeName);
-      if (!isValidVietnamLicensePlate(formattedPlate)) {
-        showToast("Biển số xe không đúng định dạng!", "error");
+      const validationError = getLicensePlateValidationError(formattedPlate, form.vehicleTypeName);
+      if (validationError) {
+        showToast(validationError, "error");
         setForm(prev => ({ ...prev, licensePlate: "" }));
         return;
+      }
+
+      if (!editingId) {
+        try {
+          await staffApi.getActiveSessionByPlate(formattedPlate);
+        } catch (err) {
+          showToast("Hiện tại xe chưa có trong bãi", "error");
+          return;
+        }
       }
     }
     if (!user?.id) {
@@ -362,6 +502,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
       if (isVehicleRelated && form.licensePlate.trim()) {
         payload.licensePlate = formatLicensePlate(form.licensePlate.trim(), form.vehicleTypeName);
+        payload.vehicleType = form.vehicleTypeName;
       }
 
       if (editingId) {
@@ -374,7 +515,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
         await staffApi.logSecurityException(payload);
         showToast("✅ Đã ghi nhận sự cố mới", "success");
         setForm(prev => ({ ...prev, exceptionType: "LOST_TICKET", description: "", licensePlate: "", existingImages: [] }));
-        setIsVehicleRelated(true);
+        setIsVehicleRelated(false);
         selectedFiles.forEach(f => URL.revokeObjectURL(f.preview));
         setSelectedFiles([]);
       }
@@ -595,16 +736,23 @@ export default function ExceptionLogsPage({ showToast, user }) {
                       </span>
 
                       {log.licensePlate && (
-                        <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-black tracking-widest text-slate-900 shadow-sm">
-                          {log.licensePlate}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-black tracking-widest text-slate-900 shadow-sm">
+                            {log.licensePlate}
+                          </span>
+                          {log.vehicleType && (
+                            <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                              {log.vehicleType}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-2">
                       {!isResolved && (
-                        <button onClick={(e) => { e.stopPropagation(); handleResolve(log.id); }} className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
+                        <button onClick={(e) => { e.stopPropagation(); openResolveModal(log); }} className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
                           Giải quyết
                         </button>
                       )}
@@ -617,21 +765,64 @@ export default function ExceptionLogsPage({ showToast, user }) {
                   </div>
 
                   {/* Body */}
-                  <p className="text-sm font-medium leading-relaxed text-slate-700 my-1">{log.description || "—"}</p>
+                  <div className="text-sm font-medium leading-relaxed text-slate-700 my-1">
+                    {(() => {
+                      const fullDesc = log.description || "—";
+                      const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
+                      if (separatorRegex.test(fullDesc)) {
+                        const [desc, res] = fullDesc.split(separatorRegex);
+                        return (
+                          <div className="flex flex-col gap-2.5">
+                            <p className="whitespace-pre-wrap">{desc.trim()}</p>
+                            <div className="rounded-xl border-l-2 border-emerald-400 bg-emerald-50/70 p-3 shadow-inner">
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-emerald-600 mb-1 flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Ghi chú giải quyết
+                              </span>
+                              <p className="font-semibold text-emerald-900 text-xs whitespace-pre-wrap">{res.trim()}</p>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return <p className="whitespace-pre-wrap">{fullDesc.trim()}</p>;
+                    })()}
+                  </div>
 
                   {/* Image Thumbnails */}
                   {(() => {
-                    const validImages = log.imageUrls ? log.imageUrls.filter(url => url && url.startsWith('http')) : [];
+                    const validImages = log.imageUrls ? log.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http'))) : [];
+                    const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
+                    const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+
                     return validImages.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {validImages.map((url, idx) => (
-                          <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
-                            <img src={url} alt="Sự cố" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                      <div className="flex flex-wrap gap-6 mt-2">
+                        {evidenceImages.length > 0 && (
+                          <div className="flex-1 min-w-[120px]">
+                            <span className="block text-[10px] font-bold text-slate-500 mb-1">Minh chứng:</span>
+                            <div className="flex flex-wrap gap-2">
+                              {evidenceImages.map((url, idx) => (
+                                <div key={`ev-${idx}`} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
+                                  <img src={url} alt="Minh chứng" className="h-16 w-16 object-cover rounded-md border border-slate-200 shadow-sm hover:opacity-80 transition-opacity" />
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
+                        )}
+                        {resolveImages.length > 0 && (
+                          <div className="flex-1 min-w-[120px]">
+                            <span className="block text-[10px] font-bold text-emerald-600 mb-1">Ảnh giải quyết:</span>
+                            <div className="flex flex-wrap gap-2">
+                              {resolveImages.map((url, idx) => (
+                                <div key={`res-${idx}`} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer">
+                                  <img src={url} alt="Giải quyết" className="h-16 w-16 object-cover rounded-md border border-emerald-200 shadow-sm hover:opacity-80 transition-opacity" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400 italic">Không có ảnh</p>
+                      <p className="text-xs text-slate-400 italic mt-1">Không có ảnh</p>
                     );
                   })()}
 
@@ -697,9 +888,16 @@ export default function ExceptionLogsPage({ showToast, user }) {
                   {viewingLogDetail.licensePlate && (
                     <div>
                       <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
-                      <span className="inline-flex items-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm">
-                        {viewingLogDetail.licensePlate}
-                      </span>
+                      <div className="flex items-stretch gap-2">
+                        <span className="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm whitespace-nowrap">
+                          {viewingLogDetail.licensePlate}
+                        </span>
+                        {viewingLogDetail.vehicleType && (
+                          <span className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 shadow-sm whitespace-nowrap">
+                            {viewingLogDetail.vehicleType}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -707,30 +905,87 @@ export default function ExceptionLogsPage({ showToast, user }) {
                 </div>
               )}
 
-              {/* Description */}
-              <div>
-                <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
-                <p className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-5 leading-relaxed shadow-inner">
-                  {viewingLogDetail.description || "Không có mô tả chi tiết."}
-                </p>
-              </div>
+              {/* Description and Resolution */}
+              {(() => {
+                const fullDesc = viewingLogDetail.description || "Không có mô tả chi tiết.";
+                const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
 
-              {/* Images */}
-              {viewingLogDetail.imageUrls?.length > 0 && (
-                <div>
-                  <span className="block text-xs font-bold uppercase text-slate-500 mb-3">Hình ảnh minh chứng</span>
-                  <div className="flex flex-wrap gap-3">
-                    {viewingLogDetail.imageUrls.map((url, idx) => (
-                      <div key={idx} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:border-slate-400">
-                        <img src={url} alt="Sự cố" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                if (separatorRegex.test(fullDesc)) {
+                  const [desc, res] = fullDesc.split(separatorRegex);
+                  return (
+                    <div className="space-y-4">
+                      <div>
+                        <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
+                        <div className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-4 leading-relaxed shadow-inner">
+                          <p>{desc.trim()}</p>
                         </div>
                       </div>
-                    ))}
+                      <div>
+                        <span className="block text-xs font-bold uppercase text-emerald-600 mb-2 flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          Ghi chú giải quyết
+                        </span>
+                        <div className="text-sm font-medium text-emerald-950 whitespace-pre-wrap rounded-2xl bg-emerald-50 border border-emerald-200 p-4 leading-relaxed shadow-inner">
+                          <p>{res.trim()}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div>
+                    <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
+                    <div className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-4 leading-relaxed shadow-inner">
+                      <p>{fullDesc.trim()}</p>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
+
+              {/* Images */}
+              {viewingLogDetail.imageUrls?.length > 0 && (() => {
+                const validImages = viewingLogDetail.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http')));
+                const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
+                const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+
+                if (validImages.length === 0) return null;
+
+                return (
+                  <div className="flex flex-wrap gap-8">
+                    {evidenceImages.length > 0 && (
+                      <div className="flex-1 min-w-[150px]">
+                        <span className="block text-xs font-bold uppercase text-slate-500 mb-3">Hình ảnh minh chứng</span>
+                        <div className="flex flex-wrap gap-3">
+                          {evidenceImages.map((url, idx) => (
+                            <div key={`ev-${idx}`} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:border-slate-400">
+                              <img src={url} alt="Sự cố" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {resolveImages.length > 0 && (
+                      <div className="flex-1 min-w-[150px]">
+                        <span className="block text-xs font-bold uppercase text-emerald-600 mb-3">Hình ảnh giải quyết</span>
+                        <div className="flex flex-wrap gap-3">
+                          {resolveImages.map((url, idx) => (
+                            <div key={`res-${idx}`} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-emerald-200 shadow-sm transition-all hover:border-emerald-400">
+                              <img src={url} alt="Giải quyết" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Footer info */}
               <div className="pt-6 mt-4 border-t border-slate-100 flex flex-col gap-2">
@@ -755,6 +1010,114 @@ export default function ExceptionLogsPage({ showToast, user }) {
               <button onClick={() => setViewingLogDetail(null)} className="rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-8 py-3.5 transition-colors active:scale-95 shadow-sm">
                 Đóng
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Giải quyết sự cố Modal */}
+      {resolvingLog && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={closeResolveModal}>
+          <div className="relative max-w-lg w-full max-h-[90vh] overflow-y-auto rounded-3xl bg-white shadow-2xl p-8" onClick={(e) => e.stopPropagation()}>
+            <button onClick={closeResolveModal} disabled={resolvingSubmitting} className="absolute top-6 right-6 text-slate-400 hover:bg-slate-100 hover:text-slate-800 p-2 rounded-full transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+
+            <h3 className="text-2xl font-black text-slate-900 mb-6 flex items-center gap-3">
+              <span className="text-3xl">📋</span> Giải quyết sự cố
+            </h3>
+
+            <div className="space-y-6">
+              {/* Type and Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Loại sự cố</span>
+                  <span className={`inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border ${EXCEPTION_BADGE_COLOR[resolvingLog.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                    {EXCEPTION_LABELS[resolvingLog.exceptionType] || resolvingLog.exceptionType}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Trạng thái</span>
+                  <span className={`inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border bg-amber-50 text-amber-700 border-amber-200`}>
+                    ⏳ Đang xử lý
+                  </span>
+                </div>
+              </div>
+
+              {/* Vehicle info */}
+              {resolvingLog.licensePlate && (
+                <div>
+                  <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
+                  <div className="flex items-stretch gap-2">
+                    <span className="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm whitespace-nowrap">
+                      {resolvingLog.licensePlate}
+                    </span>
+                    {resolvingLog.vehicleType && (
+                      <span className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 shadow-sm whitespace-nowrap">
+                        {resolvingLog.vehicleType}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Resolve Form */}
+              <form onSubmit={submitResolve} className="space-y-6">
+                <div>
+                  <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết sự cố</span>
+                  <textarea
+                    value={resolveForm.resolutionNote}
+                    onChange={(e) => setResolveForm({ ...resolveForm, resolutionNote: e.target.value })}
+                    rows="4"
+                    placeholder="Ghi rõ tình huống xảy ra và cách xử lý..."
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Đính kèm ảnh minh chứng (Tuỳ chọn)</span>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex gap-3">
+                      <button type="button" onClick={startResolveWebcam} disabled={resolvingSubmitting || showResolveWebcam} className="flex-1 rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-sm font-semibold hover:bg-slate-100 transition-colors">📸 Mở Camera</button>
+                      <label className="flex-1 cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 py-3 text-center text-sm font-semibold hover:bg-slate-100 transition-colors">
+                        <input type="file" accept="image/*" className="hidden" onChange={handleResolveImageUpload} disabled={resolvingSubmitting} multiple />
+                        🖼️ Chọn ảnh
+                      </label>
+                    </div>
+
+                    {showResolveWebcam && (
+                      <div className="mt-2 flex flex-col gap-3">
+                        <div className="relative rounded-xl overflow-hidden border-2 border-slate-800 bg-black aspect-video flex flex-col shadow-lg">
+                          <video ref={resolveVideoRef} autoPlay playsInline className="w-full h-full object-cover"></video>
+                        </div>
+                        <div className="flex justify-center gap-3">
+                          <button type="button" onClick={stopResolveWebcam} className="rounded-xl bg-slate-200 text-slate-700 px-6 py-3.5 text-sm font-bold flex-1">Hủy</button>
+                          <button type="button" onClick={captureResolveImage} className="rounded-xl bg-red-600 text-white px-6 py-3.5 text-sm font-bold flex-1">📸 Chụp</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {resolveForm.selectedFiles.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {resolveForm.selectedFiles.map((file, idx) => (
+                          <div key={idx} className="relative inline-block rounded-lg overflow-hidden border border-slate-200 shadow-sm">
+                            <img src={file.preview} alt={`Preview ${idx + 1}`} className="h-24 w-auto object-cover" />
+                            <button type="button" onClick={() => handleRemoveResolveImage(idx)} disabled={resolvingSubmitting} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors">X</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-slate-200 flex gap-3">
+                  <button type="button" onClick={closeResolveModal} disabled={resolvingSubmitting} className="flex-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3.5 transition-colors shadow-sm">
+                    Đóng
+                  </button>
+                  <button type="submit" disabled={resolvingSubmitting || !resolveForm.resolutionNote.trim()} className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 transition-colors shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600">
+                    {resolvingSubmitting ? "Đang xử lý..." : "Xác nhận Giải quyết"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
