@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ProfileTab — Quản lý hồ sơ Driver (Quảng phụ trách)
  *
  * TODO (Quảng): Implement:
@@ -268,17 +268,23 @@ export default function ProfileTab({
     ? isBicycleVehicleTypeName(selectedPlan.vehicleTypeName)
     : false;
 
+  const isSameUserPlateDuplicateMessage = (message) => {
+    const normalizedMessage = String(message || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d");
+
+    return normalizedMessage.includes("bien so da ton tai trong tai khoan cua ban");
+  };
+
   const addPlateToDriverProfile = async (plate, vehicleTypeId) => {
     try {
       await staffApi.addDriverPlate(plate, vehicleTypeId);
     } catch (err) {
       const message = err.response?.data?.message || err.message || "";
 
-      if (
-        message.toLowerCase().includes("tồn tại") ||
-        message.toLowerCase().includes("exist") ||
-        message.toLowerCase().includes("duplicate")
-      ) {
+      if (isSameUserPlateDuplicateMessage(message)) {
         return;
       }
 
@@ -674,8 +680,8 @@ export default function ProfileTab({
                   type="button"
                   onClick={() => setProfileSectionTab(tab.id)}
                   className={`group relative overflow-hidden rounded-[1.25rem] border px-3.5 py-3 text-left transition-all duration-200 ${active
-                      ? "border-indigo-500 bg-gradient-to-br from-indigo-600 via-blue-600 to-sky-500 text-white shadow-lg shadow-blue-500/25"
-                      : "border-slate-200 bg-white text-slate-600 shadow-sm hover:-translate-y-0.5 hover:border-indigo-100 hover:bg-indigo-50/60 hover:shadow-md"
+                    ? "border-indigo-500 bg-gradient-to-br from-indigo-600 via-blue-600 to-sky-500 text-white shadow-lg shadow-blue-500/25"
+                    : "border-slate-200 bg-white text-slate-600 shadow-sm hover:-translate-y-0.5 hover:border-indigo-100 hover:bg-indigo-50/60 hover:shadow-md"
                     }`}
                 >
                   {active && (
@@ -685,8 +691,8 @@ export default function ProfileTab({
                   <div className="relative flex items-center gap-3">
                     <span
                       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base shadow-sm ${active
-                          ? "bg-white/20 text-white"
-                          : "bg-slate-50 text-indigo-600 ring-1 ring-slate-200"
+                        ? "bg-white/20 text-white"
+                        : "bg-slate-50 text-indigo-600 ring-1 ring-slate-200"
                         }`}
                     >
                       {tab.icon}
@@ -703,8 +709,8 @@ export default function ProfileTab({
 
                         <span
                           className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${active
-                              ? "bg-white/20 text-white"
-                              : "bg-slate-100 text-slate-500"
+                            ? "bg-white/20 text-white"
+                            : "bg-slate-100 text-slate-500"
                             }`}
                         >
                           {tab.count}

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DriverMapping — Bản đồ bãi xe cho Driver (Quảng phụ trách)
  *
  * TODO (Quảng): Implement sơ đồ bãi xe visual
@@ -1130,11 +1130,13 @@ export default function DriverMapping({ onLogout }) {
               const message =
                 err?.response?.data?.message || err?.message || "";
 
-              if (
-                message.includes("đã tồn tại") ||
-                message.includes("đã được đăng ký") ||
-                message.includes("Biển số đã tồn tại")
-              ) {
+              const normalizedMessage = String(message || "")
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .replace(/đ/g, "d");
+
+              if (normalizedMessage.includes("bien so da ton tai trong tai khoan cua ban")) {
                 return;
               }
 
@@ -1357,8 +1359,8 @@ export default function DriverMapping({ onLogout }) {
         </header>
 
         <section className="driver-content-section flex-1 space-y-5 p-4 pb-28 sm:p-6 md:space-y-6 md:p-8 md:pb-8">
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <div className="welcome-banner relative overflow-hidden rounded-[1.5rem] bg-slate-900 p-5 text-white shadow-lg border border-slate-800 sm:p-6 md:rounded-3xl md:p-8 xl:col-span-2">
+          <div className="grid grid-cols-1 gap-6">
+            <div className="welcome-banner relative overflow-hidden rounded-[1.5rem] bg-slate-900 p-5 text-white shadow-lg border border-slate-800 sm:p-6 md:rounded-3xl md:p-8">
               <div className="absolute right-0 top-0 -mr-20 -mt-20 h-60 w-60 rounded-full bg-indigo-600/30 blur-3xl" />
               <div className="relative z-10">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold mb-4 border border-emerald-500/20">
@@ -1373,36 +1375,6 @@ export default function DriverMapping({ onLogout }) {
                   chọn zone phù hợp và dùng QR để vào đúng khu đã được giữ chỗ.
                 </p>
               </div>
-            </div>
-
-            <div className="stat-card-item rounded-3xl border border-indigo-100 bg-indigo-50 p-6 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wider text-indigo-500">
-                Zone xe hiện tại
-              </p>
-              <h3 className="mt-2 text-2xl font-black text-indigo-900">
-                {currentZone?.zoneCode || "--"}
-              </h3>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {currentDriver.plate ? (
-                  <LicensePlate
-                    plate={currentDriver.plate}
-                    vehicleTypeName={currentDriver.vehicleTypeName}
-                  />
-                ) : (
-                  <span className="rounded border border-slate-300 bg-white px-2 py-1 text-[9px] font-bold text-slate-500">
-                    Chưa đăng ký
-                  </span>
-                )}
-                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-700 border border-indigo-100">
-                  {currentZone
-                    ? getVehicleLabel(currentZone.type)
-                    : "Chưa có phiên"}
-                </span>
-              </div>
-              <p className="mt-4 text-xs leading-relaxed text-indigo-700/80">
-                Zone được viền xanh dương là khu xe của bạn đang gửi. Hệ thống
-                không gán ô cụ thể, chỉ quản lý sức chứa theo khu/tầng.
-              </p>
             </div>
           </div>
 
@@ -2120,17 +2092,16 @@ function ZoneModal({
 
           {/* Status badge representing availability */}
           <div
-            className={`rounded-2xl border px-4 py-3 flex items-center justify-between text-xs font-bold ${
-              zone.status === "CLOSED"
-                ? "bg-slate-100 border-slate-200 text-slate-600"
-                : isCurrent
-                  ? "bg-indigo-50 border-indigo-100 text-indigo-800"
-                  : status === "available"
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-850"
-                    : status === "nearFull"
-                      ? "bg-amber-50 border-amber-200 text-amber-850"
-                      : "bg-rose-50 border-rose-200 text-rose-850"
-            }`}
+            className={`rounded-2xl border px-4 py-3 flex items-center justify-between text-xs font-bold ${zone.status === "CLOSED"
+              ? "bg-slate-100 border-slate-200 text-slate-600"
+              : isCurrent
+                ? "bg-indigo-50 border-indigo-100 text-indigo-800"
+                : status === "available"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-850"
+                  : status === "nearFull"
+                    ? "bg-amber-50 border-amber-200 text-amber-850"
+                    : "bg-rose-50 border-rose-200 text-rose-850"
+              }`}
           >
             <span>Trạng thái zone:</span>
             <span className="uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-white shadow-xs">
@@ -2166,11 +2137,10 @@ function ZoneModal({
                               setSelectedPlate(plate.licensePlate);
                               setNewPlate("");
                             }}
-                            className={`rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
-                              selectedPlate === plate.licensePlate && !newPlate
-                                ? "border-indigo-500 bg-indigo-50 text-indigo-700 shadow-xs"
-                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                            }`}
+                            className={`rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer ${selectedPlate === plate.licensePlate && !newPlate
+                              ? "border-indigo-500 bg-indigo-50 text-indigo-700 shadow-xs"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                              }`}
                           >
                             {formatLicensePlate(plate.licensePlate, plate.vehicleTypeName)}
                           </button>
