@@ -488,8 +488,8 @@ export default function SecurityDashboard({ onLogout }) {
               <div className="grid grid-cols-2 gap-3 md:gap-5 md:grid-cols-4">
                 <Stat title="Cổng hoạt động" value={loadingOverview ? "..." : `${openGates}/${overviewStats.gates.length}`} tone="red" />
                 <Stat title="Zone giám sát" value={loadingOverview ? "..." : overviewStats.zones.length} tone="blue" />
-                <Stat title="Blacklist active" value={loadingOverview ? "..." : overviewStats.blacklistCount} tone="amber" />
-                <Stat title="Security logs" value={loadingOverview ? "..." : overviewStats.logCount} tone="emerald" />
+                <Stat title="Xe đang chặn" value={loadingOverview ? "..." : overviewStats.blacklistCount} tone="amber" />
+                <Stat title="Nhật ký sự cố" value={loadingOverview ? "..." : overviewStats.logCount} tone="emerald" />
               </div>
 
               <div className="grid gap-6 lg:grid-cols-2">

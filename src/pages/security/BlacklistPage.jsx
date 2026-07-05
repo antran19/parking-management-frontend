@@ -161,7 +161,7 @@ export default function BlacklistPage({ showToast, user }) {
   const handleEdit = (item) => {
     setEditingId(item.id);
     let defaultVt = vehicleTypes[0];
-    
+
     // Format lại biển số
     let formattedPlate = item.licensePlate || "";
     if (formattedPlate && defaultVt) {
@@ -240,6 +240,7 @@ export default function BlacklistPage({ showToast, user }) {
 
       await staffApi.updateBlacklistPlate(editingId, {
         licensePlate: finalLicensePlate.trim().toUpperCase(),
+        vehicleType: blacklistForm.vehicleTypeName,
         reason: blacklistForm.reason,
         description: blacklistForm.description,
         imageUrls: finalImageUrls,
@@ -308,6 +309,7 @@ export default function BlacklistPage({ showToast, user }) {
 
       await staffApi.addBlacklistPlate({
         licensePlate: finalLicensePlate.trim().toUpperCase(),
+        vehicleType: blacklistForm.vehicleTypeName,
         reason: blacklistForm.reason,
         description: blacklistForm.description || REASON_LABELS[blacklistForm.reason],
         imageUrls: uploadedUrls,
@@ -448,15 +450,24 @@ export default function BlacklistPage({ showToast, user }) {
     <div className="space-y-6 mt-8">
       {/* Summary badges */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="rounded-full bg-red-50 border border-red-100 px-4 py-1.5 text-sm font-bold text-red-700">
+        <button 
+          onClick={() => setFilterActive("active")}
+          className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${filterActive === "active" ? "bg-red-600 text-white shadow-md ring-2 ring-red-200 ring-offset-1" : "bg-red-50 border border-red-100 text-red-700 hover:bg-red-100"}`}
+        >
           🚫 Đang chặn: {activeCount}
-        </span>
-        <span className="rounded-full bg-slate-100 border border-slate-200 px-4 py-1.5 text-sm font-bold text-slate-500">
+        </button>
+        <button 
+          onClick={() => setFilterActive("removed")}
+          className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${filterActive === "removed" ? "bg-slate-600 text-white shadow-md ring-2 ring-slate-200 ring-offset-1" : "bg-slate-100 border border-slate-200 text-slate-500 hover:bg-slate-200"}`}
+        >
           ✅ Đã gỡ: {removedCount}
-        </span>
-        <span className="rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-bold text-blue-600">
+        </button>
+        <button 
+          onClick={() => setFilterActive("all")}
+          className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${filterActive === "all" ? "bg-blue-600 text-white shadow-md ring-2 ring-blue-200 ring-offset-1" : "bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100"}`}
+        >
           📋 Tổng cộng: {blacklist.length}
-        </span>
+        </button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
@@ -626,7 +637,7 @@ export default function BlacklistPage({ showToast, user }) {
                     <div className="flex flex-wrap gap-2">
                       {blacklistForm.existingImages.map((url, idx) => (
                         <div key={idx} className="relative inline-block rounded-lg overflow-hidden border border-slate-200 shadow-sm">
-                          <img src={url} alt={`Existing ${idx+1}`} className="h-24 w-auto object-cover" />
+                          <img src={url} alt={`Existing ${idx + 1}`} className="h-24 w-auto object-cover" />
                           <button
                             type="button"
                             onClick={() => handleRemoveExistingImage(idx)}
@@ -647,11 +658,10 @@ export default function BlacklistPage({ showToast, user }) {
             </Field>
             <button
               disabled={submittingBlacklist}
-              className={`w-full rounded-xl py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors disabled:opacity-60 ${
-                editingId
-                  ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20"
-                  : "bg-red-600 hover:bg-red-700 shadow-red-600/20"
-              }`}
+              className={`w-full rounded-xl py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors disabled:opacity-60 ${editingId
+                ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20"
+                : "bg-red-600 hover:bg-red-700 shadow-red-600/20"
+                }`}
             >
               {submittingBlacklist ? "Đang lưu..." : editingId ? "Lưu chỉnh sửa" : "Thêm vào blacklist"}
             </button>
@@ -698,9 +708,16 @@ export default function BlacklistPage({ showToast, user }) {
                     {/* Header Row */}
                     <div className="flex items-start justify-between">
                       <div className="flex gap-2 items-center flex-wrap">
-                        <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-black tracking-widest text-slate-900 shadow-sm">
-                          <LicensePlate plate={item.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : item.licensePlate} />
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-black tracking-widest text-slate-900 shadow-sm">
+                            <LicensePlate plate={item.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : item.licensePlate} />
+                          </span>
+                          {item.vehicleType && (
+                            <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                              {item.vehicleType}
+                            </span>
+                          )}
+                        </div>
 
                         {/* Trạng thái Badge */}
                         <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${!isActive ? "bg-slate-100 text-slate-500 border-slate-200" : "bg-red-50 text-red-700 border-red-200"}`}>
@@ -777,7 +794,7 @@ export default function BlacklistPage({ showToast, user }) {
                 🚫
               </div>
             </div>
-            
+
             <div className="p-8 overflow-y-auto space-y-8 bg-slate-50/50 flex-1">
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
@@ -799,9 +816,16 @@ export default function BlacklistPage({ showToast, user }) {
                 {viewingBlacklistDetail.licensePlate && (
                   <div>
                     <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
-                    <span className="inline-flex items-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm">
-                      <LicensePlate plate={viewingBlacklistDetail.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : viewingBlacklistDetail.licensePlate} />
-                    </span>
+                    <div className="flex items-stretch gap-2">
+                      <span className="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm whitespace-nowrap">
+                        <LicensePlate plate={viewingBlacklistDetail.licensePlate?.startsWith("XEDAP-") ? "XE ĐẠP" : viewingBlacklistDetail.licensePlate} />
+                      </span>
+                      {viewingBlacklistDetail.vehicleType && (
+                        <span className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 shadow-sm whitespace-nowrap">
+                          {viewingBlacklistDetail.vehicleType}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -839,7 +863,7 @@ export default function BlacklistPage({ showToast, user }) {
                 </div>
               </div>
             </div>
-            
+
             <div className="shrink-0 border-t border-slate-200 flex justify-end p-6 bg-white">
               <button onClick={() => setViewingBlacklistDetail(null)} className="rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-8 py-3.5 transition-colors active:scale-95 shadow-sm">
                 Đóng

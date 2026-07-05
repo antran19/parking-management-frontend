@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { staffApi } from "../../api/parkingApi";
 
-import { formatLicensePlate, isValidVietnamLicensePlate } from "../../utils/licensePlate";
+import { formatLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
 
 const formatTime = (value) => {
   if (!value) return "—";
@@ -48,9 +48,12 @@ export default function VehicleSearchPage({ showToast }) {
     const formattedPlate = formatLicensePlate(searchText, "");
     setSearchText(formattedPlate);
 
-    if (!isValidVietnamLicensePlate(formattedPlate) && !formattedPlate.startsWith("XEDAP")) {
-      showToast("Biển số xe không đúng định dạng", "error");
-      return;
+    if (!formattedPlate.startsWith("XEDAP")) {
+      const validationError = getLicensePlateValidationError(formattedPlate, "ANY");
+      if (validationError) {
+        showToast(validationError, "error");
+        return;
+      }
     }
 
     setSearching(true);
@@ -298,7 +301,23 @@ export default function VehicleSearchPage({ showToast }) {
                       <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border mb-1 ${EXCEPTION_BADGE_COLOR[log.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
                         {EXCEPTION_LABELS[log.exceptionType] || log.exceptionType}
                       </span>
-                      <p className="text-sm font-medium text-slate-700 truncate">{log.description}</p>
+                      {(() => {
+                        const fullDesc = log.description || "—";
+                        const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
+                        if (separatorRegex.test(fullDesc)) {
+                          const [desc, res] = fullDesc.split(separatorRegex);
+                          return (
+                            <div className="flex flex-col gap-1.5 mt-1">
+                              <p className="text-sm font-medium text-slate-700 truncate">{desc.trim()}</p>
+                              <div className="rounded-lg border-l-2 border-emerald-400 bg-emerald-50 p-2 text-xs truncate">
+                                <span className="font-bold text-emerald-700 mr-1">Giải quyết:</span>
+                                <span className="text-emerald-900">{res.trim()}</span>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return <p className="text-sm font-medium text-slate-700 truncate mt-1">{fullDesc.trim()}</p>;
+                      })()}
                     </div>
                     <div className="text-right flex flex-col items-end shrink-0 ml-2">
                       <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border mb-1 ${log.status === "RESOLVED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
@@ -324,7 +343,7 @@ export default function VehicleSearchPage({ showToast }) {
       {/* Modal phóng to ảnh */}
       {selectedImage && (
         <div 
-          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4 md:p-8 animate-in fade-in"
+          className="fixed inset-0 z-[10000] bg-black/90 flex items-center justify-center p-4 md:p-8 animate-in fade-in"
           onClick={() => setSelectedImage(null)}
         >
           <div className="relative max-w-5xl w-full h-full flex flex-col items-center justify-center">
@@ -372,28 +391,87 @@ export default function VehicleSearchPage({ showToast }) {
                 </div>
               </div>
 
-              <div>
-                <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
-                <p className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-5 leading-relaxed shadow-inner">
-                  {viewingLogDetail.description || "Không có mô tả chi tiết."}
-                </p>
-              </div>
-
-              {viewingLogDetail.imageUrls?.length > 0 && (
-                <div>
-                  <span className="block text-xs font-bold uppercase text-slate-500 mb-3">Hình ảnh minh chứng</span>
-                  <div className="flex flex-wrap gap-3">
-                    {viewingLogDetail.imageUrls.map((url, idx) => (
-                      <div key={idx} onClick={(e) => { e.stopPropagation(); setSelectedImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:border-slate-400">
-                        <img src={url} alt="Sự cố" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              {/* Description and Resolution */}
+              {(() => {
+                const fullDesc = viewingLogDetail.description || "Không có mô tả chi tiết.";
+                const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
+                
+                if (separatorRegex.test(fullDesc)) {
+                  const [desc, res] = fullDesc.split(separatorRegex);
+                  return (
+                    <div className="space-y-4">
+                      <div>
+                        <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
+                        <div className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-4 leading-relaxed shadow-inner">
+                          <p>{desc.trim()}</p>
                         </div>
                       </div>
-                    ))}
+                      <div>
+                        <span className="block text-xs font-bold uppercase text-emerald-600 mb-2 flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          Ghi chú giải quyết
+                        </span>
+                        <div className="text-sm font-medium text-emerald-950 whitespace-pre-wrap rounded-2xl bg-emerald-50 border border-emerald-200 p-4 leading-relaxed shadow-inner">
+                          <p>{res.trim()}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div>
+                    <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
+                    <div className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-4 leading-relaxed shadow-inner">
+                      <p>{fullDesc.trim()}</p>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
+
+              {/* Images */}
+              {viewingLogDetail.imageUrls?.length > 0 && (() => {
+                const validImages = viewingLogDetail.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http')));
+                const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
+                const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+
+                if (validImages.length === 0) return null;
+
+                return (
+                  <div className="flex flex-wrap gap-8">
+                    {evidenceImages.length > 0 && (
+                      <div className="flex-1 min-w-[150px]">
+                        <span className="block text-xs font-bold uppercase text-slate-500 mb-3">Hình ảnh minh chứng</span>
+                        <div className="flex flex-wrap gap-3">
+                          {evidenceImages.map((url, idx) => (
+                            <div key={`ev-${idx}`} onClick={(e) => { e.stopPropagation(); setSelectedImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:border-slate-400">
+                              <img src={url} alt="Sự cố" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {resolveImages.length > 0 && (
+                      <div className="flex-1 min-w-[150px]">
+                        <span className="block text-xs font-bold uppercase text-emerald-600 mb-3">Hình ảnh giải quyết</span>
+                        <div className="flex flex-wrap gap-3">
+                          {resolveImages.map((url, idx) => (
+                            <div key={`res-${idx}`} onClick={(e) => { e.stopPropagation(); setSelectedImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-emerald-200 shadow-sm transition-all hover:border-emerald-400">
+                              <img src={url} alt="Giải quyết" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="pt-6 mt-4 border-t border-slate-100 flex flex-col gap-2">
                 <div className="flex items-center gap-2 text-sm">
