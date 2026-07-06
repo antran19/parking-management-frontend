@@ -2,6 +2,16 @@ import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { staffApi } from "../../api/parkingApi";
 import ParkingDigitalTwin3D from "../manager/ParkingDigitalTwin3D";
+import AdminOverview from "./AdminOverview";
+import AdminUsers from "./AdminUsers";
+import AdminZones from "./AdminZones";
+import AdminGates from "./AdminGates";
+import AdminTariffs from "./AdminTariffs";
+import AdminPasses from "./AdminPasses";
+import AdminExceptionLogs from "./AdminExceptionLogs";
+import AdminBlacklist from "./AdminBlacklist";
+import AdminReports from "./AdminReports";
+import AdminSettings from "./AdminSettings";
 import gsap from "gsap";
 
 // Icons
@@ -1031,435 +1041,77 @@ export default function AdminDashboard({ onLogout }) {
 
           {/* TAB 1: DASHBOARD */}
           {activeTab === "dashboard" && (
-            <>
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard title="Tổng người dùng" value={`${users.length} tài khoản`} icon="" accentColor="bg-blue-500" subtext="Staff, Security & Drivers" />
-                <StatCard title="Số cổng kiểm soát" value={`${gates.length} làn trực tuyến`} icon="" accentColor="bg-purple-500" subtext="Hệ thống barrier AI live" />
-                <StatCard title="Doanh thu hôm nay" value={`${todayRevenue.toLocaleString("vi-VN")}đ`} icon="" accentColor="bg-emerald-500" subtext={`Bypass ${settings.gracePeriod} phút đầu`} />
-                <StatCard title="Log an ninh khẩn" value={`${logs.length} biên bản`} icon="" accentColor="bg-rose-500" subtext="Cần giám sát khẩn cấp" />
-              </div>
-
-              {/* Grid 2 Columns */}
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                {/* Phân khu đỗ */}
-                <div className="action-panel-item lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-4">
-                  <h3 className="font-extrabold text-slate-900 text-base text-left flex items-center gap-2">
-                    <span className="w-1 h-5 rounded-full bg-purple-600 block"></span>
-                    Công suất đỗ thực tế các phân khu
-                  </h3>
-                  <div className="space-y-5">
-                    {(() => {
-                      const floorOrder = (name) => {
-                        if (!name) return 999;
-                        const match = name.match(/^([BT])(\d+)$/i);
-                        if (!match) return 999;
-                        const [, prefix, num] = match;
-                        return prefix.toUpperCase() === "B" ? -parseInt(num) : 100 + parseInt(num);
-                      };
-                      const sorted = [...zones].sort((a, b) => floorOrder(a.floorName) - floorOrder(b.floorName));
-                      const grouped = [];
-                      let lastFloor = null;
-                      sorted.forEach(z => {
-                        if (z.floorName !== lastFloor) {
-                          grouped.push({ type: "header", floorName: z.floorName });
-                          lastFloor = z.floorName;
-                        }
-                        grouped.push({ type: "zone", ...z });
-                      });
-                      return grouped.map((item, idx) => {
-                        if (item.type === "header") {
-                          return (
-                            <div key={`hdr-${idx}`} className="pt-1">
-                              <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-1.5">
-                                Tầng {item.floorName}
-                              </p>
-                            </div>
-                          );
-                        }
-                        const percent = Math.min(100, Math.round((item.occupied / item.capacity) * 100));
-                        return (
-                          <div key={item.id} className="space-y-1.5">
-                            <div className="flex items-center justify-between text-xs font-bold">
-                              <span className="text-slate-800">
-                                {item.floorName} · {item.name} ({item.type})
-                              </span>
-                              <span className="text-slate-500">{item.occupied}/{item.capacity} xe ({percent}%)</span>
-                            </div>
-                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full transition-all duration-500 ${percent > 90 ? "bg-red-500" : percent > 75 ? "bg-amber-500" : "bg-indigo-500"
-                                }`} style={{ width: `${percent}%` }} />
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-
-                {/* Barrier Control Panel */}
-                <div className="action-panel-item bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 flex flex-col space-y-4 text-left">
-                  <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                    <span className="w-1 h-5 rounded-full bg-purple-600 block"></span>
-                    Khống chế Barrier cưỡng chế
-                  </h3>
-                  <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-1">
-                    {gates.map(g => (
-                      <div key={g.id} className="p-3.5 bg-slate-50/50 rounded-xl flex items-center justify-between border border-slate-100 hover:bg-slate-50 transition-colors">
-                        <div>
-                          <p className="text-xs font-bold text-slate-800">{g.name}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">Camera: {g.cameraIp}</p>
-                        </div>
-                        <button
-                          onClick={() => toggleBarrier(g.id, g.barrier)}
-                          className={`px-3 py-1.5 rounded-xl text-[10px] font-bold border cursor-pointer transition-colors ${g.barrier === "OPEN"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                            : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
-                            }`}
-                        >
-                          {g.barrier === "OPEN" ? "ĐANG MỞ" : "ĐANG ĐÓNG"}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </>
+            <AdminOverview
+              users={users}
+              gates={gates}
+              zones={zones}
+              logs={logs}
+              todayRevenue={todayRevenue}
+              settings={settings}
+              toggleBarrier={toggleBarrier}
+            />
           )}
 
-          {/* TAB 2: USERS MANAGEMENT */}
+          {/* TAB 2: USERS */}
           {activeTab === "users" && (
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
-              <div className="flex justify-between items-center text-left">
-                <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">Danh sách tài khoản hệ thống</h3>
-                  <p className="text-xs text-slate-400">Quản trị phân quyền, gán vai trò & trạng thái các nhân viên bãi đỗ.</p>
-                </div>
-                <button onClick={handleOpenAddUser} className="rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-purple-500/10">
-                  ➕ Thêm tài khoản mới
-                </button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
-                  <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
-                    <tr>
-                      <th className="p-4">Họ và Tên</th>
-                      <th className="p-4">Email</th>
-                      <th className="p-4">Số điện thoại</th>
-                      <th className="p-4">Phân quyền (Role)</th>
-                      <th className="p-4">Trạng thái</th>
-                      <th className="p-4 text-center">Hành động</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-semibold text-slate-600">
-                    {users.map(u => (
-                      <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 font-bold text-slate-900">{u.name}</td>
-                        <td className="p-4 text-slate-500">{u.email}</td>
-                        <td className="p-4 text-slate-500 font-mono">{u.phone}</td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${u.role === "admin" ? "bg-red-50 text-red-700 border border-red-100" :
-                            u.role === "security" ? "bg-amber-50 text-amber-700 border border-amber-100" :
-                              u.role === "staff" ? "bg-indigo-50 text-indigo-700 border border-indigo-100" :
-                                "bg-slate-100 text-slate-700"
-                            }`}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td className="p-4 text-xs">
-                          <span className={`inline-flex items-center gap-1 font-bold ${u.status === "active" ? "text-emerald-600" : "text-rose-600"}`}>
-                            <span className={`h-1.5 w-1.5 rounded-full ${u.status === "active" ? "bg-emerald-500" : "bg-rose-500"}`} />
-                            {u.status === "active" ? "Hoạt động" : "Bị Khóa"}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <div className="flex justify-center gap-2 text-xs font-bold">
-                            <button onClick={() => handleOpenEditUser(u)} className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors">Sửa</button>
-                            <button onClick={() => handleResetPassword(u)} className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-100 cursor-pointer transition-colors">Reset MK</button>
-                            <button onClick={() => toggleUserStatus(u.id)} className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors">Khóa/Mở</button>
-                            {u.role !== "admin" && (
-                              <button onClick={() => handleDeleteUser(u.id, u.name)} className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-100 cursor-pointer transition-colors">Xóa</button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AdminUsers
+              users={users}
+              handleOpenAddUser={handleOpenAddUser}
+              handleOpenEditUser={handleOpenEditUser}
+              handleResetPassword={handleResetPassword}
+              toggleUserStatus={toggleUserStatus}
+              handleDeleteUser={handleDeleteUser}
+            />
           )}
 
-          {/* TAB 3: ZONES CONFIGURATION */}
-          {activeTab === "zones" && (() => {
-            // Group zones by floor, sorted logically
-            const floorOrder = (name) => {
-              const n = (name || "").toUpperCase();
-              if (n.includes("B2")) return 1;
-              if (n.includes("B1")) return 2;
-              if (n.includes("T1") || n.includes("1")) return 3;
-              if (n.includes("T2") || n.includes("2")) return 4;
-              if (n.includes("T3") || n.includes("3")) return 5;
-              return 99;
-            };
-            const grouped = {};
-            zones.forEach(z => {
-              const key = z.floorName || "Chưa phân tầng";
-              if (!grouped[key]) grouped[key] = [];
-              grouped[key].push(z);
-            });
-            // Sort floors, then sort zones within each floor by name
-            const sortedFloors = Object.keys(grouped).sort((a, b) => floorOrder(a) - floorOrder(b));
-            sortedFloors.forEach(f => grouped[f].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+          {/* TAB 3: ZONES */}
+          {activeTab === "zones" && (
+            <AdminZones
+              zones={zones}
+              handleOpenAddZone={handleOpenAddZone}
+              handleOpenEditZone={handleOpenEditZone}
+              handleDeleteZone={handleDeleteZone}
+            />
+          )}
 
-            return (
-              <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
-                <div className="flex justify-between items-center text-left">
-                  <div>
-                    <h3 className="font-extrabold text-slate-900 text-base">Quy hoạch phân khu đỗ xe</h3>
-                    <p className="text-xs text-slate-400">Phân định quy chuẩn sức chứa từng zone đỗ riêng biệt trong bãi. Tổng {zones.length} khu vực.</p>
-                  </div>
-                  <button onClick={handleOpenAddZone} className="rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-purple-500/10">
-                    Thêm khu vực mới
-                  </button>
-                </div>
-
-                {sortedFloors.map(floorName => {
-                  const floorZones = grouped[floorName];
-                  const floorCapacity = floorZones.reduce((s, z) => s + (z.capacity || 0), 0);
-                  const floorOccupied = floorZones.reduce((s, z) => s + (z.occupied || 0), 0);
-                  const floorPercent = floorCapacity > 0 ? Math.round((floorOccupied / floorCapacity) * 100) : 0;
-                  return (
-                    <div key={floorName} className="rounded-xl border border-slate-200 overflow-hidden">
-                      {/* Floor header */}
-                      <div className="bg-slate-50 px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-purple-100 text-purple-700 font-black text-xs">
-                            {floorName.replace(/Tầng\s*/i, "").trim() || "?"}
-                          </span>
-                          <div>
-                            <span className="text-sm font-extrabold text-slate-800">{floorName}</span>
-                            <span className="text-xs text-slate-400 ml-2">· {floorZones[0]?.buildingName}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-xs text-slate-500 font-semibold">{floorZones.length} khu vực</span>
-                          <span className="text-xs font-bold text-slate-600">{floorOccupied}/{floorCapacity} xe</span>
-                          <span className={`text-xs font-black ${floorPercent > 90 ? "text-red-500" : floorPercent > 75 ? "text-amber-500" : "text-emerald-500"}`}>{floorPercent}%</span>
-                        </div>
-                      </div>
-                      {/* Zone cards in this floor */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                        {floorZones.map(z => {
-                          const percent = z.capacity > 0 ? Math.min(100, Math.round((z.occupied / z.capacity) * 100)) : 0;
-                          return (
-                            <div key={z.id} className="rounded-xl border border-slate-200/80 bg-white p-4 space-y-3 hover:shadow-md transition-shadow text-left">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[9px] font-black px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">{z.type}</span>
-                                <div className="flex gap-3 text-xs font-bold">
-                                  <button onClick={() => handleOpenEditZone(z)} className="text-slate-500 hover:text-slate-900 cursor-pointer transition-colors">Sửa</button>
-                                  <button onClick={() => handleDeleteZone(z.id, z.name)} className="text-red-500 hover:text-red-700 cursor-pointer transition-colors">Xóa</button>
-                                </div>
-                              </div>
-                              <div>
-                                <h4 className="font-extrabold text-slate-900 text-sm">{z.name}</h4>
-                                <p className="text-[10px] text-slate-400 font-mono mt-1.5">Sức chứa: {z.occupied} / {z.capacity} xe ({percent}%)</p>
-                              </div>
-                              <div className="h-1.5 w-full bg-slate-200/60 rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full transition-all duration-500 ${percent > 90 ? "bg-red-500" : percent > 75 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${percent}%` }} />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {/* TAB 4: GATES CONTROL */}
+          {/* TAB 4: GATES */}
           {activeTab === "gates" && (
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
-              <div className="flex justify-between items-center text-left">
-                <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">Cổng kiểm soát & Làn Barrier</h3>
-                  <p className="text-xs text-slate-400">Giám sát các camera IP nhận diện AI & thiết bị ngoại vi làn vào/ra.</p>
-                </div>
-                <button onClick={handleOpenAddGate} className="rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-purple-500/10">
-                  🚧 Thêm làn mới
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-                {gates.map(g => (
-                  <div key={g.id} className={`rounded-2xl border p-5 flex justify-between items-center transition-colors ${g.status === "active" ? "border-slate-200/80 bg-slate-50/50 hover:bg-slate-50" : "border-amber-200 bg-amber-50/30 opacity-75"}`}>
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${g.type.includes("ENTRY")
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          : g.type.includes("BOTH")
-                            ? "bg-purple-50 text-purple-700 border border-purple-200"
-                            : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                          }`}>
-                          {g.type.startsWith("ZONE_") ? "ZONE" : "CHÍNH"} · {g.type.includes("ENTRY") ? "VÀO" : g.type.includes("BOTH") ? "2 CHIỀU" : "RA"}
-                        </span>
-                        <span className={`h-2 w-2 rounded-full ${g.status === "active" ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
-                      </div>
-                      <h4 className={`font-extrabold text-sm ${g.status === "active" ? "text-slate-900" : "text-slate-500 line-through"}`}>{g.name}</h4>
-                      <p className="text-[10px] text-slate-450 font-mono">Địa chỉ IP Camera: {g.cameraIp}</p>
-                      {g.zoneId && (() => { const z = zones.find(z => z.id === g.zoneId); return z ? <p className="text-[10px] text-blue-600 font-bold">📍 Zone: {z.name} ({z.floorName})</p> : null; })()}
-                    </div>
-
-                    <div className="flex flex-col items-end gap-2">
-                      <button
-                        onClick={() => toggleBarrier(g.id, g.barrier)}
-                        disabled={g.status === "inactive"}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all border ${g.status === "inactive"
-                          ? "bg-slate-300 text-slate-500 border-slate-300 cursor-not-allowed"
-                          : g.barrier === "OPEN"
-                            ? "bg-emerald-500 text-white border-emerald-600 shadow-md shadow-emerald-500/10"
-                            : "bg-slate-800 text-white hover:bg-slate-700"
-                          }`}
-                      >
-                        {g.status === "inactive" ? "⛔ ĐANG BẢO TRÌ" : g.barrier === "OPEN" ? "🔓 OVERRIDE MỞ" : "🔒 KHÓA BẢO VỆ"}
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => toggleGateStatus(g)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors border ${g.status === "active"
-                            ? "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
-                            : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200"
-                            }`}
-                        >
-                          {g.status === "active" ? "🔧 Tắt (Bảo trì)" : "✅ Kích hoạt"}
-                        </button>
-                        <button onClick={() => handleDeleteGate(g.id, g.name)} className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 cursor-pointer transition-colors text-xs">Xóa</button>
-                      </div>
-                      <span className={`text-[9px] font-black uppercase ${g.status === "active" ? "text-emerald-500" : "text-amber-500"}`}>{g.status === "active" ? "● Online" : "● Bảo trì"}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <AdminGates
+              gates={gates}
+              zones={zones}
+              handleOpenAddGate={handleOpenAddGate}
+              handleOpenEditGate={handleOpenEditGate}
+              handleDeleteGate={handleDeleteGate}
+              toggleBarrier={toggleBarrier}
+              toggleGateStatus={toggleGateStatus}
+            />
           )}
 
-          {/* TAB 5: TARIFFS (Cấu hình bảng biểu giá) */}
-          {activeTab === "tariffs" && (() => {
-            const grouped = tariffs.reduce((acc, t) => {
-              const key = t.vehicleType || "Khác";
-              if (!acc[key]) acc[key] = [];
-              acc[key].push(t);
-              return acc;
-            }, {});
-            return (
-              <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
-                <div className="flex justify-between items-center text-left">
-                  <div>
-                    <h3 className="font-extrabold text-slate-900 text-base">Bảng biểu phí đỗ xe</h3>
-                    <p className="text-xs text-slate-400 mt-1">Giá gửi xe theo từng loại phương tiện.</p>
-                  </div>
-                  <button onClick={handleOpenAddTariff} className="rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors">
-                    Thêm biểu phí
-                  </button>
-                </div>
+          {/* TAB 5: TARIFFS */}
+          {activeTab === "tariffs" && (
+            <AdminTariffs
+              tariffs={tariffs}
+              settings={settings}
+              handleOpenAddTariff={handleOpenAddTariff}
+              handleOpenEditTariff={handleOpenEditTariff}
+              reloadAdminConfig={reloadAdminConfig}
+              showToast={showToast}
+            />
+          )}
 
-                <div className="space-y-4">
-                  {Object.entries(grouped).map(([vehicleType, items]) => (
-                    <div key={vehicleType} className="rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
-                        <span className="text-sm font-extrabold text-slate-800 uppercase tracking-wide">{vehicleType}</span>
-                        <span className="text-xs text-slate-500 font-medium">{items.length} mức giá</span>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {items.map(t => (
-                          <div key={t.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50/50 transition-colors">
-                            <div className="flex items-center gap-6 min-w-0">
-                              <span className="text-sm text-slate-700 font-semibold w-24 flex-shrink-0">{t.type === "HOURLY" ? "Theo giờ" : t.type === "DAILY" ? "Theo ngày" : t.type === "MONTHLY" ? "Vé tháng" : t.type === "QUARTERLY" ? "Vé quý" : "Vé năm"}</span>
-                              <span className="text-base font-extrabold text-slate-900 tabular-nums">{t.price.toLocaleString("vi-VN")} <span className="text-slate-500 font-semibold text-sm">{settings.currency}</span></span>
-                              {t.freeMinutes > 0 && <span className="text-xs text-slate-500 font-medium">miễn phí {t.freeMinutes} phút đầu</span>}
-                            </div>
-                            <div className="flex gap-1 flex-shrink-0">
-                              <button onClick={() => handleOpenEditTariff(t)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors">Sửa</button>
-                              <button onClick={async () => { if (window.confirm(`Xóa biểu phí ${t.vehicleType}?`)) { await staffApi.deletePricingRule(t.id); await reloadAdminConfig(); showToast("Đã xóa biểu phí", "warning"); } }} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 cursor-pointer transition-colors">Xóa</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {tariffs.length === 0 && (
-                  <p className="text-center text-sm text-slate-400 py-8">Chưa có biểu phí nào.</p>
-                )}
-              </div>
-            );
-          })()}
-
-          {/* TAB 6: PERIODIC PASSES (Vé tháng/quý/năm) */}
+          {/* TAB 6: PASSES */}
           {activeTab === "passes" && (
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
-              <div className="flex justify-between items-center text-left">
-                <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">Quản lý vé định kỳ (Tháng / Quý / Năm)</h3>
-                  <p className="text-xs text-slate-400">Kiểm soát vé định kỳ theo tháng, quý, năm cho biển số đăng ký và cấp quyền ra vào tự động.</p>
-                </div>
-                <button onClick={handleOpenAddPass} className="rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-purple-500/10">
-                  🎫 Phát hành vé định kỳ mới
-                </button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
-                  <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
-                    <tr>
-                      <th className="p-4">Chủ sở hữu</th>
-                      <th className="p-4">Đăng ký Biển số</th>
-                      <th className="p-4">Loại xe</th>
-                      <th className="p-4">Gói vé</th>
-                      <th className="p-4">Thời điểm cấp</th>
-                      <th className="p-4">Hạn sử dụng</th>
-                      <th className="p-4">Tình trạng</th>
-                      <th className="p-4 text-center">Hành động</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-semibold text-slate-600">
-                    {passes.map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 font-bold text-slate-900">{p.owner}</td>
-                        <td className="p-4">
-                          <LicensePlate plate={p.plate} />
-                        </td>
-                        <td className="p-4 font-bold text-slate-500">{p.type}</td>
-                        <td className="p-4 font-bold text-slate-500">{p.passType === "YEARLY" ? "Vé năm" : p.passType === "QUARTERLY" ? "Vé quý" : "Vé tháng"}</td>
-                        <td className="p-4 text-slate-500 font-mono">{p.start}</td>
-                        <td className="p-4 text-slate-500 font-mono">{p.end}</td>
-                        <td className="p-4">
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${p.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-                            }`}>
-                            <span className={`h-1.5 w-1.5 rounded-full ${p.status === "active" ? "bg-emerald-500" : "bg-red-500"}`} />
-                            {p.status === "active" ? "Còn hạn" : "Hết hạn"}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <div className="flex justify-center gap-2">
-                            <button onClick={() => handleRenewPass(p.id)} className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 cursor-pointer transition-colors">Gia hạn {p.passType === "YEARLY" ? "1 năm" : p.passType === "QUARTERLY" ? "1 quý" : "1 tháng"}</button>
-                            <button onClick={() => handleOpenEditPass(p)} className="px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold border border-slate-200 cursor-pointer transition-colors">Sửa</button>
-                            <button onClick={() => handleDeletePass(p.id, p.plate)} className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 cursor-pointer transition-colors">Xóa</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AdminPasses
+              passes={passes}
+              handleOpenAddPass={handleOpenAddPass}
+              handleOpenEditPass={handleOpenEditPass}
+              handleRenewPass={handleRenewPass}
+              handleDeletePass={handleDeletePass}
+            />
           )}
 
-          {/* TAB 7: EXCEPTIONS LOGS */}
+
+          {/* TAB 7: EXCEPTIONS & BLACKLIST */}
           {activeTab === "exceptions" && (
             <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
               <div className="flex justify-between items-center text-left border-b border-slate-100 pb-5">
@@ -1467,14 +1119,6 @@ export default function AdminDashboard({ onLogout }) {
                   <h3 className="font-extrabold text-slate-900 text-base">🚨 Log an ninh & Danh sách chặn (Blacklist)</h3>
                   <p className="text-xs text-slate-400 mt-1">Quản lý các sự cố an ninh và kiểm soát các phương tiện nằm trong danh sách đen của tòa nhà.</p>
                 </div>
-                {exceptionsSubTab === "blacklist" && (
-                  <button onClick={() => {
-                    setBlacklistForm({ licensePlate: "", reason: "STOLEN", description: "" });
-                    setIsBlacklistModalOpen(true);
-                  }} className="rounded-xl bg-red-600 hover:bg-red-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-red-500/10">
-                    ➕ Thêm biển số blacklist
-                  </button>
-                )}
               </div>
 
               {/* Sub tabs navigation */}
@@ -1497,664 +1141,51 @@ export default function AdminDashboard({ onLogout }) {
               </div>
 
               {exceptionsSubTab === "logs" && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm border-collapse">
-                    <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
-                      <tr>
-                        <th className="p-4">Mã Log</th>
-                        <th className="p-4">Thời gian</th>
-                        <th className="p-4">Biển số</th>
-                        <th className="p-4">Bảo an xử lý</th>
-                        <th className="p-4">Chi tiết sự cố</th>
-                        <th className="p-4">Mức độ nguy cấp</th>
-                        <th className="p-4">Giải pháp xử lý</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-150 font-medium text-slate-600">
-                      {logs.map(l => (
-                        <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="p-4 font-mono font-bold text-slate-400">{l.id}</td>
-                          <td className="p-4 text-slate-550 font-mono">{l.time}</td>
-                          <td className="p-4">
-                            <LicensePlate plate={l.plate} />
-                          </td>
-                          <td className="p-4 text-slate-800 font-extrabold">{l.handler}</td>
-                          <td className="p-4 text-slate-700 font-semibold">{l.issue}</td>
-                          <td className="p-4">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-block ${l.severity === "high" ? "bg-red-50 text-red-700 border border-red-200 animate-pulse" :
-                              l.severity === "medium" ? "bg-amber-50 text-amber-700 border border-amber-200" :
-                                "bg-blue-50 text-blue-700 border border-blue-200"
-                              }`}>
-                              {l.severity === "high" ? "Khẩn cấp" : l.severity === "medium" ? "Cần lưu ý" : "Thấp"}
-                            </span>
-                          </td>
-                          <td className="p-4 font-bold text-emerald-600">{l.action}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {logs.length === 0 && (
-                    <p className="text-center text-sm text-slate-400 py-8">Chưa có nhật ký sự cố nào.</p>
-                  )}
-                </div>
+                <AdminExceptionLogs showToast={showToast} user={user} />
               )}
 
               {exceptionsSubTab === "blacklist" && (
-                <div className="space-y-4">
-                  {/* Summary badges */}
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="rounded-full bg-red-50 border border-red-100 px-3 py-1 text-xs font-bold text-red-700">
-                      🚫 Đang chặn: {blacklist.filter(item => item.isActive !== false).length}
-                    </span>
-                    <span className="rounded-full bg-slate-100 border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500">
-                      ✅ Đã gỡ: {blacklist.filter(item => item.isActive === false).length}
-                    </span>
-                    <span className="rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-xs font-bold text-blue-600">
-                      📋 Tổng cộng: {blacklist.length}
-                    </span>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm border-collapse">
-                      <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
-                        <tr>
-                          <th className="p-4">Biển số</th>
-                          <th className="p-4">Lý do cấm</th>
-                          <th className="p-4">Người thêm</th>
-                          <th className="p-4">Ngày thêm</th>
-                          <th className="p-4">Trạng thái</th>
-                          <th className="p-4 text-center">Hành động</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 font-semibold text-slate-600">
-                        {blacklist.map((item) => (
-                          <tr
-                            key={item.id}
-                            className={`hover:bg-slate-50/50 transition-colors ${item.isActive === false ? "opacity-45" : ""}`}
-                          >
-                            <td className="p-4">
-                              <LicensePlate plate={item.licensePlate} />
-                            </td>
-                            <td className="p-4">
-                              <p className="font-bold text-slate-900">
-                                {item.reason === "STOLEN" ? "Xe trộm cắp" :
-                                 item.reason === "DISTURBANCE" ? "Gây rối / nguy cơ an ninh" :
-                                 item.reason === "UNPAID_FEE" ? "Nợ phí / chưa thanh toán" :
-                                 item.reason === "SECURITY_RISK" ? "Rủi ro an ninh" : "Lý do khác"}
-                              </p>
-                              <p className="mt-0.5 text-xs text-slate-400 font-medium">{item.description}</p>
-                            </td>
-                            <td className="p-4 font-bold text-slate-800">{item.addedBy || "Hệ thống"}</td>
-                            <td className="p-4 text-slate-500 font-mono text-xs">
-                              {item.addedAt ? new Date(item.addedAt).toLocaleString("vi-VN") : "—"}
-                            </td>
-                            <td className="p-4">
-                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${item.isActive !== false ? "bg-red-50 text-red-700 border border-red-200" : "bg-slate-150 text-slate-500 border border-slate-200"}`}>
-                                <span className={`h-1.5 w-1.5 rounded-full ${item.isActive !== false ? "bg-red-500" : "bg-slate-400"}`} />
-                                {item.isActive !== false ? "Đang chặn" : "Đã gỡ"}
-                              </span>
-                            </td>
-                            <td className="p-4">
-                              <div className="flex justify-center">
-                                {item.isActive !== false ? (
-                                  <button
-                                    onClick={() => handleRemoveBlacklist(item.id, item.licensePlate)}
-                                    className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 cursor-pointer transition-colors"
-                                  >
-                                    🔓 Gỡ chặn
-                                  </button>
-                                ) : (
-                                  <span className="text-xs text-slate-400 font-semibold">—</span>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {blacklist.length === 0 && (
-                      <p className="text-center text-sm text-slate-400 py-8">Chưa có biển số nào bị cấm.</p>
-                    )}
-                  </div>
-                </div>
+                <AdminBlacklist showToast={showToast} user={user} />
               )}
             </div>
           )}
 
-          {/* TAB 8: REPORTS & REVENUE ANALYSIS */}
-          {activeTab === "reports" && (() => {
-            const weekTotal = weeklyRevenueData.reduce((s, d) => s + d.raw, 0);
-            const monthlyPaymentRevenue = payments
-              .filter(p => { if (!p.paidAt) return false; const d = p.paidAt; const now = new Date(); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
-              .reduce((s, p) => s + p.amount, 0);
-            const monthlySessionRevenue = sessions
-              .filter(s => { if (!s.exitTime) return false; const d = new Date(s.exitTime); const now = new Date(); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
-              .reduce((s, c) => s + (c.fee || 0), 0);
-            const monthlyTotal = monthlySessionRevenue + monthlyPaymentRevenue;
-            const recentPayments = [...payments].sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0)).slice(0, 8);
-
-            return (
-              <div className="space-y-6">
-                {/* Header */}
-                <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm text-left">
-                  <h3 className="font-extrabold text-slate-900 text-base">Báo cáo doanh thu</h3>
-                  <p className="text-xs text-slate-400 mt-1">Tổng hợp doanh thu từ phí gửi xe lượt và thanh toán vé định kỳ.</p>
-                </div>
-
-                {/* Stats Grid */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white rounded-xl border border-slate-200/80 p-5 text-left">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Doanh thu hôm nay</p>
-                    <h4 className="text-xl font-extrabold text-slate-900 mt-2 tabular-nums">{todayRevenue.toLocaleString("vi-VN")}đ</h4>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-[10px] font-semibold text-slate-500">Lượt: {todaySessionRevenue.toLocaleString("vi-VN")}đ</span>
-                      <span className="text-[10px] text-slate-300">|</span>
-                      <span className="text-[10px] font-semibold text-indigo-500">Vé: {todayPaymentRevenue.toLocaleString("vi-VN")}đ</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-xl border border-slate-200/80 p-5 text-left">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Doanh thu tháng</p>
-                    <h4 className="text-xl font-extrabold text-slate-900 mt-2 tabular-nums">{monthlyTotal.toLocaleString("vi-VN")}đ</h4>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-[10px] font-semibold text-slate-500">Lượt: {monthlySessionRevenue.toLocaleString("vi-VN")}đ</span>
-                      <span className="text-[10px] text-slate-300">|</span>
-                      <span className="text-[10px] font-semibold text-indigo-500">Vé: {monthlyPaymentRevenue.toLocaleString("vi-VN")}đ</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-xl border border-slate-200/80 p-5 text-left">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Hiệu suất lấp đầy</p>
-                    <h4 className="text-xl font-extrabold text-slate-900 mt-2">{occupancyPercent}%</h4>
-                    <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(occupancyPercent, 100)}%`, background: occupancyPercent > 90 ? '#f59e0b' : '#10b981' }} />
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-xl border border-slate-200/80 p-5 text-left">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Vé định kỳ</p>
-                    <h4 className="text-xl font-extrabold text-slate-900 mt-2">{activePassesCount} đang hoạt động</h4>
-                    <p className="text-[10px] font-semibold text-amber-500 mt-2">{expiringPassesCount > 0 ? `${expiringPassesCount} vé sắp hết hạn` : "Không có vé sắp hết hạn"}</p>
-                  </div>
-                </div>
-
-                {/* Chart + Breakdown */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Weekly Chart */}
-                  <div className="lg:col-span-2 bg-slate-950 rounded-2xl border border-slate-800 p-6 text-white text-left">
-                    <div className="flex justify-between items-start mb-6">
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Doanh thu 7 ngày qua</h4>
-                        <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">{weekTotal.toLocaleString("vi-VN")}đ</p>
-                      </div>
-                      <span className="text-[10px] text-slate-500 font-medium">Đơn vị: VND</span>
-                    </div>
-
-                    <div className="h-48 flex items-end justify-between gap-3 px-2 border-b border-white/10">
-                      {weeklyRevenueData.map((d, index) => {
-                        const isToday = index === weeklyRevenueData.length - 1;
-                        const barMaxPx = 170;
-                        const barH = maxWeeklyVal > 0 ? Math.max(6, Math.round((parseFloat(d.val) / maxWeeklyVal) * barMaxPx)) : 6;
-                        return (
-                          <div key={index} className="flex-1 flex flex-col items-center justify-end gap-1.5 group" style={{ height: '100%' }}>
-                            <span className="text-[10px] font-bold text-slate-400 tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">{d.raw.toLocaleString("vi-VN")}đ</span>
-                            <div
-                              className="w-full rounded-t-md transition-all duration-500"
-                              style={{
-                                height: `${barH}px`,
-                                background: isToday ? 'linear-gradient(to top, #6366f1, #818cf8)' : 'linear-gradient(to top, #334155, #475569)',
-                              }}
-                            />
-                            <span className={`text-[10px] font-bold ${isToday ? "text-indigo-400" : "text-slate-500"}`}>{d.day}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Revenue Breakdown */}
-                  <div className="bg-white rounded-2xl border border-slate-200/80 p-6 text-left space-y-5">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Cơ cấu doanh thu tháng</h4>
-
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between text-sm mb-1.5">
-                          <span className="font-semibold text-slate-700">Phí gửi xe lượt</span>
-                          <span className="font-bold text-slate-900 tabular-nums">{monthlySessionRevenue.toLocaleString("vi-VN")}đ</span>
-                        </div>
-                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-slate-600 rounded-full transition-all duration-500" style={{ width: monthlyTotal > 0 ? `${(monthlySessionRevenue / monthlyTotal * 100)}%` : '0%' }} />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-sm mb-1.5">
-                          <span className="font-semibold text-slate-700">Thanh toán vé định kỳ</span>
-                          <span className="font-bold text-slate-900 tabular-nums">{monthlyPaymentRevenue.toLocaleString("vi-VN")}đ</span>
-                        </div>
-                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: monthlyTotal > 0 ? `${(monthlyPaymentRevenue / monthlyTotal * 100)}%` : '0%' }} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-100">
-                      <div className="flex justify-between">
-                        <span className="text-sm font-bold text-slate-700">Tổng tháng</span>
-                        <span className="text-sm font-extrabold text-slate-900 tabular-nums">{monthlyTotal.toLocaleString("vi-VN")}đ</span>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100 space-y-2">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase">Thống kê nhanh</p>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-500">Lượt xe trong tháng</span>
-                        <span className="font-bold text-slate-800">{displayMonthlyCount}</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-500">Giao dịch online</span>
-                        <span className="font-bold text-slate-800">{payments.length}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Recent Transactions */}
-                {recentPayments.length > 0 && (
-                  <div className="bg-white rounded-2xl border border-slate-200/80 p-6 text-left">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-4">Giao dịch thanh toán gần đây</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm border-collapse">
-                        <thead className="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                          <tr>
-                            <th className="pb-3 text-left">Loại</th>
-                            <th className="pb-3 text-left">Phương thức</th>
-                            <th className="pb-3 text-right">Số tiền</th>
-                            <th className="pb-3 text-right">Thời gian</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {recentPayments.map(p => (
-                            <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="py-3 text-left">
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${p.referenceType === "MONTHLY_PASS" ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-600"}`}>
-                                  {p.referenceType === "MONTHLY_PASS" ? "Vé định kỳ" : p.referenceType === "SESSION" ? "Phí lượt" : p.referenceType}
-                                </span>
-                              </td>
-                              <td className="py-3 text-left text-slate-600 font-medium">{p.paymentMethod === "ONLINE" ? "VNPAY" : p.paymentMethod}</td>
-                              <td className="py-3 text-right font-bold text-slate-900 tabular-nums">{p.amount.toLocaleString("vi-VN")}đ</td>
-                              <td className="py-3 text-right text-slate-400 text-xs tabular-nums">{p.paidAt ? p.paidAt.toLocaleString("vi-VN") : "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          {/* TAB 8: REPORTS */}
+          {activeTab === "reports" && (
+            <AdminReports
+              todayRevenue={todayRevenue}
+              todaySessionRevenue={todaySessionRevenue}
+              todayPaymentRevenue={todayPaymentRevenue}
+              sessions={sessions}
+              payments={payments}
+              occupancyPercent={occupancyPercent}
+              activePassesCount={activePassesCount}
+              expiringPassesCount={expiringPassesCount}
+              displayMonthlyCount={displayMonthlyCount}
+              weeklyRevenueData={weeklyRevenueData}
+              maxWeeklyVal={maxWeeklyVal}
+            />
+          )}
 
           {/* TAB 9: SETTINGS */}
           {activeTab === "settings" && (
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm text-left">
-                <h3 className="font-extrabold text-slate-950 text-base">Cấu hình hệ thống</h3>
-                <p className="text-xs text-slate-600 mt-1">Quản lý toàn bộ tham số vận hành, tài chính, bảo mật và tích hợp bên thứ ba.</p>
-              </div>
-
-              {/* Sub Navigation Tabs */}
-              <div className="flex gap-1 border-b border-slate-200 overflow-x-auto">
-                {[
-                  { id: "business", label: "Nghiệp vụ & Hiển thị" },
-                  { id: "vnpay", label: "Thanh toán & VNPAY" },
-                  { id: "security", label: "An ninh & Tự động hóa" },
-                  { id: "maintenance", label: "Hệ thống & Dữ liệu" }
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setSettingsSubTab(tab.id)}
-                    className={`px-4 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap ${settingsSubTab === tab.id
-                      ? "border-slate-900 text-slate-950"
-                      : "border-transparent text-slate-500 hover:text-slate-800"
-                      }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left Column - Sub Tab Contents */}
-                <div className="lg:col-span-2 space-y-6">
-
-                  {/* Sub Tab: Business & UI Settings */}
-                  {settingsSubTab === "business" && (
-                    <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden text-left">
-                      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Cấu hình nghiệp vụ & Giao diện</h4>
-                      </div>
-                      <div className="p-6 space-y-5">
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Tên hệ thống quản trị</label>
-                          <input
-                            type="text"
-                            value={settings.systemName}
-                            onChange={e => setSettings({ ...settings, systemName: e.target.value })}
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
-                          />
-                          <p className="text-[10px] text-slate-600">Hiển thị trên tiêu đề bảng điều khiển và báo cáo PDF.</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Ngôn ngữ giao diện</label>
-                            <select
-                              value="vi"
-                              disabled
-                              className="w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-sm font-bold text-slate-900 focus:outline-none"
-                            >
-                              <option value="vi">Tiếng Việt (Mặc định)</option>
-                              <option value="en">English (US)</option>
-                            </select>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Múi giờ hệ thống</label>
-                            <select
-                              value="GMT+7"
-                              disabled
-                              className="w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-sm font-bold text-slate-900 focus:outline-none"
-                            >
-                              <option value="GMT+7">GMT+7 (Asia/Ho_Chi_Minh)</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Sub Tab: Payments & VNPAY */}
-                  {settingsSubTab === "vnpay" && (
-                    <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden text-left space-y-6">
-                      <div className="p-6 space-y-5">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-3">Tài chính bãi đỗ</h4>
-                        <div className="grid grid-cols-3 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Đơn vị tiền tệ</label>
-                            <select
-                              value={settings.currency}
-                              onChange={e => setSettings({ ...settings, currency: e.target.value })}
-                              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 focus:bg-white transition-all cursor-pointer"
-                            >
-                              <option value="VND">VND (đ)</option>
-                              <option value="USD">USD ($)</option>
-                            </select>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Thuế suất VAT (%)</label>
-                            <input
-                              type="number"
-                              value={settings.vat}
-                              onChange={e => setSettings({ ...settings, vat: parseInt(e.target.value) || 0 })}
-                              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Miễn phí đỗ (Phút)</label>
-                            <input
-                              type="number"
-                              value={settings.gracePeriod}
-                              onChange={e => setSettings({ ...settings, gracePeriod: parseInt(e.target.value) || 0 })}
-                              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
-                            />
-                          </div>
-                        </div>
-                        <p className="text-[10px] text-slate-600">Thời gian miễn phí áp dụng cho xe ra/vào nhanh trong bãi không tính phí.</p>
-                      </div>
-
-                      <div className="p-6 bg-slate-50/50 border-t border-slate-100 space-y-5">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-3">Tích hợp cổng thanh toán VNPAY</h4>
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">VNP_TMNCODE (Merchant ID)</label>
-                              <input
-                                type="text"
-                                value={enterpriseSettings.vnpTmnCode}
-                                onChange={e => setEnterpriseSettings({ ...enterpriseSettings, vnpTmnCode: e.target.value })}
-                                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 transition-all font-mono"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">VNP_HASHSECRET (Secret Key)</label>
-                              <input
-                                type="password"
-                                value={enterpriseSettings.vnpHashSecret}
-                                onChange={e => setEnterpriseSettings({ ...enterpriseSettings, vnpHashSecret: e.target.value })}
-                                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 transition-all font-mono"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">VNPAY Payment Endpoint URL</label>
-                            <input
-                              type="text"
-                              value={enterpriseSettings.vnpUrl}
-                              onChange={e => setEnterpriseSettings({ ...enterpriseSettings, vnpUrl: e.target.value })}
-                              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 transition-all font-mono"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Sub Tab: Security & Automation */}
-                  {settingsSubTab === "security" && (
-                    <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden text-left space-y-6">
-                      <div className="p-6 space-y-5">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-3">Chính sách bảo mật & Cứu hộ</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Chế độ SOS khẩn cấp</label>
-                            <div
-                              onClick={() => setSettings({ ...settings, sosEnabled: !settings.sosEnabled })}
-                              className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all ${settings.sosEnabled ? "border-red-200 bg-red-50/50" : "border-slate-200 bg-slate-50"}`}
-                            >
-                              <div className={`w-9 h-5 rounded-full relative transition-colors ${settings.sosEnabled ? "bg-red-500" : "bg-slate-300"}`}>
-                                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${settings.sosEnabled ? "left-[18px]" : "left-0.5"}`} />
-                              </div>
-                              <span className="text-sm font-extrabold text-slate-850">{settings.sosEnabled ? "Bật khẩn cấp" : "Tắt khẩn cấp"}</span>
-                            </div>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Tự khóa cổng khi biển số Blacklist</label>
-                            <div
-                              onClick={() => setEnterpriseSettings({ ...enterpriseSettings, autoLockBlacklist: !enterpriseSettings.autoLockBlacklist })}
-                              className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all ${enterpriseSettings.autoLockBlacklist ? "border-amber-200 bg-amber-50/50" : "border-slate-200 bg-slate-50"}`}
-                            >
-                              <div className={`w-9 h-5 rounded-full relative transition-colors ${enterpriseSettings.autoLockBlacklist ? "bg-amber-500" : "bg-slate-300"}`}>
-                                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enterpriseSettings.autoLockBlacklist ? "left-[18px]" : "left-0.5"}`} />
-                              </div>
-                              <span className="text-sm font-extrabold text-slate-850">{enterpriseSettings.autoLockBlacklist ? "Tự động khóa" : "Bỏ qua cảnh báo"}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-6 bg-slate-50/50 border-t border-slate-100 space-y-4">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-3">Thông báo & Cảnh báo khẩn</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Email nhận log khẩn cấp</label>
-                            <input
-                              type="email"
-                              value={enterpriseSettings.alertEmail}
-                              onChange={e => setEnterpriseSettings({ ...enterpriseSettings, alertEmail: e.target.value })}
-                              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 transition-all"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Ngưỡng báo động đầy bãi (%)</label>
-                            <input
-                              type="number"
-                              value={enterpriseSettings.occupancyAlertThreshold}
-                              onChange={e => setEnterpriseSettings({ ...enterpriseSettings, occupancyAlertThreshold: parseInt(e.target.value) || 0 })}
-                              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 transition-all"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Sub Tab: Maintenance & System */}
-                  {settingsSubTab === "maintenance" && (
-                    <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden text-left space-y-6">
-                      <div className="p-6 space-y-5">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-3">Sao lưu & Bảo trì</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Tự động sao lưu dữ liệu</label>
-                            <select
-                              value={enterpriseSettings.backupInterval}
-                              onChange={e => setEnterpriseSettings({ ...enterpriseSettings, backupInterval: e.target.value })}
-                              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-400 focus:bg-white transition-all cursor-pointer"
-                            >
-                              <option value="daily">Hàng ngày (00:00)</option>
-                              <option value="weekly">Hàng tuần (Chủ nhật)</option>
-                              <option value="monthly">Hàng tháng (Ngày 1)</option>
-                              <option value="none">Tắt tự động sao lưu</option>
-                            </select>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">Log API Request/Response</label>
-                            <div
-                              onClick={() => setEnterpriseSettings({ ...enterpriseSettings, enableApiLogging: !enterpriseSettings.enableApiLogging })}
-                              className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all ${enterpriseSettings.enableApiLogging ? "border-indigo-200 bg-indigo-50/50" : "border-slate-200 bg-slate-50"}`}
-                            >
-                              <div className={`w-9 h-5 rounded-full relative transition-colors ${enterpriseSettings.enableApiLogging ? "bg-indigo-500" : "bg-slate-300"}`}>
-                                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enterpriseSettings.enableApiLogging ? "left-[18px]" : "left-0.5"}`} />
-                              </div>
-                              <span className="text-sm font-extrabold text-slate-850">{enterpriseSettings.enableApiLogging ? "Ghi log chi tiết" : "Tắt ghi log"}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-6 bg-slate-50/50 border-t border-slate-100 space-y-4">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-3">Thao tác cơ sở dữ liệu</h4>
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              showToast("Bắt đầu kết xuất dữ liệu cấu hình hệ thống JSON...", "info");
-                              const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ settings, enterpriseSettings, tariffs, zones, gates }));
-                              const dlAnchorElem = document.createElement('a');
-                              dlAnchorElem.setAttribute("href", dataStr);
-                              dlAnchorElem.setAttribute("download", `smartparking_config_backup_${new Date().toISOString().slice(0, 10)}.json`);
-                              dlAnchorElem.click();
-                              showToast("Xuất cấu hình thành công!", "success");
-                            }}
-                            className="px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold text-slate-700 shadow-sm transition-all"
-                          >
-                            Xuất cấu hình hệ thống
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm("Bạn có chắc chắn muốn dọn dẹp các log bảo mật đã xử lý? Hành động này không thể hoàn tác.")) {
-                                showToast("Đang dọn dẹp nhật ký sự cố cũ...", "info");
-                                setTimeout(() => showToast("Đã xóa 0 log lịch sử chưa sử dụng.", "success"), 800);
-                              }
-                            }}
-                            className="px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold text-red-650 hover:text-red-700 shadow-sm transition-all"
-                          >
-                            Dọn dẹp Exception Logs
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Save button */}
-                  <div className="flex items-center gap-4 text-left">
-                    <button
-                      onClick={async () => {
-                        try {
-                          const res = await staffApi.updateAdminSettings(settings);
-                          setSettings(res.data.data || settings);
-                          localStorage.setItem("admin_enterprise_settings", JSON.stringify(enterpriseSettings));
-                          showToast("Đã lưu cài đặt hệ thống thành công!");
-                        } catch (err) {
-                          showToast(err.response?.data?.message || "Lưu cài đặt thất bại", "warning");
-                        }
-                      }}
-                      className="rounded-xl bg-slate-900 hover:bg-slate-800 px-8 py-3 text-xs font-extrabold text-white cursor-pointer transition-colors"
-                    >
-                      Lưu thiết lập
-                    </button>
-                    <p className="text-[10px] text-slate-650 font-bold">Thay đổi sẽ áp dụng ngay lập tức cho toàn bộ các cổng và phiên làm việc.</p>
-                  </div>
-                </div>
-
-                {/* Right Column - System Info & Stats */}
-                <div className="space-y-6 text-left">
-                  <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Trạng thái hạ tầng</h4>
-                    </div>
-                    <div className="p-6 space-y-4">
-                      {[
-                        { label: "Tổng người dùng", value: users.length },
-                        { label: "Tổng khu đỗ xe", value: zones.length },
-                        { label: "Tổng cổng kiểm soát", value: gates.length },
-                        { label: "Biểu phí đã cấu hình", value: tariffs.length },
-                        { label: "Vé định kỳ đang hoạt động", value: passes.filter(p => p.status === "active").length },
-                        { label: "Tổng sức chứa thiết kế", value: `${zones.reduce((s, z) => s + (z.capacity || 0), 0)} chỗ` },
-                      ].map((item, i) => (
-                        <div key={i} className="flex justify-between items-center">
-                          <span className="text-xs text-slate-600 font-bold">{item.label}</span>
-                          <span className="text-sm font-extrabold text-slate-900">{item.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Thời gian hoạt động</h4>
-                    </div>
-                    <div className="p-6 space-y-3">
-                      {parkingConfig.buildings.map(b => (
-                        <div key={b.id} className="space-y-2 border-b border-slate-50 pb-2 last:border-0 last:pb-0">
-                          <p className="text-xs font-extrabold text-slate-800">{b.name}</p>
-                          <p className="text-[10px] text-slate-600 font-semibold">{b.address}</p>
-                          <div className="flex gap-2 mt-1">
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                              {b.operatingHoursStart || "06:00"} — {b.operatingHoursEnd || "22:00"}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                      {parkingConfig.buildings.length === 0 && <p className="text-xs text-slate-500">Chưa cấu hình tòa nhà nào.</p>}
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-950 rounded-2xl border border-slate-800 p-6">
-                    <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wide">Chi tiết máy chủ & Module</p>
-                    <p className="text-base font-black text-white mt-1">SmartParking Enterprise</p>
-                    <p className="text-[10px] text-slate-400 mt-2 font-medium">Core Service: Java Spring Boot 3.3</p>
-                    <p className="text-[10px] text-slate-400 font-medium">Database: PostgreSQL 16</p>
-                    <p className="text-[10px] text-slate-400 font-medium">Frontend Engine: React 18 + Vite</p>
-                    <p className="text-[10px] text-slate-400 font-medium">Tích hợp VNPay & WebSocket Terminal</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <AdminSettings
+              settings={settings}
+              setSettings={setSettings}
+              enterpriseSettings={enterpriseSettings}
+              setEnterpriseSettings={setEnterpriseSettings}
+              settingsSubTab={settingsSubTab}
+              setSettingsSubTab={setSettingsSubTab}
+              users={users}
+              zones={zones}
+              gates={gates}
+              tariffs={tariffs}
+              passes={passes}
+              parkingConfig={parkingConfig}
+              showToast={showToast}
+            />
           )}
+
         </section>
       </main>
 
@@ -2540,45 +1571,3 @@ function SidebarBtn({ label, active, onClick, collapsed, icon }) {
   );
 }
 
-function StatCard({ title, value, icon, accentColor, subtext }) {
-  return (
-    <div className="stat-card-item group relative rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-100/50 hover:shadow-md hover:border-slate-300 transition-all duration-300 overflow-hidden text-left">
-      {/* Top accent highlight */}
-      <div className={`absolute top-0 left-0 right-0 h-1.5 ${accentColor}`} />
-
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-extrabold uppercase tracking-wide text-slate-400 group-hover:text-slate-500 transition-colors">
-          {title}
-        </span>
-        {icon && <span className="text-xl">{icon}</span>}
-      </div>
-
-      <div className="mt-4 flex flex-col">
-        <span className="text-2xl font-black text-slate-900 group-hover:scale-[1.02] origin-left transition-transform duration-300">
-          {value}
-        </span>
-        <span className="text-[10px] font-semibold text-slate-400 mt-1">
-          {subtext}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function ChartBar({ day, val, height, active }) {
-  return (
-    <div className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
-      <div className="text-[10px] font-bold text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 px-1.5 py-0.5 rounded text-white mb-1 shadow-lg">
-        {val}tr
-      </div>
-      <div
-        className={`w-full rounded-t-lg transition-all duration-700 cursor-pointer ${active
-          ? "bg-purple-500 shadow-lg shadow-purple-500/30"
-          : "bg-slate-800 hover:bg-slate-700"
-          }`}
-        style={{ height }}
-      />
-      <span className={`text-[10px] font-extrabold mt-1 ${active ? "text-purple-400" : "text-slate-500"}`}>{day}</span>
-    </div>
-  );
-}
