@@ -110,6 +110,30 @@ export default function StaffCheckIn() {
     setIsPreCheckedIn(false);
     setPreCheckInResult(null);
     setScannedTicketInfo(null);
+    // Tự động bật lại camera cho xe tiếp theo
+    startFaceCamera();
+    startPlateCamera();
+    if (!isQrScanning) {
+      handleOpenQrScanner();
+    }
+  };
+
+  const handleResetFace = async () => {
+    setPreviewFaceUrl("");
+    setUploadedFaceUrl("");
+    setFaceBlob(null);
+    setIsFaceCameraOn(true);
+    await startSharedStream();
+  };
+
+  const handleResetPlate = async () => {
+    setPreviewPlateUrl("");
+    setUploadedPlateUrl("");
+    setPlateBlob(null);
+    setOcrResult("Camera biển số sẵn sàng");
+    setFormData(prev => ({ ...prev, plateNumber: "" }));
+    setIsPlateCameraOn(true);
+    await startSharedStream();
   };
 
   // Tự động ẩn thông báo lỗi sau 10 giây
@@ -128,9 +152,32 @@ export default function StaffCheckIn() {
   const [isUpdatingZone, setIsUpdatingZone] = useState(false);
   const [showAllZones, setShowAllZones] = useState(false);
 
+  const [disabledVehicleTypeIds, setDisabledVehicleTypeIds] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("disabled_vehicle_type_ids") || "[]");
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("disabled_vehicle_type_ids", JSON.stringify(disabledVehicleTypeIds));
+  }, [disabledVehicleTypeIds]);
+
+  // Đếm ngược tự động chụp mặt
+  const [countdown, setCountdown] = useState(null);
+  const [countdownType, setCountdownType] = useState(null); // "PLATE" hoặc "FACE"
+
+  const lastScannedTicketRef = useRef({ text: "", time: 0 });
+  const handleProcessScannedQrRef = useRef();
+
+  useEffect(() => {
+    handleProcessScannedQrRef.current = handleProcessScannedQr;
+  });
+
   // States for face camera
   const [isFaceCameraOn, setIsFaceCameraOn] = useState(false);
-  const [faceStream, setFaceStream] = useState(null);
+  const [sharedStream, setSharedStream] = useState(null);
   const [previewFaceUrl, setPreviewFaceUrl] = useState("");
   const [uploadedFaceUrl, setUploadedFaceUrl] = useState("");
   const [faceUploading, setFaceUploading] = useState(false);
@@ -138,7 +185,6 @@ export default function StaffCheckIn() {
 
   // States for plate camera
   const [isPlateCameraOn, setIsPlateCameraOn] = useState(false);
-  const [plateStream, setPlateStream] = useState(null);
   const [previewPlateUrl, setPreviewPlateUrl] = useState("");
   const [uploadedPlateUrl, setUploadedPlateUrl] = useState("");
   const [plateScanning, setPlateScanning] = useState(false);
@@ -231,31 +277,98 @@ export default function StaffCheckIn() {
     checkPlateType();
   }, [formData.plateNumber, formData.vehicleTypeId, vehicleTypes]);
 
-  // Cleanup camera streams on unmount
+  const sharedStreamRef = useRef(null);
+  useEffect(() => {
+    sharedStreamRef.current = sharedStream;
+  }, [sharedStream]);
+
+  // Cleanup camera streams and QR scanner on unmount
   useEffect(() => {
     return () => {
-      if (faceStream) {
-        faceStream.getTracks().forEach(track => track.stop());
+      try {
+        if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+        if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+      } catch (e) {}
+
+      try {
+        if (sharedStreamRef.current) {
+          sharedStreamRef.current.getTracks().forEach(track => {
+            try { track.stop(); } catch (e) {}
+          });
+        }
+      } catch (err) {
+        console.warn("Lỗi cleanup sharedStream:", err);
       }
-      if (plateStream) {
-        plateStream.getTracks().forEach(track => track.stop());
+
+      try {
+        const scanner = qrScannerRef.current;
+        if (scanner) {
+          qrScannerRef.current = null;
+          if (scanner.isScanning) {
+            scanner.stop()
+              .then(() => {
+                try { scanner.clear(); } catch (e) {}
+              })
+              .catch(err => console.warn("Lỗi stop scanner checkin on unmount:", err));
+          } else {
+            try { scanner.clear(); } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.warn("Lỗi cleanup qrScanner:", err);
       }
     };
-  }, [faceStream, plateStream]);
+  }, []);
 
-  // --- CAMERA CHÂN DUNG (FACE CAMERA) ---
+  // Tự động gán stream vào các thẻ video khi sharedStream hoặc các ref thay đổi
+  useEffect(() => {
+    if (sharedStream) {
+      if (faceVideoRef.current && faceVideoRef.current.srcObject !== sharedStream) {
+        faceVideoRef.current.srcObject = sharedStream;
+        faceVideoRef.current.play().catch(e => console.warn(e));
+      }
+      if (plateVideoRef.current && plateVideoRef.current.srcObject !== sharedStream) {
+        plateVideoRef.current.srcObject = sharedStream;
+        plateVideoRef.current.play().catch(e => console.warn(e));
+      }
+    } else {
+      if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+      if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+    }
+  }, [sharedStream, previewFaceUrl, previewPlateUrl, isFaceCameraOn, isPlateCameraOn]);
+
+  // Tự động tắt luồng phần cứng khi tất cả camera hiển thị đều tắt
+  useEffect(() => {
+    if (!isFaceCameraOn && !isPlateCameraOn && sharedStream) {
+      if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+      if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+      sharedStream.getTracks().forEach(track => {
+        try { track.stop(); } catch (e) {}
+      });
+      setSharedStream(null);
+    }
+  }, [isFaceCameraOn, isPlateCameraOn, sharedStream]);
+
+  // --- CAMERA HỆ THỐNG DÙNG CHUNG ---
+  const startSharedStream = async () => {
+    if (sharedStream) return sharedStream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      setSharedStream(stream);
+      return stream;
+    } catch (err) {
+      console.error("Lỗi bật camera dùng chung:", err);
+      throw err;
+    }
+  };
+
   const startFaceCamera = async () => {
     try {
       setIsFaceCameraOn(true);
       setPreviewFaceUrl("");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" }
-      });
-      setFaceStream(stream);
-      if (faceVideoRef.current) {
-        faceVideoRef.current.srcObject = stream;
-        faceVideoRef.current.play();
-      }
+      await startSharedStream();
     } catch (err) {
       console.error("Lỗi bật camera mặt:", err);
       alert("Không thể truy cập camera chân dung.");
@@ -264,10 +377,6 @@ export default function StaffCheckIn() {
   };
 
   const stopFaceCamera = () => {
-    if (faceStream) {
-      faceStream.getTracks().forEach(track => track.stop());
-      setFaceStream(null);
-    }
     setIsFaceCameraOn(false);
   };
 
@@ -390,19 +499,14 @@ export default function StaffCheckIn() {
             const ocrRes = await ocrResponse.json();
             if (ocrRes.results && ocrRes.results.length > 0) {
               detectedPlate = ocrRes.results[0].plate.toUpperCase();
-              const cleanPlate = normalizeLicensePlate(detectedPlate);
 
-              let targetType = "ô tô";
-              if (cleanPlate.includes("A1") || cleanPlate.includes("B1") || cleanPlate.includes("E1") || cleanPlate.includes("F1")) {
-                targetType = "máy";
-              }
-              const vt = vehicleTypes.find(v => v.name.toLowerCase().includes(targetType));
-              const formattedPlate = formatLicensePlate(detectedPlate, targetType);
+              // Giữ nguyên loại xe đang chọn trên màn hình
+              const currentTypeLabel = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+              const formattedPlate = formatLicensePlate(detectedPlate, currentTypeLabel);
 
               setFormData(prev => ({
                 ...prev,
                 plateNumber: formattedPlate,
-                vehicleTypeId: vt?.id || prev.vehicleTypeId,
                 driverType: "WALK_IN",
                 reservationCode: ""
               }));
@@ -432,14 +536,7 @@ export default function StaffCheckIn() {
       setIsPlateCameraOn(true);
       setPreviewPlateUrl("");
       setOcrResult("Camera hoạt động! Đưa biển số trước cam.");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
-      });
-      setPlateStream(stream);
-      if (plateVideoRef.current) {
-        plateVideoRef.current.srcObject = stream;
-        plateVideoRef.current.play();
-      }
+      await startSharedStream();
     } catch (err) {
       console.error("Lỗi bật camera biển số:", err);
       setOcrResult("❌ Lỗi truy cập Camera.");
@@ -448,31 +545,43 @@ export default function StaffCheckIn() {
   };
 
   const stopPlateCamera = () => {
-    if (plateStream) {
-      plateStream.getTracks().forEach(track => track.stop());
-      setPlateStream(null);
-    }
     setIsPlateCameraOn(false);
   };
 
   // --- QUÉT QR VÉ ĐẶT TRƯỚC VÀ VÉ THÁNG (HTML5 QR CODE) ---
   const handleOpenQrScanner = () => {
+    if (qrScannerRef.current) return;
     setIsQrScanning(true);
     setQrMessage("Đang khởi tạo camera...");
     setScannedTicketInfo(null);
     setManualTicketCode(""); // Reset ô nhập tay
-    
+
+    // Cuộn xuống phần quét QR ở cột phải
+    setTimeout(() => {
+      const qrContainer = document.getElementById("ticket-checkin-reader");
+      if (qrContainer) {
+        qrContainer.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 100);
+
     setTimeout(async () => {
       try {
         const scanner = new Html5Qrcode("ticket-checkin-reader");
         qrScannerRef.current = scanner;
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 20, qrbox: { width: 160, height: 160 } },
+          { fps: 20, qrbox: { width: 140, height: 140 } },
           async (decodedText) => {
-            handleProcessScannedQr(decodedText);
+            const now = Date.now();
+            if (decodedText === lastScannedTicketRef.current.text && now - lastScannedTicketRef.current.time < 3000) {
+              return; // Bỏ qua trùng lặp trong 3 giây
+            }
+            lastScannedTicketRef.current = { text: decodedText, time: now };
+            if (handleProcessScannedQrRef.current) {
+              handleProcessScannedQrRef.current(decodedText);
+            }
           },
-          () => {}
+          () => { }
         );
         setQrMessage("Đặt mã QR vé (Đặt chỗ/Vé tháng) vào khung hình");
       } catch (error) {
@@ -499,9 +608,6 @@ export default function StaffCheckIn() {
     if (!qrText) return;
     const cleanedCode = qrText.trim().toUpperCase();
 
-    // 1. Dừng camera và đóng modal ngay
-    await handleCloseQrScanner();
-
     const isReservation = cleanedCode.startsWith("RS");
     const isPass = cleanedCode.startsWith("PP");
 
@@ -522,60 +628,189 @@ export default function StaffCheckIn() {
           }, 300);
           return;
         }
-      } catch (e) {}
+      } catch (e) { }
 
-      // Báo lỗi không đúng định dạng vé và dừng xử lý
       setApiError("Mã vé không hợp lệ! Vui lòng nhập hoặc quét đúng mã đặt giữ chỗ (RS-) hoặc vé tháng (PP-).");
       return;
     }
 
-    // Gọi API đối soát check-in preview chính thức
-    try {
-      setIsLoadingPreview(true);
-      setApiError("");
+    // Định nghĩa helper gọi API đối soát để tái sử dụng
+    const runPreCheckInApi = async (detectedPlateVal) => {
+      const finalPlate = detectedPlateVal || formData.plateNumber || "";
+      const normalizedPlate = normalizeLicensePlate(finalPlate);
       
-      const payload = {
-        licensePlate: formData.plateNumber || "",
-        vehicleTypeId: formData.vehicleTypeId,
-        gateEntryId: formData.gateEntryId,
-        reservationCode: isReservation ? cleanedCode : null,
-        parkingPassCode: isPass ? cleanedCode : null,
-        isPreview: true
-      };
+      try {
+        setIsLoadingPreview(true);
+        setApiError("");
 
-      const res = await staffApi.checkIn(payload);
-      const preview = res.data.data;
+        const payload = {
+          licensePlate: normalizedPlate,
+          vehicleTypeId: formData.vehicleTypeId,
+          gateEntryId: formData.gateEntryId,
+          reservationCode: isReservation ? cleanedCode : null,
+          parkingPassCode: isPass ? cleanedCode : null,
+          isPreview: true
+        };
 
-      setFormData(prev => ({
-        ...prev,
-        plateNumber: preview.licensePlate || prev.plateNumber,
-        vehicleTypeId: preview.vehicleTypeId || prev.vehicleTypeId,
-        reservationCode: preview.reservationCode || (isReservation ? cleanedCode : ""),
-        parkingPassCode: isPass ? cleanedCode : "",
-        driverType: preview.driverType
-      }));
+        const res = await staffApi.checkIn(payload);
+        const preview = res.data.data;
 
-      setPreCheckInResult(preview);
-      setEligibleZones(preview.eligibleZones || []);
-      setSelectedZoneId(preview.zoneId || "");
-      setIsPreCheckedIn(true);
+        setFormData(prev => ({
+          ...prev,
+          plateNumber: preview.licensePlate || prev.plateNumber,
+          vehicleTypeId: preview.vehicleTypeId || prev.vehicleTypeId,
+          reservationCode: preview.reservationCode || (isReservation ? cleanedCode : ""),
+          parkingPassCode: isPass ? cleanedCode : "",
+          driverType: preview.driverType
+        }));
 
-      setScannedTicketInfo({
-        type: preview.driverType,
-        code: isReservation ? (preview.reservationCode || cleanedCode) : (preview.parkingPassCode || cleanedCode),
-        licensePlate: preview.licensePlate,
-        vehicleTypeName: preview.vehicleType,
-        customerName: preview.customerName || "Khách hàng",
-        zoneName: preview.zoneName ? `${preview.floorName} - ${preview.zoneName}` : null
-      });
+        setPreCheckInResult(preview);
+        setEligibleZones(preview.eligibleZones || []);
+        setSelectedZoneId(preview.zoneId || "");
+        setIsPreCheckedIn(true);
 
-    } catch (err) {
-      console.error("Lỗi đối soát vé từ API checkin:", err);
-      const errorMsg = err.response?.data?.message || err.message || "Lỗi kết nối đối soát.";
-      setApiError(errorMsg);
-    } finally {
-      setIsLoadingPreview(false);
-    }
+        setScannedTicketInfo({
+          type: preview.driverType,
+          code: isReservation ? (preview.reservationCode || cleanedCode) : (preview.parkingPassCode || cleanedCode),
+          licensePlate: preview.licensePlate,
+          vehicleTypeName: preview.vehicleType,
+          customerName: preview.customerName || "Khách hàng",
+          zoneName: preview.zoneName ? `${preview.floorName} - ${preview.zoneName}` : null
+        });
+      } catch (err) {
+        console.error("Backend pre-checkin error:", err);
+        const errorMsg = err.response?.data?.message || err.message || "Không thể kết nối với dịch vụ backend.";
+        setApiError(`Lỗi đối soát vé: ${errorMsg}`);
+      } finally {
+        setIsLoadingPreview(false);
+      }
+    };
+
+    // Bước A: Chạy đếm ngược 3s để chụp biển số
+    let countPlate = 3;
+    setCountdown(countPlate);
+    setCountdownType("PLATE");
+
+    const intervalPlate = setInterval(() => {
+      countPlate -= 1;
+      if (countPlate > 0) {
+        setCountdown(countPlate);
+      } else {
+        clearInterval(intervalPlate);
+        setCountdown(null);
+        setCountdownType(null);
+
+        // Tiến hành chụp biển số + OCR chạy ngầm
+        if (plateVideoRef.current && isPlateCameraOn) {
+          setPlateScanning(true);
+          setOcrResult("AI đang phân tích biển số...");
+          const video = plateVideoRef.current;
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(async (blob) => {
+            if (!blob) {
+              setOcrResult("❌ Lỗi trích xuất ảnh.");
+              setPlateScanning(false);
+              return;
+            }
+            const localUrl = URL.createObjectURL(blob);
+            setPreviewPlateUrl(localUrl);
+            setPlateBlob(blob);
+            setUploadedPlateUrl("");
+            stopPlateCamera();
+
+            // OCR chạy ngầm, không block luồng chụp mặt
+            let detectedPlate = "";
+            try {
+              const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
+              const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
+
+              if (hasOcr) {
+                const ocrData = new FormData();
+                ocrData.append("upload", blob, "captured_plate.jpg");
+                ocrData.append("regions", "vn");
+
+                const ocrResponse = await fetch("https://api.platerecognizer.com/v1/plate-reader/", {
+                  method: "POST",
+                  headers: {
+                    "Authorization": `Token ${ocrToken.trim()}`,
+                  },
+                  body: ocrData,
+                });
+
+                if (ocrResponse.ok) {
+                  const ocrRes = await ocrResponse.json();
+                  if (ocrRes.results && ocrRes.results.length > 0) {
+                    detectedPlate = ocrRes.results[0].plate.toUpperCase();
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("Lỗi khi nhận diện biển số:", err);
+            } finally {
+              setPlateScanning(false);
+            }
+
+            const currentTypeLabel = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+            const formattedPlate = detectedPlate ? formatLicensePlate(detectedPlate, currentTypeLabel) : "";
+            if (formattedPlate) {
+              setFormData(prev => ({
+                ...prev,
+                plateNumber: formattedPlate,
+                reservationCode: isReservation ? cleanedCode : "",
+                parkingPassCode: isPass ? cleanedCode : "",
+                driverType: isReservation ? "PRE_BOOKED" : "SUBSCRIBER"
+              }));
+              setOcrResult(`✅ Nhận dạng: ${formattedPlate}`);
+            } else {
+              setOcrResult("⚠️ Không nhận diện được biển số. Hãy nhập tay nếu cần.");
+            }
+          }, "image/jpeg", 0.6);
+        }
+
+        // Bước B: Chụp mặt sau 2s — bắt đầu NGAY, không đợi OCR
+        let countFace = 2;
+        setCountdown(countFace);
+        setCountdownType("FACE");
+
+        const intervalFace = setInterval(() => {
+          countFace -= 1;
+          if (countFace > 0) {
+            setCountdown(countFace);
+          } else {
+            clearInterval(intervalFace);
+            setCountdown(null);
+            setCountdownType(null);
+
+            if (faceVideoRef.current && isFaceCameraOn) {
+              const fVideo = faceVideoRef.current;
+              const fCanvas = document.createElement("canvas");
+              fCanvas.width = fVideo.videoWidth || 640;
+              fCanvas.height = fVideo.videoHeight || 480;
+              const fCtx = fCanvas.getContext("2d");
+              fCtx.drawImage(fVideo, 0, 0, fCanvas.width, fCanvas.height);
+              fCanvas.toBlob(async (fBlob) => {
+                if (fBlob) {
+                  const fUrl = URL.createObjectURL(fBlob);
+                  setPreviewFaceUrl(fUrl);
+                  setFaceBlob(fBlob);
+                  setUploadedFaceUrl("");
+                  stopFaceCamera();
+                }
+                await runPreCheckInApi(null);
+              }, "image/jpeg", 0.6);
+            } else {
+              console.warn("Chụp ảnh mặt thất bại do camera mặt đang tắt.");
+              setApiError("Cảnh báo: Không thể tự động chụp ảnh mặt do camera mặt đang tắt. Vui lòng bật camera và chụp lại.");
+              runPreCheckInApi(null);
+            }
+          }
+        }, 1000);
+      }
+    }, 1000);
   };
 
   const capturePlateAndOcr = () => {
@@ -701,6 +936,156 @@ export default function StaffCheckIn() {
     }, 1000);
   };
 
+  // Chủ động bật/tắt cả 2 camera
+  const toggleBothCameras = async () => {
+    if (isFaceCameraOn || isPlateCameraOn) {
+      setIsFaceCameraOn(false);
+      setIsPlateCameraOn(false);
+      if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+      if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+      if (sharedStream) {
+        sharedStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) {}
+        });
+        setSharedStream(null);
+      }
+    } else {
+      setIsFaceCameraOn(true);
+      setIsPlateCameraOn(true);
+      setOcrResult("Camera hoạt động! Đưa biển số trước cam.");
+      try {
+        await startSharedStream();
+      } catch (e) {
+        setIsFaceCameraOn(false);
+        setIsPlateCameraOn(false);
+      }
+    }
+  };
+
+  // Luồng 1: Chụp Thường (Không QR) - Chụp biển số trước, chờ 2 giây rồi tự chụp mặt
+  const handleNormalCapture = async () => {
+    if (!isPlateCameraOn) {
+      setApiError("Vui lòng bật camera biển số trước khi thực hiện chụp!");
+      return;
+    }
+    // 1. Chụp biển số xe ngay lập tức + chạy OCR
+    if (plateVideoRef.current && isPlateCameraOn) {
+      setPlateScanning(true);
+      setOcrResult("AI đang phân tích biển số...");
+      const video = plateVideoRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setOcrResult("❌ Lỗi trích xuất ảnh.");
+          setPlateScanning(false);
+          return;
+        }
+        const localUrl = URL.createObjectURL(blob);
+        setPreviewPlateUrl(localUrl);
+        setPlateBlob(blob);
+        setUploadedPlateUrl("");
+        stopPlateCamera();
+
+        try {
+          const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
+          const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
+
+          if (!hasOcr) {
+            console.warn("Chưa cấu hình Plate Recognizer Token.");
+            setOcrResult("⚠️ Chưa cấu hình Token OCR.");
+          } else {
+            const ocrData = new FormData();
+            ocrData.append("upload", blob, "captured_plate.jpg");
+            ocrData.append("regions", "vn");
+
+            const ocrResponse = await fetch("https://api.platerecognizer.com/v1/plate-reader/", {
+              method: "POST",
+              headers: {
+                "Authorization": `Token ${ocrToken.trim()}`,
+              },
+              body: ocrData,
+            });
+
+            if (ocrResponse.ok) {
+              const ocrRes = await ocrResponse.json();
+              if (ocrRes.results && ocrRes.results.length > 0) {
+                const detectedPlate = ocrRes.results[0].plate.toUpperCase();
+                const currentTypeLabel = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+                const formattedPlate = formatLicensePlate(detectedPlate, currentTypeLabel);
+
+                setFormData(prev => ({
+                  ...prev,
+                  plateNumber: formattedPlate,
+                  driverType: "WALK_IN",
+                  reservationCode: ""
+                }));
+                setOcrResult(`✅ Nhận dạng: ${formattedPlate}`);
+                handleLoadPreCheckIn(formattedPlate);
+              } else {
+                setOcrResult("⚠️ Không tìm thấy biển số xe.");
+              }
+            } else {
+              setOcrResult("❌ Lỗi dịch vụ nhận diện.");
+            }
+          }
+        } catch (err) {
+          console.error("Lỗi khi nhận diện biển số:", err);
+          setOcrResult("❌ Lỗi kết nối dịch vụ OCR.");
+        } finally {
+          setPlateScanning(false);
+        }
+      }, "image/jpeg", 0.6);
+    }
+
+    // 2. Chạy đếm ngược 2 giây trên camera mặt trước khi chụp mặt
+    let count = 2;
+    setCountdown(count);
+    setCountdownType("FACE");
+    const interval = setInterval(() => {
+      count -= 1;
+      if (count > 0) {
+        setCountdown(count);
+      } else {
+        clearInterval(interval);
+        setCountdown(null);
+        // Tiến hành chụp mặt sau 2 giây
+        if (faceVideoRef.current && isFaceCameraOn) {
+          const video = faceVideoRef.current;
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const localUrl = URL.createObjectURL(blob);
+              setPreviewFaceUrl(localUrl);
+              setFaceBlob(blob);
+              setUploadedFaceUrl("");
+              stopFaceCamera();
+            }
+          }, "image/jpeg", 0.6);
+        }
+      }
+    }, 1000);
+  };
+
+  // Tự động bật camera khi tải xong cấu hình bãi xe
+  useEffect(() => {
+    if (configLoaded) {
+      const timer = setTimeout(() => {
+        startFaceCamera();
+        startPlateCamera();
+        handleOpenQrScanner();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [configLoaded]);
+
   // Tải cấu hình bãi xe lúc mở trang
   useEffect(() => {
     const fetchConfig = async () => {
@@ -714,7 +1099,14 @@ export default function StaffCheckIn() {
         setGates(entryGates);
 
         if (config.vehicleTypes?.length > 0) {
-          setFormData(prev => ({ ...prev, vehicleTypeId: config.vehicleTypes[0].id }));
+          let savedDisabledIds = [];
+          try {
+            savedDisabledIds = JSON.parse(localStorage.getItem("disabled_vehicle_type_ids") || "[]");
+          } catch (e) {}
+
+          const firstActiveType = config.vehicleTypes.find(v => !savedDisabledIds.includes(v.id));
+          const initialTypeId = firstActiveType ? firstActiveType.id : config.vehicleTypes[0].id;
+          setFormData(prev => ({ ...prev, vehicleTypeId: initialTypeId }));
         }
         const firstActiveGate = entryGates.find(g => g.isActive) || entryGates[0];
         if (firstActiveGate) {
@@ -1135,27 +1527,34 @@ export default function StaffCheckIn() {
               <div className="flex flex-col gap-[2px] h-full justify-between">
                 {/* Vùng Camera / Ảnh Preview */}
                 <div className="relative bg-slate-50 aspect-[4/3] flex items-center justify-center overflow-hidden shrink-0">
-                  {previewFaceUrl ? (
+                  <video
+                    ref={faceVideoRef}
+                    className="w-full h-full object-cover"
+                    playsInline
+                    muted
+                    style={{ display: (isFaceCameraOn && !previewFaceUrl) ? "block" : "none" }}
+                  />
+                  {previewFaceUrl && (
                     <img src={previewFaceUrl} alt="Chân dung lúc vào" className="w-full h-full object-cover" />
-                  ) : (
-                    <>
-                      <video
-                        ref={faceVideoRef}
-                        className="w-full h-full object-cover"
-                        playsInline
-                        muted
-                        style={{ display: isFaceCameraOn ? "block" : "none" }}
-                      />
-                      {!isFaceCameraOn && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
-                          <svg className="text-slate-500 w-7 h-7 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                            <circle cx="12" cy="13" r="3" />
-                          </svg>
-                          <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM CHÂN DUNG TẮT</p>
-                        </div>
-                      )}
-                    </>
+                  )}
+                  {countdown !== null && countdownType === "FACE" && (
+                    <div className="absolute inset-0 bg-slate-900/65 flex flex-col items-center justify-center text-center p-4 z-20">
+                      <div className="text-indigo-400 font-black text-6xl animate-bounce">
+                        {countdown}
+                      </div>
+                      <p className="text-white font-black text-[10px] uppercase tracking-widest mt-2 animate-pulse">
+                        Xoay cam chụp mặt...
+                      </p>
+                    </div>
+                  )}
+                  {!isFaceCameraOn && !previewFaceUrl && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
+                      <svg className="text-slate-500 w-7 h-7 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <circle cx="12" cy="13" r="3" />
+                      </svg>
+                      <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM CHÂN DUNG TẮT</p>
+                    </div>
                   )}
 
                   {faceUploading && (
@@ -1174,25 +1573,19 @@ export default function StaffCheckIn() {
                   <div className="flex gap-1 justify-center">
                     <button
                       type="button"
-                      onClick={isFaceCameraOn ? stopFaceCamera : startFaceCamera}
-                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isFaceCameraOn ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                      onClick={toggleBothCameras}
+                      className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer ${(isFaceCameraOn || isPlateCameraOn) ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'
+                        }`}
                     >
-                      {isFaceCameraOn ? 'Tắt' : 'Bật'}
+                      {(isFaceCameraOn || isPlateCameraOn) ? 'Tắt Cam' : 'Bật Cam'}
                     </button>
                     <button
                       type="button"
-                      onClick={captureFace}
-                      disabled={!isFaceCameraOn || faceUploading}
-                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                      onClick={handleNormalCapture}
+                      disabled={!(isFaceCameraOn && isPlateCameraOn) || plateScanning || countdown !== null}
+                      className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
                     >
-                      Chụp ảnh
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => { stopFaceCamera(); setPreviewFaceUrl(""); setUploadedFaceUrl(""); await startFaceCamera(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
-                      Bỏ qua
+                      Chụp
                     </button>
                   </div>
                   <div className="flex flex-col items-center justify-center gap-1.5 mt-0.5">
@@ -1218,26 +1611,33 @@ export default function StaffCheckIn() {
               <div className="flex flex-col gap-[2px] h-full justify-between">
                 {/* Vùng Camera / Ảnh Preview */}
                 <div className="relative bg-slate-50 aspect-[4/3] flex items-center justify-center overflow-hidden shrink-0">
-                  {previewPlateUrl ? (
+                  <video
+                    ref={plateVideoRef}
+                    className="w-full h-full object-cover"
+                    playsInline
+                    muted
+                    style={{ display: (isPlateCameraOn && !previewPlateUrl) ? "block" : "none" }}
+                  />
+                  {previewPlateUrl && (
                     <img src={previewPlateUrl} alt="Xe lúc vào" className="w-full h-full object-cover" />
-                  ) : (
-                    <>
-                      <video
-                        ref={plateVideoRef}
-                        className="w-full h-full object-cover"
-                        playsInline
-                        muted
-                        style={{ display: isPlateCameraOn ? "block" : "none" }}
-                      />
-                      {!isPlateCameraOn && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
-                          <svg className="text-slate-500 w-7 h-7 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7V5a2 2 0 012-2h2m10 0h2a2 2 0 012 2v2m0 10v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M5 12h14" />
-                          </svg>
-                          <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM BIỂN SỐ TẮT</p>
-                        </div>
-                      )}
-                    </>
+                  )}
+                  {countdown !== null && countdownType === "PLATE" && (
+                    <div className="absolute inset-0 bg-slate-900/65 flex flex-col items-center justify-center text-center p-4 z-20">
+                      <div className="text-indigo-400 font-black text-6xl animate-bounce">
+                        {countdown}
+                      </div>
+                      <p className="text-white font-black text-[10px] uppercase tracking-widest mt-2 animate-pulse">
+                        Chuẩn bị chụp biển số...
+                      </p>
+                    </div>
+                  )}
+                  {!isPlateCameraOn && !previewPlateUrl && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
+                      <svg className="text-slate-500 w-7 h-7 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7V5a2 2 0 012-2h2m10 0h2a2 2 0 012 2v2m0 10v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M5 12h14" />
+                      </svg>
+                      <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM BIỂN SỐ TẮT</p>
+                    </div>
                   )}
 
                   {plateScanning && (
@@ -1253,33 +1653,56 @@ export default function StaffCheckIn() {
 
                 {/* Điều khiển Cột 2 */}
                 <div className="bg-slate-50 p-3 flex flex-col gap-2 mt-auto min-h-[80px] justify-center">
-                  <div className="flex gap-1 justify-center">
-                    <button
-                      type="button"
-                      onClick={isPlateCameraOn ? stopPlateCamera : startPlateCamera}
-                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isPlateCameraOn ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
-                    >
-                      {isPlateCameraOn ? 'Tắt' : 'Bật'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={capturePlateAndOcr}
-                      disabled={!isPlateCameraOn || plateScanning}
-                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
-                      Chụp & Quét
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => { stopPlateCamera(); setPreviewPlateUrl(""); setOcrResult("Camera sẵn sàng"); setFormData(prev => ({ ...prev, plateNumber: "" })); await startPlateCamera(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
-                      Bỏ qua
-                    </button>
-                  </div>
+                  {(previewFaceUrl || previewPlateUrl) ? (
+                    <div className="flex gap-1 w-full">
+                      {/* Cột 1: Chân dung */}
+                      {previewFaceUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleResetFace}
+                          className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          🔄 Chụp lại mặt
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={captureFace}
+                          disabled={!isFaceCameraOn || countdown !== null}
+                          className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          Chụp
+                        </button>
+                      )}
+
+                      {/* Cột 2: Biển số */}
+                      {previewPlateUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleResetPlate}
+                          className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          🔄 Chụp lại biển
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={capturePlateAndOcr}
+                          disabled={!isPlateCameraOn || plateScanning}
+                          className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          Chụp
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center text-[10px] font-bold text-slate-500 py-1.5">
+                      {ocrResult}
+                    </div>
+                  )}
 
                   {/* Cụm nhập nhanh hoặc giả lập */}
-                  <div className="flex gap-10 items-center mt-0.5 h-[22px]">
+                  <div className="flex items-center mt-0.5 h-[22px]">
                     <input
                       placeholder="Nhập biển số..."
                       value={formData.plateNumber}
@@ -1308,18 +1731,8 @@ export default function StaffCheckIn() {
                           handleLoadPreCheckIn();
                         }
                       }}
-                      className="flex-1 rounded border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
+                      className="w-full rounded border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
                     />
-                    <button
-                      type="button"
-                      onClick={handleOpenQrScanner}
-                      className="px-5 py-4 bg-slate-400 hover:bg-indigo-600 text-black rounded text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0 flex items-center gap-1 shadow-sm h-[20px] active:scale-[0.98]"
-                    >
-                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m0 14v1m8-9h-1m-14 0H3m2 2h2a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2zM17 11h2a2 2 0 002-2V5a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM5 19h2a2 2 0 002-2v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2zM19 19a2 2 0 01-2-2v-2a2 2 0 00-2-2h-2m4 4v1" />
-                      </svg>
-                      Quét QR Vé
-                    </button>
                   </div>
                 </div>
               </div>
@@ -1334,55 +1747,145 @@ export default function StaffCheckIn() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Loại xe</label>
-                <select
-                  value={formData.vehicleTypeId}
-                  onChange={(e) => {
-                    setFormData({ ...formData, vehicleTypeId: e.target.value });
-                    // Reset trạng thái xem trước khi đổi loại xe
-                    setIsPreCheckedIn(false);
-                    setPreCheckInResult(null);
-                    setSelectedZoneId("");
-                    setEligibleZones([]);
-                  }}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
-                >
-                  {vehicleTypes.map(vt => (
-                    <option key={vt.id} value={vt.id}>{vt.name}</option>
-                  ))}
-                </select>
+                <div className="flex flex-wrap gap-1.5">
+                  {vehicleTypes.map(vt => {
+                    const isSelected = formData.vehicleTypeId === vt.id;
+                    const isExcluded = disabledVehicleTypeIds.includes(vt.id);
+
+                    const handleSingleClick = () => {
+                      if (isExcluded) return;
+                      setFormData({ ...formData, vehicleTypeId: vt.id });
+                      setIsPreCheckedIn(false);
+                      setPreCheckInResult(null);
+                      setSelectedZoneId("");
+                      setEligibleZones([]);
+                    };
+
+                    const handleDoubleClick = () => {
+                      let newDisabledList;
+                      if (isExcluded) {
+                        newDisabledList = disabledVehicleTypeIds.filter(id => id !== vt.id);
+                      } else {
+                        newDisabledList = [...disabledVehicleTypeIds, vt.id];
+                      }
+                      setDisabledVehicleTypeIds(newDisabledList);
+
+                      // Nếu loại xe đang chọn bị khóa, tự chọn loại xe khả dụng khác
+                      if (!isExcluded && isSelected) {
+                        const nextActiveType = vehicleTypes.find(v => v.id !== vt.id && !newDisabledList.includes(v.id));
+                        if (nextActiveType) {
+                          setFormData(prev => ({ ...prev, vehicleTypeId: nextActiveType.id }));
+                          setIsPreCheckedIn(false);
+                          setPreCheckInResult(null);
+                          setSelectedZoneId("");
+                          setEligibleZones([]);
+                        }
+                      }
+                    };
+
+                    let buttonStyle = "";
+                    if (isExcluded) {
+                      buttonStyle = "bg-slate-100 border-slate-200 text-slate-400 opacity-60 line-through cursor-pointer";
+                    } else if (isSelected) {
+                      buttonStyle = "bg-indigo-600 border-indigo-600 text-white shadow-sm";
+                    } else {
+                      buttonStyle = "bg-white border-slate-200 text-slate-750 hover:bg-slate-50 hover:border-slate-350";
+                    }
+
+                    return (
+                      <button
+                        key={vt.id}
+                        type="button"
+                        onClick={handleSingleClick}
+                        onDoubleClick={handleDoubleClick}
+                        title={isExcluded ? "Nhấp đúp để mở khóa loại xe này" : "Nhấp đúp để khóa loại xe này"}
+                        className={`flex-1 min-w-[80px] py-2 px-3 text-xs font-bold rounded-xl border transition-all cursor-pointer text-center font-sans ${buttonStyle}`}
+                      >
+                        {isExcluded ? `🔒 ${vt.name}` : vt.name}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Cổng vào</label>
-                <select
-                  value={formData.gateEntryId}
-                  onChange={(e) => {
-                    setFormData({ ...formData, gateEntryId: e.target.value });
-                    // Reset trạng thái xem trước khi đổi cổng
-                    setIsPreCheckedIn(false);
-                    setPreCheckInResult(null);
-                    setSelectedZoneId("");
-                    setEligibleZones([]);
-                  }}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
-                >
-                  {gates.map(g => (
-                    <option key={g.id} value={g.id} disabled={!g.isActive}>
-                      {g.gateName}{g.isActive ? "" : " (BẢO TRÌ)"}
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Cổng vào</label>
+                  <select
+                    value={formData.gateEntryId}
+                    onChange={(e) => {
+                      setFormData({ ...formData, gateEntryId: e.target.value });
+                      // Reset trạng thái xem trước khi đổi cổng
+                      setIsPreCheckedIn(false);
+                      setPreCheckInResult(null);
+                      setSelectedZoneId("");
+                      setEligibleZones([]);
+                    }}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
+                  >
+                    {gates.map(g => (
+                      <option key={g.id} value={g.id} disabled={!g.isActive}>
+                        {g.gateName}{g.isActive ? "" : " (BẢO TRÌ)"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Ghi chú</label>
+                  <input
+                    value={formData.notes || ""}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Ghi chú thêm (nếu có)..."
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white shadow-sm font-sans"
+                  />
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-wider text-slate-700 mb-1.5">Ghi chú</label>
-              <input
-                value={formData.notes || ""}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Ghi chú thêm (nếu có)..."
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white shadow-sm font-sans"
-              />
             </div>
           </div>
+
+          {/* HIỂN THỊ ĐỐI SOÁT SAU KHI QUÉT QR THÀNH CÔNG (Nửa chiều dài lệch phải, dưới ghi chú) */}
+          {scannedTicketInfo && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="hidden md:block"></div>
+              <div className="rounded-xl border border-indigo-150 bg-indigo-50/50 p-3 space-y-1.5 shadow-xs animate-fade-in text-[11px] font-sans">
+                <h4 className="text-[10px] font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1 font-sans">
+                  <svg className="w-3.5 h-3.5 text-indigo-650" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Vé quét đối soát (QR)
+                </h4>
+                <div className="space-y-1 text-slate-650 font-sans">
+                  <div className="flex justify-between">
+                    <span>Mã vé:</span>
+                    <span className="font-mono font-bold text-slate-800">{scannedTicketInfo.code}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Khách hàng:</span>
+                    <span className="font-bold text-slate-800">{scannedTicketInfo.customerName || "Vãng lai"}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-t border-indigo-100/50 pt-1 mt-1">
+                    <span>Biển số vé:</span>
+                    <span className="font-mono font-bold text-indigo-900 bg-indigo-100/50 px-1 rounded border border-indigo-150">
+                      {formatLicensePlate(scannedTicketInfo.licensePlate, scannedTicketInfo.vehicleTypeName) || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Thực tế:</span>
+                    <span className={`font-mono font-bold px-1 rounded border ${!scannedTicketInfo.licensePlate || !formData.plateNumber ||
+                      normalizeLicensePlate(scannedTicketInfo.licensePlate) === normalizeLicensePlate(formData.plateNumber)
+                      ? "text-emerald-700 bg-emerald-100/50 border-emerald-200"
+                      : "text-rose-700 bg-rose-100/50 border-rose-200"
+                      }`}>
+                      {formData.plateNumber || "---"}
+                      {(!scannedTicketInfo.licensePlate || !formData.plateNumber ||
+                        normalizeLicensePlate(scannedTicketInfo.licensePlate) === normalizeLicensePlate(formData.plateNumber))
+                        ? " (Khớp)"
+                        : " (Lệch)"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
 
@@ -1638,14 +2141,13 @@ export default function StaffCheckIn() {
           {/* Nút hành động */}
           <div className="w-full">
             {isSuccess && checkInResult ? (
-              <div className="rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 p-3.5 text-white shadow-md border border-emerald-500/20">
+              <div className="rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 p-2 text-white shadow-md border border-emerald-500/20">
                 <div className="flex items-center gap-3 mb-3 text-emerald-600">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-600 font-bold text-[30px] flex-shrink-0">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-emerald-600 font-bold text-[20px] flex-shrink-0">
                     ✓
                   </div>
                   <div>
                     <h4 className="font-extrabold text-md text-white">Check-in thành công!</h4>
-                    <p className="text-[13px] text-emerald-100 mt-0.5 leading-snug">{checkInResult.guideMessage}</p>
                   </div>
                 </div>
 
@@ -1694,89 +2196,46 @@ export default function StaffCheckIn() {
                 )}
               </div>
             )}
+
           </div>
 
-          {/* HIỂN THỊ ĐỐI SOÁT SAU KHI QUÉT QR THÀNH CÔNG */}
-          {scannedTicketInfo && (
-            <div className="rounded-xl border border-indigo-150 bg-indigo-50/50 p-2.5 space-y-1.5 shadow-xs animate-fade-in w-full text-[11px] font-sans mt-2">
-              <h4 className="text-[10px] font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1 font-sans">
-                <svg className="w-3.5 h-3.5 text-indigo-650" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Vé quét đối soát (QR)
-              </h4>
-              <div className="space-y-1 text-slate-650 font-sans">
-                <div className="flex justify-between">
-                  <span>Mã vé:</span>
-                  <span className="font-mono font-bold text-slate-800">{scannedTicketInfo.code}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Khách hàng:</span>
-                  <span className="font-bold text-slate-800">{scannedTicketInfo.customerName || "Vãng lai"}</span>
-                </div>
-                <div className="flex justify-between items-center border-t border-indigo-100/50 pt-1 mt-1">
-                  <span>Biển số vé:</span>
-                  <span className="font-mono font-bold text-indigo-900 bg-indigo-100/50 px-1 rounded border border-indigo-150">
-                    {formatLicensePlate(scannedTicketInfo.licensePlate, scannedTicketInfo.vehicleTypeName) || "N/A"}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span>Thực tế:</span>
-                  <span className={`font-mono font-bold px-1 rounded border ${
-                    !scannedTicketInfo.licensePlate || !formData.plateNumber || 
-                    normalizeLicensePlate(scannedTicketInfo.licensePlate) === normalizeLicensePlate(formData.plateNumber)
-                      ? "text-emerald-700 bg-emerald-100/50 border-emerald-200"
-                      : "text-rose-700 bg-rose-100/50 border-rose-200"
-                  }`}>
-                    {formData.plateNumber || "---"}
-                    {(!scannedTicketInfo.licensePlate || !formData.plateNumber || 
-                      normalizeLicensePlate(scannedTicketInfo.licensePlate) === normalizeLicensePlate(formData.plateNumber))
-                      ? " (Khớp)"
-                      : " (Lệch)"}
-                  </span>
-                </div>
+          {/* CAM QUÉT QR VÉ ĐẶT TRƯỚC/VÉ THÁNG */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm overflow-hidden flex flex-col gap-2 border-t-2 border-t-indigo-600 mt-0 font-sans">
+
+            <div className="flex flex-col items-center justify-center gap-0 text-center font-sans">
+              <div className="w-full aspect-[4/2.8] bg-slate-900 overflow-hidden shadow-inner border border-slate-200 relative">
+                <div
+                  id="ticket-checkin-reader"
+                  className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
+                  style={{ display: isQrScanning ? "block" : "none" }}
+                />
+                {!isQrScanning && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2 font-sans">
+                    <svg className="text-indigo-400 w-8 h-8 mb-1.5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7V5a2 2 0 012-2h2m10 0h2a2 2 0 012 2v2m0 10v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M5 12h14" />
+                    </svg>
+                    <p className="font-extrabold text-white text-[9px] tracking-wider uppercase font-sans">CAM QUÉT QR TẮT</p>
+                  </div>
+                )}
+                {isQrScanning && null}
+                <span className="absolute top-2 left-2 text-white font-black text-[9px] px-1.5 py-0.5 rounded tracking-wider z-20">
+                  CAM 3: QUÉT QR VÉ ĐẶT TRƯỚC/ THÁNG
+                </span>
               </div>
-            </div>
-          )}
-
-        </div>
-      </div>
-
-
-
-      {/* Modal Quét QR Vé */}
-      {isQrScanning && (
-        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-slate-950/50 p-4 pt-[9vh]">
-          <div className="w-full max-w-[25%] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-fade-in flex flex-col translate-x-46">
-            <div className="flex items-center justify-between bg-indigo-600 px-6 py-2 text-white">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white">QUÉT QR ĐẶT TRƯỚC/VÉ THÁNG</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleCloseQrScanner}
-                className="rounded-lg bg-white/10 px-2 py-1.5 text-xs font-black transition hover:bg-white/30 cursor-pointer"
-              >
-                Đóng
-              </button>
-            </div>
-            
-            <div className=" flex flex-col items-center justify-center gap-1 text-center">
-              <div 
-                id="ticket-checkin-reader" 
-                className="w-full aspect-[4/3] bg-slate-900  overflow-hidden shadow-inner border border-slate-200 relative [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
-              >
-                {/* Viền quét động */}
-                <div className="absolute inset-6 border-2 border-dashed border-indigo-500 rounded-2xl animate-pulse pointer-events-none z-10"></div>
-              </div>
-              <p className="text-xs font-bold text-slate-655 max-w-[300px]">
-                {qrMessage}
-              </p>
               
-              {/* Ô nhập dự phòng ở dưới */}
-              <div className="flex gap-3 items-center mt-2 w-full my-1 px-2">
+
+              {/* Nút bật/tắt thủ công & Ô nhập dự phòng */}
+              <div className="flex gap-1.5 items-center mt-2 w-full font-sans">
+                <button
+                  type="button"
+                  onClick={isQrScanning ? handleCloseQrScanner : handleOpenQrScanner}
+                  className={`h-[32px] px-3 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer shadow-sm flex items-center justify-center font-sans ${isQrScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                >
+                  {isQrScanning ? 'Tắt' : 'Bật'}
+                </button>
+
                 <input
-                  placeholder="Nhập mã đặt chỗ / vé tháng..."
+                  placeholder="Mã vé / Đặt chỗ..."
                   value={manualTicketCode}
                   onChange={(e) => setManualTicketCode(e.target.value.toUpperCase())}
                   onKeyDown={(e) => {
@@ -1784,21 +2243,21 @@ export default function StaffCheckIn() {
                       handleProcessScannedQr(manualTicketCode);
                     }
                   }}
-                  className="flex-1 rounded-xl border border-slate-250 bg-white px-3 py-2 text-xs font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
+                  className="flex-1 h-[32px] rounded-lg border border-slate-600 bg-white px-2 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[50px] font-sans"
                 />
                 <button
                   type="button"
                   onClick={() => manualTicketCode.trim() && handleProcessScannedQr(manualTicketCode)}
-                  className="px-4 py-2 bg-slate-800 text-white hover:bg-green-600 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-sm"
+                  className="h-[32px] px-3 bg-slate-800 text-white hover:bg-green-600 rounded-lg text-[9px] font-bold transition-colors cursor-pointer shrink-0 flex items-center justify-center font-sans"
                 >
                   Tìm
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
 
+        </div>
+      </div>
     </section>
   );
 }

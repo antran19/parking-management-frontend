@@ -41,6 +41,7 @@ export default function StaffDashboard() {
   const [recentExceptions, setRecentExceptions] = useState([]);
   const [closedZones, setClosedZones] = useState([]);
   const [upcomingReservations, setUpcomingReservations] = useState([]);
+  const [pricingRules, setPricingRules] = useState([]);
 
   // Đồng bộ dữ liệu hiển thị realtime với backend
   const syncDashboardData = async () => {
@@ -82,6 +83,7 @@ export default function StaffDashboard() {
 
         setZones(zonesData);
         setGates(configRes.data.data?.gates || []);
+        setPricingRules(configRes.data.data?.pricingRules || []);
 
         const closedZonesSet = new Set(closedZonesArray);
         zonesData.forEach(z => {
@@ -183,6 +185,19 @@ export default function StaffDashboard() {
       clearInterval(configInterval);
     };
   }, []);
+
+  const sortedPricingRules = [...pricingRules].sort((a, b) => {
+    const typeOrder = { "Xe đạp": 1, "Xe máy": 2, "Ô tô": 3, "Xe tải": 4 };
+    const orderA = typeOrder[a.vehicleTypeName] || 99;
+    const orderB = typeOrder[b.vehicleTypeName] || 99;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    const priceTypeOrder = { "HOURLY": 1, "DAILY": 2, "MONTHLY": 3 };
+    const pOrderA = priceTypeOrder[a.pricingType] || 99;
+    const pOrderB = priceTypeOrder[b.pricingType] || 99;
+    return pOrderA - pOrderB;
+  });
 
   return (
     <section className="space-y-8 p-3 flex-1">
@@ -378,7 +393,32 @@ export default function StaffDashboard() {
           </div>
         </div>
 
-        
+        {/* Cột 3: Biểu Phí Giữ Chỗ Áp Dụng */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col space-y-5 h-[420px] overflow-hidden">
+          <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 shrink-0">
+            <span className="text-xl">💳</span>
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Biểu phí Áp dụng</h3>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 scrollbar-thin">
+            {sortedPricingRules && sortedPricingRules.length > 0 ? (
+              sortedPricingRules.map((rule) => {
+                const typeLabel = rule.pricingType === "HOURLY" ? "giờ" : rule.pricingType === "DAILY" ? "ngày" : "tháng";
+                return (
+                  <div key={rule.id} className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-slate-555">{rule.vehicleTypeName} ({typeLabel})</span>
+                    <span className="font-bold text-slate-850">
+                       {Number(rule.pricePerUnit).toLocaleString("vi-VN")}đ
+                      {rule.freeMinutes > 0 ? ` (Miễn phí ${rule.freeMinutes}m)` : ""}
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-xs text-slate-555 font-bold text-center py-10">Chưa cấu hình biểu phí bãi đỗ</div>
+            )}
+          </div>
+        </div>
 
       </div>
     </section>

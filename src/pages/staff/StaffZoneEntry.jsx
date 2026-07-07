@@ -22,6 +22,13 @@ export default function StaffZoneEntry() {
   const [isScannerOn, setIsScannerOn] = useState(false);
   const qrScannerRef = useRef(null);
 
+  const lastScannedRef = useRef({ text: "", time: 0 });
+  const handleZoneCheckInRef = useRef();
+
+  useEffect(() => {
+    handleZoneCheckInRef.current = handleZoneCheckIn;
+  });
+
   // Fetch gates config
   useEffect(() => {
     const fetchConfig = async () => {
@@ -116,9 +123,15 @@ export default function StaffZoneEntry() {
               }
             },
             (decodedText) => {
+              const now = Date.now();
+              if (decodedText === lastScannedRef.current.text && now - lastScannedRef.current.time < 3000) {
+                return; // Bỏ qua trùng lặp trong 3 giây
+              }
+              lastScannedRef.current = { text: decodedText, time: now };
               setTicketInput(decodedText);
-              handleZoneCheckIn(decodedText);
-              stopScanner();
+              if (handleZoneCheckInRef.current) {
+                handleZoneCheckInRef.current(decodedText);
+              }
             },
             (errorMessage) => {
               // verbose logs ignored
@@ -155,10 +168,23 @@ export default function StaffZoneEntry() {
   useEffect(() => {
     return () => {
       if (qrScannerRef.current) {
-        qrScannerRef.current.stop().catch(err => console.error(err));
+        qrScannerRef.current.stop()
+          .then(() => {
+            if (qrScannerRef.current) {
+              qrScannerRef.current.clear();
+            }
+          })
+          .catch(err => console.error("Lỗi stop scanner entry on unmount:", err));
       }
     };
   }, []);
+
+  // Tự động bật camera khi tải xong cấu hình bãi xe
+  useEffect(() => {
+    if (configLoaded) {
+      startScanner();
+    }
+  }, [configLoaded]);
 
   // Xử lý quét xác nhận
   const handleZoneCheckIn = async (codeToSubmit = ticketInput) => {
@@ -270,37 +296,31 @@ export default function StaffZoneEntry() {
 
                 {/* Điều khiển Cột 1 */}
                 <div className="bg-slate-50 p-10 border-t border-slate-200 flex flex-col gap-1 mt-auto h-[82px] min-h-[82px] justify-center">
-                  <div className="flex gap-1 justify-center">
+                  <div className="flex gap-1.5 items-center w-full font-sans">
                     <button
                       type="button"
                       onClick={isScannerOn ? stopScanner : startScanner}
-                      className={`flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isScannerOn ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'
-                        }`}
+                      className={`h-[32px] px-3 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer shadow-sm flex items-center justify-center font-sans ${isScannerOn ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
                     >
                       {isScannerOn ? 'Tắt' : 'Bật'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={async () => { await stopScanner(); setTicketInput(""); await startScanner(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
-                      Bỏ qua
-                    </button>
-                  </div>
 
-                  {/* Nhập mã vé thủ công */}
-                  <div className="flex gap-1 items-center mt-0.5 h-[22px]">
                     <input
                       placeholder="Mã vé / Biển số..."
                       value={ticketInput}
                       onChange={(e) => setTicketInput(e.target.value.toUpperCase())}
-                      onKeyDown={(e) => e.key === "Enter" && handleZoneCheckIn()}
-                      className="flex-1 rounded border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleZoneCheckIn();
+                        }
+                      }}
+                      className="flex-1 h-[32px] rounded-lg border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[65px] font-sans"
                     />
                     <button
                       type="button"
                       onClick={() => handleZoneCheckIn()}
-                      className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-white rounded text-[8px] font-bold transition-colors cursor-pointer shrink-0"
+                      className="h-[32px] px-3 bg-slate-700 hover:bg-green-600 text-white rounded-lg text-[9px] font-bold transition-all active:scale-[0.98] cursor-pointer shrink-0 flex items-center justify-center font-sans shadow-xs"
                     >
                       Tìm
                     </button>
