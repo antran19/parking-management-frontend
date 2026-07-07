@@ -440,31 +440,7 @@ export default function StaffMapping() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
-              <span className="text-xl">💳</span>
-              <h3 className="text-sm font-bold text-slate-800">Biểu Phí Giữ Chỗ Áp Dụng</h3>
-            </div>
 
-            <div className="space-y-3.5">
-              {pricingRules && pricingRules.length > 0 ? (
-                pricingRules.map((rule) => {
-                  const typeLabel = rule.pricingType === "HOURLY" ? "giờ" : rule.pricingType === "DAILY" ? "ngày" : "tháng";
-                  return (
-                    <div key={rule.id} className="flex justify-between items-center text-xs">
-                      <span className="font-semibold text-slate-550">{rule.vehicleTypeName} ({typeLabel})</span>
-                      <span className="font-bold text-slate-800">
-                         {Number(rule.pricePerUnit).toLocaleString("vi-VN")}đ
-                        {rule.freeMinutes > 0 ? ` (Miễn phí ${rule.freeMinutes}m)` : ""}
-                      </span>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-xs text-slate-500 font-bold text-center py-2">Chưa cấu hình biểu phí bãi đỗ</div>
-              )}
-            </div>
-          </div>
 
           <div className="rounded-3xl border border-indigo-100 bg-indigo-50/50 p-6 shadow-sm space-y-3">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-600">💡 Chỉ dẫn nghiệp vụ nhân viên</h4>

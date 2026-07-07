@@ -112,11 +112,22 @@ export default function StaffCheckOut() {
     }
   }, [apiError]);
 
+  // States for shared camera stream
+  const [sharedStream, setSharedStream] = useState(null);
+  const [countdown, setCountdown] = useState(null);
+  const [countdownType, setCountdownType] = useState(null); // 'PLATE' or 'FACE'
+
+  const lastScannedTicketRef = useRef({ text: "", time: 0 });
+  const parseQrDataRef = useRef();
+
+  useEffect(() => {
+    parseQrDataRef.current = parseQrData;
+  });
+
   // States for face camera
   const [isFaceScanning, setIsFaceScanning] = useState(false);
   const [previewFaceUrl, setPreviewFaceUrl] = useState("");
   const [uploadedFaceUrl, setUploadedFaceUrl] = useState("");
-  const [faceStream, setFaceStream] = useState(null);
   const faceVideoRef = useRef(null);
   const [faceUploading, setFaceUploading] = useState(false);
 
@@ -134,7 +145,6 @@ export default function StaffCheckOut() {
 
   const [isPlateScanning, setIsPlateScanning] = useState(false);
   const [plateMessage, setPlateMessage] = useState("Đang chờ quét biển số...");
-  const [plateStream, setPlateStream] = useState(null);
   const plateVideoRef = useRef(null);
 
   // Ticket (QR) Scanner states
@@ -182,19 +192,99 @@ export default function StaffCheckOut() {
     }
   };
 
+  const sharedStreamRef = useRef(null);
+  useEffect(() => {
+    sharedStreamRef.current = sharedStream;
+  }, [sharedStream]);
+
+  // Cleanup camera streams and ticket scanner on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+        if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+      } catch (e) {}
+
+      try {
+        if (sharedStreamRef.current) {
+          sharedStreamRef.current.getTracks().forEach(track => {
+            try { track.stop(); } catch (e) {}
+          });
+        }
+      } catch (err) {
+        console.warn("Lỗi cleanup sharedStream:", err);
+      }
+
+      try {
+        const scanner = ticketScannerRef.current;
+        if (scanner) {
+          ticketScannerRef.current = null;
+          if (scanner.isScanning) {
+            scanner.stop()
+              .then(() => {
+                try { scanner.clear(); } catch (e) {}
+              })
+              .catch(err => console.warn("Lỗi stop scanner checkout on unmount:", err));
+          } else {
+            try { scanner.clear(); } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.warn("Lỗi cleanup ticketScanner:", err);
+      }
+    };
+  }, []);
+
+  // Tự động gán stream vào các thẻ video khi sharedStream hoặc các ref thay đổi
+  useEffect(() => {
+    if (sharedStream) {
+      if (faceVideoRef.current && faceVideoRef.current.srcObject !== sharedStream) {
+        faceVideoRef.current.srcObject = sharedStream;
+        faceVideoRef.current.play().catch(e => console.warn(e));
+      }
+      if (plateVideoRef.current && plateVideoRef.current.srcObject !== sharedStream) {
+        plateVideoRef.current.srcObject = sharedStream;
+        plateVideoRef.current.play().catch(e => console.warn(e));
+      }
+    } else {
+      if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+      if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+    }
+  }, [sharedStream, previewFaceUrl, previewUrl, isFaceScanning, isPlateScanning]);
+
+  // Tự động tắt luồng phần cứng khi tất cả camera hiển thị đều tắt
+  useEffect(() => {
+    if (!isFaceScanning && !isPlateScanning && sharedStream) {
+      if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+      if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+      sharedStream.getTracks().forEach(track => {
+        try { track.stop(); } catch (e) {}
+      });
+      setSharedStream(null);
+    }
+  }, [isFaceScanning, isPlateScanning, sharedStream]);
+
+  // --- CAMERA HỆ THỐNG DÙNG CHUNG ---
+  const startSharedStream = async () => {
+    if (sharedStream) return sharedStream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      setSharedStream(stream);
+      return stream;
+    } catch (err) {
+      console.error("Lỗi bật camera dùng chung:", err);
+      throw err;
+    }
+  };
+
   // --- HÀM ĐIỀU KHIỂN CAMERA MẶT ---
   const startFaceScanner = async () => {
     try {
       setIsFaceScanning(true);
       setPreviewFaceUrl("");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" }
-      });
-      setFaceStream(stream);
-      if (faceVideoRef.current) {
-        faceVideoRef.current.srcObject = stream;
-        faceVideoRef.current.play();
-      }
+      await startSharedStream();
     } catch (error) {
       console.error("Lỗi mở camera mặt:", error);
       setIsFaceScanning(false);
@@ -202,10 +292,6 @@ export default function StaffCheckOut() {
   };
 
   const stopFaceScanner = () => {
-    if (faceStream) {
-      faceStream.getTracks().forEach(track => track.stop());
-      setFaceStream(null);
-    }
     setIsFaceScanning(false);
   };
 
@@ -377,6 +463,7 @@ export default function StaffCheckOut() {
   };
 
   const startTicketScanner = async () => {
+    if (ticketScannerRef.current) return;
     try {
       setIsTicketScanning(true);
       setTicketMessage("Đang mở camera...");
@@ -386,10 +473,16 @@ export default function StaffCheckOut() {
         { facingMode: "environment" },
         { fps: 20, qrbox: { width: 155, height: 155 } },
         async (decodedText) => {
+          const now = Date.now();
+          if (decodedText === lastScannedTicketRef.current.text && now - lastScannedTicketRef.current.time < 3000) {
+            return; // Bỏ qua trùng lặp trong 3 giây
+          }
+          lastScannedTicketRef.current = { text: decodedText, time: now };
           setTicketInput(decodedText.toUpperCase());
           setTicketMessage("Đã quét mã vé!");
-          parseQrData(decodedText);
-          stopTicketScanner();
+          if (parseQrDataRef.current) {
+            parseQrDataRef.current(decodedText);
+          }
         },
         () => { }
       );
@@ -415,14 +508,7 @@ export default function StaffCheckOut() {
       setIsPlateScanning(true);
       setPreviewUrl("");
       setPlateMessage("Camera hoạt động! Đưa biển số trước cam.");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
-      });
-      setPlateStream(stream);
-      if (plateVideoRef.current) {
-        plateVideoRef.current.srcObject = stream;
-        plateVideoRef.current.play();
-      }
+      await startSharedStream();
     } catch (error) {
       console.error("Lỗi mở camera biển số:", error);
       setPlateMessage("Không mở được camera biển số");
@@ -431,10 +517,6 @@ export default function StaffCheckOut() {
   };
 
   const stopPlateScanner = () => {
-    if (plateStream) {
-      plateStream.getTracks().forEach(track => track.stop());
-      setPlateStream(null);
-    }
     setIsPlateScanning(false);
   };
 
@@ -489,29 +571,306 @@ export default function StaffCheckOut() {
     }
   };
 
-  const handleCaptureAndUpload = () => {
-    const video = plateVideoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) {
-      alert("Không tìm thấy camera hoặc thẻ canvas! Hãy đảm bảo bạn đã bật camera.");
+  const toggleBothCameras = async () => {
+    if (isFaceScanning || isPlateScanning) {
+      setIsFaceScanning(false);
+      setIsPlateScanning(false);
+      if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
+      if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
+      if (sharedStream) {
+        sharedStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) {}
+        });
+        setSharedStream(null);
+      }
+    } else {
+      setIsFaceScanning(true);
+      setIsPlateScanning(true);
+      setPlateMessage("Camera hoạt động! Đưa biển số trước cam.");
+      try {
+        await startSharedStream();
+      } catch (e) {
+        setIsFaceScanning(false);
+        setIsPlateScanning(false);
+      }
+    }
+  };
+
+  // Luồng 1: Chụp Thường (Không QR) - Chụp biển + OCR, đếm ngược 2s chụp mặt, tự tìm session
+  const handleNormalCapture = async () => {
+    if (!isPlateScanning) {
+      setApiError("Vui lòng bật camera biển số trước khi thực hiện chụp!");
       return;
     }
+    // 1. Chụp biển số ngay lập tức + chạy OCR
+    if (plateVideoRef.current && isPlateScanning) {
+      const video = plateVideoRef.current;
+      const canvas = canvasRef.current || document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setPlateMessage("❌ Lỗi trích xuất ảnh.");
+          return;
+        }
+        const localUrl = URL.createObjectURL(blob);
+        setPreviewUrl(localUrl);
+        setPlateBlob(blob);
+        setUploadedUrl("");
+        stopPlateScanner();
 
-    const context = canvas.getContext("2d");
-    const width = video.videoWidth || 640;
-    const height = video.videoHeight || 480;
+        // Chạy OCR
+        try {
+          setIsUploading(true);
+          setPlateMessage("Đang nhận diện biển số xe bằng AI...");
+          let detectedPlate = "";
+          const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
+          const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
 
-    canvas.width = width;
-    canvas.height = height;
-    context.drawImage(video, 0, 0, width, height);
+          if (!hasOcr) {
+            console.warn("Chưa cấu hình Plate Recognizer Token.");
+            setPlateMessage("⚠️ Chưa cấu hình Token OCR.");
+          } else {
+            const ocrData = new FormData();
+            ocrData.append("upload", blob, "captured_vehicle.jpg");
+            ocrData.append("regions", "vn");
 
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        alert("Lỗi trích xuất ảnh từ camera!");
-        return;
+            const ocrResponse = await fetch("https://api.platerecognizer.com/v1/plate-reader/", {
+              method: "POST",
+              headers: {
+                "Authorization": `Token ${ocrToken.trim()}`,
+              },
+              body: ocrData,
+            });
+
+            if (ocrResponse.ok) {
+              const ocrRes = await ocrResponse.json();
+              if (ocrRes.results && ocrRes.results.length > 0) {
+                detectedPlate = ocrRes.results[0].plate.toUpperCase();
+                const normalized = normalizeLicensePlate(detectedPlate);
+                const formatted = formatLicensePlate(normalized, sessionData?.vehicleType);
+                setPlateInput(formatted);
+                setPlateMessage(`Nhận diện thành công: ${formatted}`);
+                // Tự động tìm kiếm session cho biển số này
+                autoSearchPlate(normalized);
+              } else {
+                setPlateMessage("⚠️ Không phát hiện biển số xe trong ảnh.");
+              }
+            } else {
+              setPlateMessage("❌ Lỗi dịch vụ OCR.");
+            }
+          }
+        } catch (err) {
+          console.error("Lỗi quy trình nhận diện check-out:", err);
+          setPlateMessage("Tải ảnh hoặc nhận diện thất bại!");
+        } finally {
+          setIsUploading(false);
+        }
+      }, "image/jpeg", 0.6);
+    }
+
+    // 2. Đếm ngược 2s chụp mặt
+    let count = 2;
+    setCountdown(count);
+    setCountdownType("FACE");
+    const interval = setInterval(() => {
+      count -= 1;
+      if (count > 0) {
+        setCountdown(count);
+      } else {
+        clearInterval(interval);
+        setCountdown(null);
+        setCountdownType(null);
+        // Tiến hành chụp mặt
+        if (faceVideoRef.current && isFaceScanning) {
+          const video = faceVideoRef.current;
+          const canvas = canvasRef.current || document.createElement("canvas");
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const localUrl = URL.createObjectURL(blob);
+              setPreviewFaceUrl(localUrl);
+              setFaceBlob(blob);
+              setUploadedFaceUrl("");
+              stopFaceScanner();
+            }
+          }, "image/jpeg", 0.6);
+        }
       }
-      const localPreviewUrl = URL.createObjectURL(blob);
-      setPreviewUrl(localPreviewUrl);
+    }, 1000);
+  };
+
+  // Luồng 2: Có QR (Đặt chỗ/Vé tháng) - Chụp biển + OCR, đếm ngược 2s chụp mặt, tự mở quét QR vé
+  const handleCaptureWithQr = () => {
+    if (!isPlateScanning) {
+      setApiError("Vui lòng bật camera biển số trước khi thực hiện chụp!");
+      return;
+    }
+    // 1. Chụp biển số ngay lập tức + chạy OCR
+    if (plateVideoRef.current && isPlateScanning) {
+      const video = plateVideoRef.current;
+      const canvas = canvasRef.current || document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setPlateMessage("❌ Lỗi trích xuất ảnh.");
+          return;
+        }
+        const localUrl = URL.createObjectURL(blob);
+        setPreviewUrl(localUrl);
+        setPlateBlob(blob);
+        setUploadedUrl("");
+        stopPlateScanner();
+
+        // Chạy OCR
+        try {
+          setIsUploading(true);
+          setPlateMessage("Đang nhận diện biển số xe bằng AI...");
+          let detectedPlate = "";
+          const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
+          const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
+
+          if (!hasOcr) {
+            console.warn("Chưa cấu hình Plate Recognizer Token.");
+            setPlateMessage("⚠️ Chưa cấu hình Token OCR.");
+          } else {
+            const ocrData = new FormData();
+            ocrData.append("upload", blob, "captured_vehicle.jpg");
+            ocrData.append("regions", "vn");
+
+            const ocrResponse = await fetch("https://api.platerecognizer.com/v1/plate-reader/", {
+              method: "POST",
+              headers: {
+                "Authorization": `Token ${ocrToken.trim()}`,
+              },
+              body: ocrData,
+            });
+
+            if (ocrResponse.ok) {
+              const ocrRes = await ocrResponse.json();
+              if (ocrRes.results && ocrRes.results.length > 0) {
+                detectedPlate = ocrRes.results[0].plate.toUpperCase();
+                const normalized = normalizeLicensePlate(detectedPlate);
+                const formatted = formatLicensePlate(normalized, sessionData?.vehicleType);
+                setPlateInput(formatted);
+                setPlateMessage(`Nhận diện thành công: ${formatted}`);
+              } else {
+                setPlateMessage("⚠️ Không phát hiện biển số xe trong ảnh.");
+              }
+            } else {
+              setPlateMessage("❌ Lỗi dịch vụ OCR.");
+            }
+          }
+        } catch (err) {
+          console.error("Lỗi quy trình nhận diện check-out:", err);
+          setPlateMessage("Tải ảnh hoặc nhận diện thất bại!");
+        } finally {
+          setIsUploading(false);
+        }
+      }, "image/jpeg", 0.6);
+    }
+
+    // 2. Đếm ngược 2s chụp mặt
+    let count = 2;
+    setCountdown(count);
+    setCountdownType("FACE");
+    const interval = setInterval(() => {
+      count -= 1;
+      if (count > 0) {
+        setCountdown(count);
+      } else {
+        clearInterval(interval);
+        setCountdown(null);
+        setCountdownType(null);
+        // Tiến hành chụp mặt
+        if (faceVideoRef.current && isFaceScanning) {
+          const video = faceVideoRef.current;
+          const canvas = canvasRef.current || document.createElement("canvas");
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const localUrl = URL.createObjectURL(blob);
+              setPreviewFaceUrl(localUrl);
+              setFaceBlob(blob);
+              setUploadedFaceUrl("");
+              stopFaceScanner();
+            }
+            // 3. Tự động bật mở quét QR vé
+            startTicketScanner();
+          }, "image/jpeg", 0.6);
+        } else {
+          startTicketScanner();
+        }
+      }
+    }, 1000);
+  };
+
+  const handleResetImages = async () => {
+    setPreviewUrl("");
+    setUploadedUrl("");
+    setPreviewFaceUrl("");
+    setUploadedFaceUrl("");
+    setFaceBlob(null);
+    setPlateBlob(null);
+    setPlateMessage("Đang chờ quét biển số...");
+    setIsFaceScanning(true);
+    setIsPlateScanning(true);
+    try {
+      await startSharedStream();
+    } catch (e) {
+      console.error(e);
+    }
+    if (!isTicketScanning) {
+      startTicketScanner().catch(err => console.warn(err));
+    }
+  };
+
+  const handleResetFace = async () => {
+    setPreviewFaceUrl("");
+    setUploadedFaceUrl("");
+    setFaceBlob(null);
+    setIsFaceScanning(true);
+    await startSharedStream();
+  };
+
+  const handleResetPlate = async () => {
+    setPreviewUrl("");
+    setUploadedUrl("");
+    setPlateBlob(null);
+    setPlateMessage("Đang chờ quét biển số...");
+    setPlateInput("");
+    setIsPlateScanning(true);
+    await startSharedStream();
+  };
+
+  const capturePlateAndOcr = () => {
+    const video = plateVideoRef.current;
+    const canvas = canvasRef.current || document.createElement("canvas");
+    if (!video || !canvas) {
+      alert("Không tìm thấy camera biển số!");
+      return;
+    }
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const context = canvas.getContext("2d");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const localUrl = URL.createObjectURL(blob);
+      setPreviewUrl(localUrl);
+      setPlateBlob(blob);
+      setUploadedUrl("");
       stopPlateScanner();
       performUpload(blob);
     }, "image/jpeg", 0.6);
@@ -626,9 +985,139 @@ export default function StaffCheckOut() {
     }
   };
 
+  const triggerAutoCaptureSequence = async () => {
+    // Nếu đang chạy countdown rồi thì thôi
+    if (countdown !== null) return;
+
+    // Reset các preview ảnh cũ để tạo cảm giác bắt đầu chụp mới
+    setPreviewUrl("");
+    setPreviewFaceUrl("");
+    setPlateBlob(null);
+    setFaceBlob(null);
+
+    // Tự động bật camera nếu chưa bật
+    if (!isPlateScanning) {
+      await startPlateScanner();
+    }
+    if (!isFaceScanning) {
+      await startFaceScanner();
+    }
+
+    // Bước A: Chạy đếm ngược 3s để chụp biển số
+    let countPlate = 3;
+    setCountdown(countPlate);
+    setCountdownType("PLATE");
+
+    const intervalPlate = setInterval(() => {
+      countPlate -= 1;
+      if (countPlate > 0) {
+        setCountdown(countPlate);
+      } else {
+        clearInterval(intervalPlate);
+        setCountdown(null);
+        setCountdownType(null);
+
+        // Tiến hành chụp biển số + OCR chạy ngầm
+        if (plateVideoRef.current) {
+          const video = plateVideoRef.current;
+          const canvas = canvasRef.current || document.createElement("canvas");
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(async (blob) => {
+            if (blob) {
+              const localUrl = URL.createObjectURL(blob);
+              setPreviewUrl(localUrl);
+              setPlateBlob(blob);
+              setUploadedUrl("");
+              stopPlateScanner();
+
+              // OCR chạy ngầm, không block luồng chụp mặt
+              try {
+                setIsUploading(true);
+                setPlateMessage("Đang nhận diện biển số xe bằng AI...");
+                let detectedPlate = "";
+                const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
+                const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
+
+                if (hasOcr) {
+                  const ocrData = new FormData();
+                  ocrData.append("upload", blob, "captured_vehicle.jpg");
+                  ocrData.append("regions", "vn");
+
+                  const ocrResponse = await fetch("https://api.platerecognizer.com/v1/plate-reader/", {
+                    method: "POST",
+                    headers: {
+                      "Authorization": `Token ${ocrToken.trim()}`,
+                    },
+                    body: ocrData,
+                  });
+
+                  if (ocrResponse.ok) {
+                    const ocrRes = await ocrResponse.json();
+                    if (ocrRes.results && ocrRes.results.length > 0) {
+                      detectedPlate = ocrRes.results[0].plate.toUpperCase();
+                      const normalized = normalizeLicensePlate(detectedPlate);
+                      const formatted = formatLicensePlate(normalized, sessionData?.vehicleType);
+                      setPlateInput(formatted);
+                      setPlateMessage(`Nhận diện thành công: ${formatted}`);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn("OCR failed during auto capture:", e);
+              } finally {
+                setIsUploading(false);
+              }
+            }
+          }, "image/jpeg", 0.6);
+        }
+
+        // Bước B: Chụp mặt sau 2s — bắt đầu NGAY, không đợi OCR
+        let countFace = 2;
+        setCountdown(countFace);
+        setCountdownType("FACE");
+
+        const intervalFace = setInterval(() => {
+          countFace -= 1;
+          if (countFace > 0) {
+            setCountdown(countFace);
+          } else {
+            clearInterval(intervalFace);
+            setCountdown(null);
+            setCountdownType(null);
+
+            // Tiến hành chụp mặt
+            if (faceVideoRef.current) {
+              const fVideo = faceVideoRef.current;
+              const fCanvas = canvasRef.current || document.createElement("canvas");
+              fCanvas.width = fVideo.videoWidth || 640;
+              fCanvas.height = fVideo.videoHeight || 480;
+              const fCtx = fCanvas.getContext("2d");
+              fCtx.drawImage(fVideo, 0, 0, fCanvas.width, fCanvas.height);
+              fCanvas.toBlob((fBlob) => {
+                if (fBlob) {
+                  const localFaceUrl = URL.createObjectURL(fBlob);
+                  setPreviewFaceUrl(localFaceUrl);
+                  setFaceBlob(fBlob);
+                  setUploadedFaceUrl("");
+                  stopFaceScanner();
+                }
+              }, "image/jpeg", 0.6);
+            }
+          }
+        }, 1000);
+      }
+    }, 1000);
+  };
+
   const parseQrData = (qrText) => {
     if (!qrText) return;
     const cleanedText = qrText.trim().toUpperCase();
+
+    // Tự động kích hoạt chuỗi chụp ảnh (biển số 3s, sau đó mặt 2s)
+    triggerAutoCaptureSequence();
 
     if (cleanedText.startsWith("PS")) {
       setTicketInput(cleanedText);
@@ -684,7 +1173,8 @@ export default function StaffCheckOut() {
       const res = await staffApi.checkOut({
         sessionId: sessionData.sessionId,
         gateExitId: selectedGateId,
-        paymentMethod: paymentMethod
+        paymentMethod: paymentMethod,
+        exitPlate: plateInput || null
       });
       const backendSession = res.data.data;
       setCheckOutResult(backendSession);
@@ -742,6 +1232,13 @@ export default function StaffCheckOut() {
       setPlateMessage("Đang chờ quét biển số...");
       setTicketMessage("Đang chờ quét vé...");
       setSessionData(null);
+
+      // Tự động bật lại camera cho xe tiếp theo
+      setIsFaceScanning(true);
+      setIsPlateScanning(true);
+      setPlateMessage("Camera hoạt động! Đưa biển số trước cam.");
+      startSharedStream().catch(err => console.warn(err));
+      startTicketScanner().catch(err => console.warn("Lỗi tự động bật QR ticket scanner:", err));
 
       fetchCheckoutHistory();
     } catch (err) {
@@ -912,6 +1409,7 @@ export default function StaffCheckOut() {
   };
 
   useEffect(() => {
+    let mountTimer = null;
     const fetchConfig = async () => {
       try {
         const res = await staffApi.getParkingConfig();
@@ -926,12 +1424,27 @@ export default function StaffCheckOut() {
           const firstActiveGate = exits.find(g => g.isActive) || exits[0];
           setSelectedGateId(firstActiveGate.id);
         }
+        // Tự động khởi động cả hai camera và đầu đọc QR sau 400ms trễ
+        mountTimer = setTimeout(() => {
+          startFaceScanner();
+          startPlateScanner();
+          startTicketScanner();
+        }, 400);
       } catch (err) {
         console.warn('Failed to load dynamic config, keeping fallback gates:', err);
+        // Fallback khởi động camera sau 400ms trễ
+        mountTimer = setTimeout(() => {
+          startFaceScanner();
+          startPlateScanner();
+          startTicketScanner();
+        }, 400);
       }
     };
     fetchConfig();
     fetchCheckoutHistory();
+    return () => {
+      if (mountTimer) clearTimeout(mountTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -945,16 +1458,8 @@ export default function StaffCheckOut() {
 
     return () => {
       clearInterval(clockTimer);
-      if (ticketScannerRef.current) ticketScannerRef.current.stop().catch(() => { });
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (faceStream) faceStream.getTracks().forEach(track => track.stop());
-      if (plateStream) plateStream.getTracks().forEach(track => track.stop());
-    };
-  }, [faceStream, plateStream]);
 
   // STOMP WebSocket client for real-time payment notifications
   useEffect(() => {
@@ -1030,24 +1535,31 @@ export default function StaffCheckOut() {
               <div className="flex flex-col gap-[2px] h-full justify-between bg-white">
                 {/* Trên: Camera mặt */}
                 <div className="relative bg-slate-50 aspect-[4/3] flex items-center justify-center overflow-hidden shrink-0">
-                  {previewFaceUrl ? (
+                  <video
+                    ref={faceVideoRef}
+                    className="w-full h-full object-cover"
+                    playsInline
+                    muted
+                    style={{ display: (isFaceScanning && !previewFaceUrl) ? "block" : "none" }}
+                  />
+                  {previewFaceUrl && (
                     <img src={previewFaceUrl} alt="Mặt lúc ra" className="w-full h-full object-cover" />
-                  ) : (
-                    <>
-                      <video
-                        ref={faceVideoRef}
-                        className="w-full h-full object-cover"
-                        playsInline
-                        muted
-                        style={{ display: isFaceScanning ? "block" : "none" }}
-                      />
-                      {!isFaceScanning && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
-                          <CameraIcon className="text-slate-500 w-7 h-7 mb-1" />
-                          <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM CHÂN DUNG TẮT</p>
-                        </div>
-                      )}
-                    </>
+                  )}
+                  {countdown !== null && countdownType === "FACE" && (
+                    <div className="absolute inset-0 bg-slate-900/65 flex flex-col items-center justify-center text-center p-4 z-20">
+                      <div className="text-indigo-400 font-black text-6xl animate-bounce">
+                        {countdown}
+                      </div>
+                      <p className="text-white font-black text-[10px] uppercase tracking-widest mt-2 animate-pulse">
+                        Xoay cam chụp mặt...
+                      </p>
+                    </div>
+                  )}
+                  {!isFaceScanning && !previewFaceUrl && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
+                      <CameraIcon className="text-slate-500 w-7 h-7 mb-1" />
+                      <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM CHÂN DUNG TẮT</p>
+                    </div>
                   )}
 
                   {faceUploading && (
@@ -1077,23 +1589,21 @@ export default function StaffCheckOut() {
                 <div className="bg-slate-50 p-2.5 flex flex-col gap-1.5 mt-auto min-h-[85px] justify-center">
                   <div className="flex gap-1 justify-center">
                     <button
-                      onClick={isFaceScanning ? stopFaceScanner : startFaceScanner}
-                      className={`flex-1 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isFaceScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                      type="button"
+                      onClick={toggleBothCameras}
+                      className={`flex-1 py-1 rounded text-[9px] font-black uppercase transition-all cursor-pointer ${
+                        (isFaceScanning || isPlateScanning) ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'
+                      }`}
                     >
-                      {isFaceScanning ? 'Tắt' : 'Bật'}
+                      {(isFaceScanning || isPlateScanning) ? 'Tắt Cam' : 'Bật Cam'}
                     </button>
                     <button
-                      onClick={handleCaptureFace}
-                      disabled={!isFaceScanning}
-                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
+                      type="button"
+                      onClick={handleNormalCapture}
+                      disabled={!(isFaceScanning && isPlateScanning) || isUploading || countdown !== null}
+                      className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
                     >
                       Chụp
-                    </button>
-                    <button
-                      onClick={async () => { stopFaceScanner(); setPreviewFaceUrl(""); setUploadedFaceUrl(""); await startFaceScanner(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
-                      Bỏ qua
                     </button>
                   </div>
                   <div className="flex flex-col items-center justify-center gap-1.5 mt-0.5">
@@ -1119,24 +1629,36 @@ export default function StaffCheckOut() {
               <div className="flex flex-col gap-[2px] h-full justify-between bg-white">
                 {/* Trên: Camera biển số */}
                 <div className="relative bg-slate-50 aspect-[4/3] flex items-center justify-center overflow-hidden shrink-0">
-                  {previewUrl ? (
+                  <video
+                    ref={plateVideoRef}
+                    className="w-full h-full object-cover"
+                    playsInline
+                    muted
+                    style={{ display: (isPlateScanning && !previewUrl) ? "block" : "none" }}
+                  />
+                  {previewUrl && (
                     <img src={previewUrl} alt="Xe lúc ra" className="w-full h-full object-cover" />
-                  ) : (
-                    <>
-                      <video
-                        ref={plateVideoRef}
-                        className="w-full h-full object-cover"
-                        playsInline
-                        muted
-                        style={{ display: isPlateScanning ? "block" : "none" }}
-                      />
-                      {!isPlateScanning && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
-                          <ScanIcon className="text-slate-500 w-7 h-7 mb-1" />
-                          <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM BIỂN SỐ TẮT</p>
-                        </div>
-                      )}
-                    </>
+                  )}
+                  {countdown !== null && countdownType === "PLATE" && (
+                    <div className="absolute inset-0 bg-slate-900/65 flex flex-col items-center justify-center text-center p-4 z-20">
+                      <div className="text-indigo-400 font-black text-6xl animate-bounce">
+                        {countdown}
+                      </div>
+                      <p className="text-white font-black text-[10px] uppercase tracking-widest mt-2 animate-pulse">
+                        Xoay cam chụp biển...
+                      </p>
+                    </div>
+                  )}
+                  {isUploading && (
+                    <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center text-center p-4 z-10 animate-fade-in">
+                      <p className="font-mono font-bold text-indigo-400 tracking-wider text-xs animate-pulse">[ ĐANG NHẬN DIỆN & LƯU... ]</p>
+                    </div>
+                  )}
+                  {!isPlateScanning && !previewUrl && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
+                      <ScanIcon className="text-slate-500 w-7 h-7 mb-1" />
+                      <p className="font-extrabold text-white text-[9px] tracking-wider uppercase">CAM BIỂN SỐ TẮT</p>
+                    </div>
                   )}
                   <span className="absolute top-2 left-2 text-white font-black text-[9px] px-1.5 py-0.5 rounded  tracking-wider">
                     CAM 2: BIỂN SỐ
@@ -1157,27 +1679,53 @@ export default function StaffCheckOut() {
 
                 {/* Điều khiển Cột 2 */}
                 <div className="bg-slate-50 p-2.5 flex flex-col gap-1.5 mt-auto min-h-[85px] justify-center">
-                  <div className="flex gap-1 justify-center">
-                    <button
-                      onClick={isPlateScanning ? stopPlateScanner : startPlateScanner}
-                      className={`flex-1 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isPlateScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
-                    >
-                      {isPlateScanning ? 'Tắt' : 'Bật'}
-                    </button>
-                    <button
-                      onClick={handleCaptureAndUpload}
-                      disabled={!isPlateScanning || isUploading}
-                      className="flex-1 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
-                      Chụp
-                    </button>
-                    <button
-                      onClick={async () => { stopPlateScanner(); setPreviewUrl(""); setUploadedUrl(""); await startPlateScanner(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
-                      Bỏ qua
-                    </button>
-                  </div>
+                  {(previewUrl || previewFaceUrl) ? (
+                    <div className="flex gap-1 w-full">
+                      {/* Cột 1: Chân dung */}
+                      {previewFaceUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleResetFace}
+                          className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          🔄 Chụp lại mặt
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleCaptureFace}
+                          disabled={!isFaceScanning || countdown !== null}
+                          className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          Chụp
+                        </button>
+                      )}
+
+                      {/* Cột 2: Biển số */}
+                      {previewUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleResetPlate}
+                          className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          🔄 Chụp lại biển
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={capturePlateAndOcr}
+                          disabled={!isPlateScanning || countdown !== null}
+                          className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
+                        >
+                          Chụp
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center text-[9px] font-bold text-slate-400 uppercase py-1">
+                      Chờ chụp biển & mặt...
+                    </div>
+                  )}
                   <div className="flex gap-1 items-center mt-0.5 h-[22px]">
                     <input
                       placeholder="Nhập biển số..."
@@ -1194,6 +1742,7 @@ export default function StaffCheckOut() {
                       className="flex-1 rounded border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
                     />
                     <button
+                      type="button"
                       onClick={() => {
                         const formatted = formatLicensePlate(plateInput, sessionData?.vehicleType);
                         setPlateInput(formatted);
@@ -1211,7 +1760,7 @@ export default function StaffCheckOut() {
               <div className="flex flex-col gap-[2px] h-full justify-between bg-white">
                 {/* Trên: Vùng camera QR */}
                 <div className="relative bg-slate-50 aspect-[4/3] flex items-center justify-center overflow-hidden shrink-0">
-                  <div id="ticket-checkout-reader" className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover" />
+                  <div id="ticket-checkout-reader" className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover" style={{ display: isTicketScanning ? "block" : "none" }} />
                   {!isTicketScanning && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-700 text-center p-2">
                       <QrCodeIcon className="text-indigo-400/80 w-7 h-7 mb-1" />
@@ -1274,32 +1823,31 @@ export default function StaffCheckOut() {
 
                 {/* Điều khiển Cột 3 */}
                 <div className="bg-slate-50 p-2.5 flex flex-col gap-1.5 mt-auto min-h-[85px] justify-center">
-                  <div className="flex gap-1 justify-center">
+                  <div className="flex gap-1.5 items-center w-full font-sans">
                     <button
+                      type="button"
                       onClick={isTicketScanning ? stopTicketScanner : startTicketScanner}
-                      className={`flex-1 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${isTicketScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
+                      className={`h-[32px] px-3 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer shadow-sm flex items-center justify-center font-sans ${isTicketScanning ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}
                     >
                       {isTicketScanning ? 'Tắt' : 'Bật'}
                     </button>
-                    <button
-                      onClick={async () => { await stopTicketScanner(); setTicketInput(""); await startTicketScanner(); }}
-                      className="flex-1 bg-slate-200 hover:bg-slate-350 text-slate-750 py-1 rounded text-[10px] font-black uppercase transition-all cursor-pointer"
-                    >
 
-                      Bỏ qua
-                    </button>
-                  </div>
-                  <div className="flex gap-1 items-center mt-0.5 h-[22px]">
                     <input
                       placeholder="Mã vé..."
                       value={ticketInput}
-                      onChange={(e) => setTicketInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && parseQrData(ticketInput)}
-                      className="flex-1 rounded border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[60px]"
+                      onChange={(e) => setTicketInput(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          parseQrData(ticketInput);
+                        }
+                      }}
+                      className="flex-1 h-[32px] rounded-lg border border-slate-250 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-800 uppercase outline-none focus:border-indigo-500 transition-all min-w-[65px] font-sans"
                     />
                     <button
+                      type="button"
                       onClick={() => parseQrData(ticketInput)}
-                      className="px-2 py-0.5 bg-slate-700 text-white hover:bg-green-600 rounded text-[8px] font-bold transition-colors cursor-pointer shrink-0"
+                      className="h-[32px] px-3 bg-slate-700 hover:bg-green-600 text-white rounded-lg text-[9px] font-bold transition-all active:scale-[0.98] cursor-pointer shrink-0 flex items-center justify-center font-sans shadow-xs"
                     >
                       Tìm
                     </button>
@@ -1642,6 +2190,10 @@ export default function StaffCheckOut() {
                 setCheckOutResult(null);
                 setSessionData(null);
                 setSearchPlate("");
+                setIsFaceScanning(true);
+                setIsPlateScanning(true);
+                setPlateMessage("Camera hoạt động! Đưa biển số trước cam.");
+                startSharedStream().catch(err => console.warn(err));
               }}
               className="absolute top-4 right-4 rounded-full p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
             >
