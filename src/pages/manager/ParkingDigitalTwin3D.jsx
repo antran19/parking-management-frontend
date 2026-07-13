@@ -110,9 +110,11 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
 
   // WebSocket listener for real-time gate barrier updates
   useEffect(() => {
-    const wsUrl = `ws://${window.location.hostname}:8080/ws`;
+    const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+    const wsBase = apiBase.replace(/\/api\/v1\/?$/, "").replace(/^http/, "ws");
+
     const client = new Client({
-      brokerURL: wsUrl,
+      brokerURL: `${wsBase}/ws`,
       reconnectDelay: 5000,
       onConnect: () => {
         client.subscribe("/topic/gates", (message) => {

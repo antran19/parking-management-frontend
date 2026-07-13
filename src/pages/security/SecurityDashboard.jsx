@@ -255,15 +255,11 @@ export default function SecurityDashboard({ onLogout }) {
 
   // Kết nối WebSocket để nhận cảnh báo real-time
   useEffect(() => {
+    const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+    const wsBase = apiBase.replace(/\/api\/v1\/?$/, "");
+
     const client = new Client({
-      webSocketFactory: () => {
-        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
-        let wsUrl = apiBaseUrl.replace("/api/v1", "/ws");
-        if (wsUrl.includes("localhost") && typeof window !== "undefined" && window.location.hostname !== "localhost") {
-          wsUrl = wsUrl.replace("localhost", window.location.hostname);
-        }
-        return new SockJS(wsUrl);
-      },
+      webSocketFactory: () => new SockJS(`${wsBase}/ws`),
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,

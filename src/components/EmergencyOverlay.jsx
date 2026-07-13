@@ -82,18 +82,14 @@ export default function EmergencyOverlay({ userRole }) {
 
     fetchStatus();
 
+    // Tính toán WebSocket URL từ biến môi trường VITE_API_BASE_URL
+    // Production: VITE_API_BASE_URL = "https://backend.railway.app/api/v1" → wsBase = "https://backend.railway.app"
+    // Local dev:  fallback về "http://localhost:8080"
+    const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+    const wsBase = apiBase.replace(/\/api\/v1\/?$/, "");
+
     const client = new Client({
-      // GIẢI THÍCH CHO HỘI ĐỒNG:
-      // WebSocket cần trỏ đúng IP của máy chủ. Bằng cách dùng \`window.location.hostname\`,
-      // nếu mở web trên điện thoại (vd: 192.168.1.126), nó sẽ tự động kết nối Real-time tới đúng IP đó thay vì 'localhost'.
-      webSocketFactory: () => {
-        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
-        let wsUrl = apiBaseUrl.replace("/api/v1", "/ws");
-        if (wsUrl.includes("localhost") && typeof window !== "undefined" && window.location.hostname !== "localhost") {
-          wsUrl = wsUrl.replace("localhost", window.location.hostname);
-        }
-        return new SockJS(wsUrl);
-      },
+      webSocketFactory: () => new SockJS(`${wsBase}/ws`),
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
