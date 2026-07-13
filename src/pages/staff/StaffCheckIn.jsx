@@ -677,17 +677,25 @@ export default function StaffCheckIn() {
           customerName: preview.customerName || "Khách hàng",
           zoneName: preview.zoneName ? `${preview.floorName} - ${preview.zoneName}` : null
         });
+        return preview;
       } catch (err) {
         console.error("Backend pre-checkin error:", err);
         const errorMsg = err.response?.data?.message || err.message || "Không thể kết nối với dịch vụ backend.";
         setApiError(`Lỗi đối soát vé: ${errorMsg}`);
+        return null;
       } finally {
         setIsLoadingPreview(false);
       }
     };
 
-    // Bước A: Chạy đếm ngược 3s để chụp biển số
-    let countPlate = 3;
+    // Kiểm tra vé trước khi thực hiện các bước tiếp theo
+    const initialPreview = await runPreCheckInApi(null);
+    if (!initialPreview) {
+      return; // Dừng lại, không đếm ngược hay chụp ảnh
+    }
+
+    // Bước A: Chạy đếm ngược 7s để chụp biển số
+    let countPlate = 7;
     setCountdown(countPlate);
     setCountdownType("PLATE");
 
@@ -771,12 +779,12 @@ export default function StaffCheckIn() {
           }, "image/jpeg", 0.6);
         }
 
-        // Bước B: Chụp mặt sau 2s — bắt đầu NGAY, không đợi OCR
-        let countFace = 2;
+        // Bước B: Chụp mặt sau 3s — bắt đầu NGAY, không đợi OCR
+        let countFace = 3;
         setCountdown(countFace);
         setCountdownType("FACE");
 
-        const intervalFace = setInterval(() => {
+        const intervalFace = setInterval(async () => {
           countFace -= 1;
           if (countFace > 0) {
             setCountdown(countFace);
@@ -805,7 +813,7 @@ export default function StaffCheckIn() {
             } else {
               console.warn("Chụp ảnh mặt thất bại do camera mặt đang tắt.");
               setApiError("Cảnh báo: Không thể tự động chụp ảnh mặt do camera mặt đang tắt. Vui lòng bật camera và chụp lại.");
-              runPreCheckInApi(null);
+              await runPreCheckInApi(null);
             }
           }
         }, 1000);
@@ -838,6 +846,16 @@ export default function StaffCheckIn() {
       setPlateBlob(blob);
       setUploadedPlateUrl(""); // Clear
       stopPlateCamera();
+
+      // Kiểm tra xe đạp
+      const currentTypeLabel = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+      const isBicycle = getVehicleTypeKey(currentTypeLabel) === "BICYCLE";
+      if (isBicycle) {
+        setOcrResult("✅ Đã chụp ảnh xe đạp.");
+        setPlateScanning(false);
+        handleLoadPreCheckIn(""); // Tự động gọi API tìm kiếm/đối soát
+        return;
+      }
 
       try {
         const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
@@ -990,6 +1008,16 @@ export default function StaffCheckIn() {
         setUploadedPlateUrl("");
         stopPlateCamera();
 
+        // Kiểm tra xe đạp
+        const currentTypeLabel = vehicleTypes.find(v => v.id === formData.vehicleTypeId)?.name || "";
+        const isBicycle = getVehicleTypeKey(currentTypeLabel) === "BICYCLE";
+        if (isBicycle) {
+          setOcrResult("✅ Đã chụp ảnh xe đạp.");
+          setPlateScanning(false);
+          handleLoadPreCheckIn(""); // Tự động gọi API tìm kiếm/đối soát
+          return;
+        }
+
         try {
           const ocrToken = import.meta.env.VITE_PLATE_RECOGNIZER_TOKEN;
           const hasOcr = ocrToken && ocrToken !== "chuỗi_api_token_của_bạn";
@@ -1041,8 +1069,8 @@ export default function StaffCheckIn() {
       }, "image/jpeg", 0.6);
     }
 
-    // 2. Chạy đếm ngược 2 giây trên camera mặt trước khi chụp mặt
-    let count = 2;
+    // 2. Chạy đếm ngược 3 giây trên camera mặt trước khi chụp mặt
+    let count = 3;
     setCountdown(count);
     setCountdownType("FACE");
     const interval = setInterval(() => {
@@ -1269,6 +1297,20 @@ export default function StaffCheckIn() {
       setIsSubmitting(false);
     }
   };
+
+  // Tự động submit check-in đối với xe đặt giữ chỗ (PRE_BOOKED) khi đã chụp đủ biển số và mặt
+  useEffect(() => {
+    if (
+      formData.driverType === "PRE_BOOKED" &&
+      faceBlob &&
+      plateBlob &&
+      isPreCheckedIn &&
+      !isSuccess &&
+      !isSubmitting
+    ) {
+      handleCheckIn();
+    }
+  }, [formData.driverType, faceBlob, plateBlob, isPreCheckedIn, isSuccess, isSubmitting]);
 
   const handleOpenChangeZone = async () => {
     if (!checkInResult?.sessionId) return;
@@ -2185,15 +2227,13 @@ export default function StaffCheckIn() {
                     </>
                   )}
                 </button>
-                {isPreCheckedIn && (
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className="bg-slate-100 hover:bg-slate-250 text-slate-650 font-bold text-xs px-4 py-3 rounded-xl cursor-pointer active:scale-[0.98] transition-all font-sans shrink-0 border border-slate-250 shadow-xs"
-                  >
-                    Hủy
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-3 rounded-xl cursor-pointer active:scale-[0.98] transition-all font-sans shrink-0 border border-slate-200 shadow-sm"
+                >
+                  Hủy
+                </button>
               </div>
             )}
 

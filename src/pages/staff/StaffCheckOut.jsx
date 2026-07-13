@@ -166,6 +166,28 @@ export default function StaffCheckOut() {
   const [liveDate, setLiveDate] = useState("");
   const [checkoutHistory, setCheckoutHistory] = useState([]);
 
+  const handleReset = () => {
+    setShowSuccess(false);
+    setCheckOutResult(null);
+    setSessionData(null);
+    setSearchPlate("");
+    setTicketInput("");
+    setPlateInput("");
+    setPreviewFaceUrl("");
+    setPreviewUrl("");
+    setUploadedFaceUrl("");
+    setUploadedUrl("");
+    setFaceBlob(null);
+    setPlateBlob(null);
+    setApiError("");
+
+    // Turn camera back on
+    setIsFaceScanning(true);
+    setIsPlateScanning(true);
+    setPlateMessage("Camera hoạt động! Đưa biển số trước cam.");
+    startSharedStream().catch(err => console.warn(err));
+  };
+
   const fetchCheckoutHistory = async () => {
     try {
       const res = await staffApi.getAllSessionsHistory();
@@ -182,7 +204,9 @@ export default function StaffCheckOut() {
             s.licensePlate,
             s.vehicleType || "Xe",
             `${feeStr} (${formatDuration(duration)})`,
-            s.paymentMethod === "BANK_TRANSFER" ? "Chuyển khoản" : "Tiền mặt",
+            s.paymentMethod === "VIETQR"
+              ? "VietQR CK" 
+              : (s.paymentMethod === "NCB" ? "Ngân hàng NCB" : (s.paymentMethod === "ONLINE" || s.paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt")),
             s
           ];
         });
@@ -671,8 +695,8 @@ export default function StaffCheckOut() {
       }, "image/jpeg", 0.6);
     }
 
-    // 2. Đếm ngược 2s chụp mặt
-    let count = 2;
+    // 2. Đếm ngược 3s chụp mặt
+    let count = 3;
     setCountdown(count);
     setCountdownType("FACE");
     const interval = setInterval(() => {
@@ -778,8 +802,8 @@ export default function StaffCheckOut() {
       }, "image/jpeg", 0.6);
     }
 
-    // 2. Đếm ngược 2s chụp mặt
-    let count = 2;
+    // 2. Đếm ngược 3s chụp mặt
+    let count = 3;
     setCountdown(count);
     setCountdownType("FACE");
     const interval = setInterval(() => {
@@ -922,7 +946,7 @@ export default function StaffCheckOut() {
   };
 
   const autoSearchPlate = async (query) => {
-    if (!query || !query.trim()) return;
+    if (!query || !query.trim()) return false;
     const searchTerm = query.trim().toUpperCase();
 
     setIsSearching(true);
@@ -940,7 +964,7 @@ export default function StaffCheckOut() {
       if (plateError) {
         setApiError(plateError);
         setIsSearching(false);
-        return;
+        return false;
       }
     }
 
@@ -951,6 +975,7 @@ export default function StaffCheckOut() {
         null
       );
       setSessionData(res.data.data);
+      return true;
     } catch (err) {
       console.warn("Backend getActiveSession failed, falling back to LocalStorage Demo:", err);
       
@@ -976,9 +1001,11 @@ export default function StaffCheckOut() {
           totalFee: fee,
           guideMessage: `Thời gian đỗ thực tế: ${minutes} phút. Đơn giá: ${hourlyRate.toLocaleString("vi-VN")}đ/giờ.`
         });
+        return true;
       } else {
         setSessionData(null);
         setApiError(err.response?.data?.message || 'Không tìm thấy phiên gửi xe đang hoạt động cho biển số này');
+        return false;
       }
     } finally {
       setIsSearching(false);
@@ -1003,8 +1030,8 @@ export default function StaffCheckOut() {
       await startFaceScanner();
     }
 
-    // Bước A: Chạy đếm ngược 3s để chụp biển số
-    let countPlate = 3;
+    // Bước A: Chạy đếm ngược 7s để chụp biển số
+    let countPlate = 7;
     setCountdown(countPlate);
     setCountdownType("PLATE");
 
@@ -1074,8 +1101,8 @@ export default function StaffCheckOut() {
           }, "image/jpeg", 0.6);
         }
 
-        // Bước B: Chụp mặt sau 2s — bắt đầu NGAY, không đợi OCR
-        let countFace = 2;
+        // Bước B: Chụp mặt sau 3s — bắt đầu NGAY, không đợi OCR
+        let countFace = 3;
         setCountdown(countFace);
         setCountdownType("FACE");
 
@@ -1112,46 +1139,27 @@ export default function StaffCheckOut() {
     }, 1000);
   };
 
-  const parseQrData = (qrText) => {
+  const parseQrData = async (qrText) => {
     if (!qrText) return;
     const cleanedText = qrText.trim().toUpperCase();
 
-    // Tự động kích hoạt chuỗi chụp ảnh (biển số 3s, sau đó mặt 2s)
-    triggerAutoCaptureSequence();
+    // Kiểm tra tính hợp lệ của phiên gửi xe trước khi khởi động camera
+    const isValid = await autoSearchPlate(cleanedText);
+    if (!isValid) {
+      setTicketMessage("KHÔNG TÌM THẤY PHIÊN GỬI XE HOẠT ĐỘNG");
+      return; // Dừng lại luôn
+    }
 
     if (cleanedText.startsWith("PS")) {
       setTicketInput(cleanedText);
       setTicketMessage(`ĐÃ ĐỌC VÉ: ${cleanedText}`);
-      setTimeout(() => { autoSearchPlate(cleanedText); }, 500);
-      return;
-    }
-
-    if (cleanedText.startsWith("BK-")) {
-      const storedBooking = JSON.parse(localStorage.getItem("driver_booking") || "null");
-      const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-      const activePlate = storedBooking?.licensePlate || (storedUser.licensePlates && storedUser.licensePlates[0]) || "";
-
-      setTicketInput(cleanedText);
-      setTicketMessage(`ĐÃ NHẬN MÃ ĐẶT CHỖ: ${cleanedText}`);
-      setTimeout(() => { autoSearchPlate(activePlate); }, 500);
-      return;
-    }
-
-    try {
-      const data = JSON.parse(qrText);
-      const plate = data.plateNumber || data.licensePlate || "";
-      if (plate) {
-        setTicketInput(cleanedText);
-        setTicketMessage(`ĐÃ ĐỌC BIỂN SỐ: ${plate}`);
-        setTimeout(() => { autoSearchPlate(plate); }, 500);
-      } else {
-        setTicketMessage("KHÔNG TÌM THẤY BIỂN SỐ TRONG QR");
-      }
-    } catch (e) {
+    } else {
       setTicketInput(cleanedText);
       setTicketMessage(`ĐÃ ĐỌC BIỂN SỐ QR: ${cleanedText}`);
-      setTimeout(() => { autoSearchPlate(cleanedText); }, 500);
     }
+
+    // Tự động kích hoạt chuỗi chụp ảnh (biển số 7s, sau đó mặt 3s)
+    triggerAutoCaptureSequence();
   };
 
   const handleCheckOut = async () => {
@@ -1382,7 +1390,7 @@ export default function StaffCheckOut() {
             </div>
             <div class="info-row">
               <span>Hình thức:</span>
-              <span class="info-value">${paymentMethod === "BANK_TRANSFER" ? "VietQR CK" : "Tiền mặt"}</span>
+              <span class="info-value">${paymentMethod === "VIETQR" ? "VietQR CK" : (paymentMethod === "NCB" ? "Ngân hàng NCB" : (paymentMethod === "ONLINE" || paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt"))}</span>
             </div>
             ${customerRow}
             
@@ -1483,7 +1491,7 @@ export default function StaffCheckOut() {
             vehicleType: paymentData.vehicleType,
             exitGate: paymentData.exitGate,
           });
-          setPaymentMethod("BANK_TRANSFER");
+          setPaymentMethod("VIETQR");
           setShowSuccess(true);
 
           localStorage.removeItem("driver_session");
@@ -2006,7 +2014,7 @@ export default function StaffCheckOut() {
           {/* PHƯƠNG THỨC THANH TOÁN */}
           <div className="rounded-2xl border border-slate-200 bg-white p-0 shadow-sm space-y-1">
 
-            {paymentMethod === "BANK_TRANSFER" && sessionData && (
+            {paymentMethod === "VIETQR" && sessionData && (
               <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-2 flex flex-col items-center gap-2 mt-0">
                 <span className="text-[8px] text-indigo-800 font-extrabold uppercase tracking-wide">Quét mã thanh toán</span>
                 <div className="p-1 bg-white rounded border border-slate-100 flex items-center justify-center shadow-inner">
@@ -2035,8 +2043,8 @@ export default function StaffCheckOut() {
               </button>
               <button
                 type="button"
-                onClick={() => setPaymentMethod("BANK_TRANSFER")}
-                className={`rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "BANK_TRANSFER"
+                onClick={() => setPaymentMethod("VIETQR")}
+                className={`rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "VIETQR"
                   ? "border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm border-2"
                   : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
                   }`}
@@ -2049,17 +2057,24 @@ export default function StaffCheckOut() {
           </div>
 
           {/* Nút Check-out */}
-          <div className="w-full">
+          <div className="flex gap-2 w-full">
             <button
               onClick={handleCheckOut}
               disabled={isSubmitting || !sessionData}
-              className="w-full rounded-xl bg-slate-900 py-3 text-xs font-bold text-white shadow-md hover:bg-slate-800 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:not-allowed flex items-center justify-center gap-2"
+              className="flex-1 rounded-xl bg-slate-900 py-3 text-xs font-bold text-white shadow-md hover:bg-slate-800 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:not-allowed flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
                 <>Đang xử lý check-out...</>
               ) : (
                 <>XÁC NHẬN & CHECK-OUT ➔</>
               )}
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-3 rounded-xl cursor-pointer active:scale-[0.98] transition-all font-sans shrink-0 border border-slate-200 shadow-sm"
+            >
+              Hủy
             </button>
           </div>
 
@@ -2264,7 +2279,7 @@ export default function StaffCheckOut() {
               <div className="flex justify-between">
                 <span>Hình thức:</span>
                 <span className="text-slate-600 font-extrabold">
-                  {paymentMethod === "BANK_TRANSFER" ? "VietQR CK" : "Tiền mặt"}
+                  {paymentMethod === "VIETQR" ? "VietQR CK" : (paymentMethod === "NCB" ? "Ngân hàng NCB" : (paymentMethod === "ONLINE" || paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt"))}
                 </span>
               </div>
 

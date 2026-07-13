@@ -110,7 +110,11 @@ export default function StaffHistory() {
           ? `${Number(item.totalFee).toLocaleString("vi-VN")}đ${item.status === "ACTIVE" ? " (Tạm tính)" : ""}`
           : (item.status === "ACTIVE" ? "Đang tính..." : "--"),
         status: item.status === "ACTIVE" ? "parked" : "checked_out",
-        paymentMethod: item.status === "ACTIVE" ? "--" : (item.paymentMethod === "BANK_TRANSFER" ? "VietQR CK" : "Tiền mặt"),
+        paymentMethod: item.status === "ACTIVE" ? "--" : (
+          item.paymentMethod === "VIETQR"
+            ? "VietQR CK" 
+            : (item.paymentMethod === "NCB" ? "Ngân hàng NCB" : (item.paymentMethod === "ONLINE" || item.paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt"))
+        ),
         driverType: item.driverType,
         passType: item.passType,
         durationMinutes: item.durationMinutes || (item.entryTime ? Math.floor((new Date(item.exitTime || Date.now()).getTime() - new Date(item.entryTime).getTime()) / 60000) : 0),
