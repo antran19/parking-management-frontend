@@ -33,8 +33,12 @@ export default function StaffZoneEntry() {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await staffApi.getParkingConfig();
-        const config = res.data.data;
+        const [configRes, emergencyRes] = await Promise.all([
+          staffApi.getParkingConfig(),
+          staffApi.getEmergencyStatus()
+        ]);
+        const config = configRes.data.data;
+        const emergency = emergencyRes.data?.data;
 
         const zones = config.zones || [];
 
@@ -82,6 +86,11 @@ export default function StaffZoneEntry() {
         const firstActiveGate = zoneGates.find(g => g.isActive) || zoneGates[0];
         if (firstActiveGate) {
           setSelectedGateId(firstActiveGate.id);
+          if (emergency?.active) {
+            setBarrierState("OPEN");
+          } else {
+            setBarrierState(firstActiveGate.barrierState || "CLOSED");
+          }
         }
         setConfigLoaded(true);
       } catch (err) {
@@ -91,6 +100,24 @@ export default function StaffZoneEntry() {
     };
     fetchConfig();
   }, []);
+
+  // Đồng bộ barier theo trạng thái cổng phụ được chọn hoặc SOS khẩn cấp
+  useEffect(() => {
+    if (selectedGateId && gates.length > 0) {
+      const selectedGate = gates.find(g => g.id === selectedGateId);
+      if (selectedGate) {
+        staffApi.getEmergencyStatus().then(res => {
+          if (res.data?.data?.active) {
+            setBarrierState("OPEN");
+          } else {
+            setBarrierState(selectedGate.barrierState || "CLOSED");
+          }
+        }).catch(() => {
+          setBarrierState(selectedGate.barrierState || "CLOSED");
+        });
+      }
+    }
+  }, [selectedGateId, gates]);
 
   // Hiệu ứng GSAP cho Barrier xoay
   useEffect(() => {
@@ -226,34 +253,7 @@ export default function StaffZoneEntry() {
     }
   };
 
-  // Giả lập quét nhanh QR từ session đang hoạt động gần nhất
-  const handleMockScan = async () => {
-    try {
-      setApiError("");
-      const res = await staffApi.getAllSessionsHistory();
-      const allSessions = res.data.data || [];
-
-      // Tìm session đang ACTIVE mà chưa vào zone
-      const activeNoZone = allSessions.find(s => s.status === "ACTIVE" && !s.entryZoneGate);
-
-      if (activeNoZone) {
-        setTicketInput(activeNoZone.sessionCode);
-        handleZoneCheckIn(activeNoZone.sessionCode);
-      } else {
-        // Fallback: Lấy session active bất kỳ
-        const activeAny = allSessions.find(s => s.status === "ACTIVE");
-        if (activeAny) {
-          setTicketInput(activeAny.sessionCode);
-          handleZoneCheckIn(activeAny.sessionCode);
-        } else {
-          setApiError("Không tìm thấy phiên gửi xe nào đang hoạt động trong bãi! Hãy tạo một Check-in lần 1 ở cổng chính trước.");
-        }
-      }
-    } catch (err) {
-      console.error("Failed to mock scan:", err);
-      setApiError("Không thể lấy dữ liệu giả lập từ backend.");
-    }
-  };
+  
 
   return (
     <section className="flex-1 space-y-6 p-1">
@@ -448,21 +448,7 @@ export default function StaffZoneEntry() {
             </p>
           </div>
 
-          {/* Demo / Giả lập nhanh */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2.5 shadow-sm">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Giả lập nhanh</span>
-            <button
-              type="button"
-              onClick={handleMockScan}
-              disabled={isSubmitting}
-              className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-[10px] uppercase rounded-xl shadow-sm active:scale-95 transition-all duration-150 cursor-pointer"
-            >
-              ⚡ Giả lập Quét vé
-            </button>
-            <p className="text-[9px] text-slate-450 leading-relaxed font-semibold">
-              (Nhấn để tự động quét xe vừa check-in ở cổng chính vào Zone hiện tại)
-            </p>
-          </div>
+          
 
           {/* Thông tin xe quét chi tiết */}
           {scanResult && (

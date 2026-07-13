@@ -154,9 +154,14 @@ export default function StaffLayout({ onLogout }) {
   const submitException = async () => {
     if (!exceptionData.description) return;
 
-    const isPlateRequired = exceptionData.vehicleType !== "NONE";
+    const selectedVt = vehicleTypes.find(vt => vt.id === exceptionData.vehicleType);
+    const isBicycle = selectedVt && (
+      selectedVt.name.toUpperCase().includes("XE ĐẠP") || 
+      selectedVt.name.toUpperCase().includes("BICYCLE")
+    );
+    const isPlateRequired = exceptionData.vehicleType !== "NONE" && !isBicycle;
 
-    // Nếu chọn loại xe thì bắt buộc nhập biển số
+    // Nếu chọn loại xe cần biển thì bắt buộc nhập biển số
     if (isPlateRequired && (!exceptionData.plate || exceptionData.plate.trim() === "")) {
       setApiMessage("❌ Lỗi: Bạn phải nhập biển số xe khi chọn loại phương tiện!");
       setTimeout(() => setApiMessage(""), 5000);
@@ -175,26 +180,24 @@ export default function StaffLayout({ onLogout }) {
 
     setExceptionSubmitting(true);
     try {
-      const selectedVt = vehicleTypes.find(vt => vt.id === exceptionData.vehicleType);
-      const vehicleTypeLabel = selectedVt 
-        ? selectedVt.name 
-        : (exceptionData.vehicleType === "OTHER" ? "Khác" : "");
-
-      const finalDescription = vehicleTypeLabel
-        ? `[Loại xe: ${vehicleTypeLabel}] ${exceptionData.description}`
-        : exceptionData.description;
+      const vehicleTypeLabel = selectedVt ? selectedVt.name : "Không áp dụng";
 
       await staffApi.logSecurityException({
         exceptionType: exceptionData.type,
-        description: finalDescription,
+        description: exceptionData.description,
         licensePlate: exceptionData.plate && exceptionData.plate.trim() !== "" ? exceptionData.plate : "Chưa xác định",
+        vehicleType: vehicleTypeLabel, // Gửi loại phương tiện lên backend
         gateId: "staff-ui", // Gửi từ Header UI chung
         images: []
       });
       setApiMessage("✅ Báo sự cố thành công tới Bảo vệ!");
       setShowExceptionModal(false);
       modalPos.current = { x: 0, y: 0 }; // reset position on close
-      setExceptionData({ type: "LOST_TICKET", description: "", plate: "", vehicleType: "NONE" });
+      const bicycle = vehicleTypes.find(vt => {
+        const nameNorm = vt.name ? vt.name.toUpperCase() : "";
+        return nameNorm.includes("XE ĐẠP") || nameNorm.includes("BICYCLE");
+      });
+      setExceptionData({ type: "LOST_TICKET", description: "", plate: "", vehicleType: bicycle ? bicycle.id : "NONE" });
       setTimeout(() => setApiMessage(""), 10000);
     } catch (err) {
       setApiMessage("❌ Lỗi khi báo sự cố. Vui lòng thử lại!");
@@ -209,7 +212,17 @@ export default function StaffLayout({ onLogout }) {
     (async () => {
       try {
         const res = await staffApi.getParkingConfig();
-        setVehicleTypes(res.data?.data?.vehicleTypes || []);
+        const types = res.data?.data?.vehicleTypes || [];
+        setVehicleTypes(types);
+
+        // Mặc định chọn Xe đạp khi mở hoặc tải xong danh sách
+        const bicycle = types.find(vt => {
+          const nameNorm = vt.name ? vt.name.toUpperCase() : "";
+          return nameNorm.includes("XE ĐẠP") || nameNorm.includes("BICYCLE");
+        });
+        if (bicycle) {
+          setExceptionData(prev => ({ ...prev, vehicleType: bicycle.id }));
+        }
       } catch (err) {
         console.warn("Failed to load vehicle types for Exception Modal", err);
       }
@@ -271,6 +284,13 @@ export default function StaffLayout({ onLogout }) {
       if (client.active) client.deactivate();
     };
   }, []);
+
+  const selectedVtForRender = vehicleTypes.find(vt => vt.id === exceptionData.vehicleType);
+  const isBicycleForRender = selectedVtForRender && (
+    selectedVtForRender.name.toUpperCase().includes("XE ĐẠP") || 
+    selectedVtForRender.name.toUpperCase().includes("BICYCLE")
+  );
+  const isPlateRequiredForRender = exceptionData.vehicleType !== "NONE" && !isBicycleForRender;
 
   const handleToggleSidebar = () => {
     const val = !collapsed;
@@ -481,7 +501,7 @@ export default function StaffLayout({ onLogout }) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      {exceptionData.vehicleType !== "NONE" ? "Biển số xe (Bắt buộc) *" : "Biển số xe (Nếu có)"}
+                      {isPlateRequiredForRender ? "Biển số xe (Bắt buộc) *" : "Biển số xe (Nếu có)"}
                     </label>
                     <input
                       type="text"
@@ -498,13 +518,12 @@ export default function StaffLayout({ onLogout }) {
                       value={exceptionData.vehicleType}
                       onChange={(e) => setExceptionData({ ...exceptionData, vehicleType: e.target.value })}
                     >
-                      
                       {vehicleTypes.map((vt) => (
                         <option key={vt.id} value={vt.id}>
                           {vt.name}
                         </option>
                       ))}
-                      <option value="OTHER">Không áp dụng</option>
+                      <option value="NONE">Không có xe / Không áp dụng</option>
                     </select>
                   </div>
                 </div>
@@ -532,7 +551,7 @@ export default function StaffLayout({ onLogout }) {
                   onClick={submitException}
                   disabled={
                     !exceptionData.description ||
-                    (exceptionData.vehicleType !== "NONE" && !exceptionData.plate?.trim()) ||
+                    (isPlateRequiredForRender && !exceptionData.plate?.trim()) ||
                     exceptionSubmitting
                   }
                   className="px-4 py-2 text-sm font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center gap-2 cursor-pointer"
