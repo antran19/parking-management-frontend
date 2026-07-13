@@ -1464,7 +1464,14 @@ export default function StaffCheckOut() {
   // STOMP WebSocket client for real-time payment notifications
   useEffect(() => {
     const client = new Client({
-      webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+      webSocketFactory: () => {
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+        let wsUrl = apiBaseUrl.replace("/api/v1", "/ws");
+        if (wsUrl.includes("localhost") && typeof window !== "undefined" && window.location.hostname !== "localhost") {
+          wsUrl = wsUrl.replace("localhost", window.location.hostname);
+        }
+        return new SockJS(wsUrl);
+      },
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
