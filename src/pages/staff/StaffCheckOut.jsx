@@ -950,36 +950,22 @@ export default function StaffCheckOut() {
         codeParam || null,
         null
       );
-      setSessionData(res.data.data);
-    } catch (err) {
-      console.warn("Backend getActiveSession failed, falling back to LocalStorage Demo:", err);
-      
-      const searchForPlate = plateParam || (isSessionCode ? "30G-888.88" : searchTerm);
-      const normalizedPlate = normalizeLicensePlate(searchForPlate);
-      const storedSession = JSON.parse(localStorage.getItem("driver_session") || "null");
-      const normalizePlate = (p) => (p || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-
-      if (storedSession && (normalizePlate(storedSession.licensePlate) === normalizePlate(normalizedPlate) || isSessionCode)) {
-        const minutes = Math.max(1, Math.round((Date.now() - (storedSession.createdTimestamp || Date.now() - 300000)) / 60000));
-        const hourlyRate = storedSession.vehicle?.includes("My") ? 5000 : 15000;
-        const fee = Math.max(hourlyRate, Math.ceil(minutes / 60) * hourlyRate);
-
-        setSessionData({
-          sessionId: "demo-session-id",
-          sessionCode: storedSession.sessionCode || (isSessionCode ? searchTerm : `SS-${(storedSession.createdTimestamp || Date.now()).toString().slice(-6)}`),
-          licensePlate: storedSession.licensePlate,
-          entryTime: new Date(storedSession.createdTimestamp || Date.now() - 300000).toISOString(),
-          floorName: storedSession.floor || "Tầng 3",
-          zoneName: storedSession.slot || "T3-CAR-C",
-          vehicleType: storedSession.vehicle || "Ô tô (Đang gửi)",
-          durationMinutes: minutes,
-          totalFee: fee,
-          guideMessage: `Thời gian đỗ thực tế: ${minutes} phút. Đơn giá: ${hourlyRate.toLocaleString("vi-VN")}đ/giờ.`
-        });
-      } else {
+      const session = res.data.data;
+      if (session && session.zoneEntryTime && !session.zoneExitTime) {
+        const errorMsg = `Xe ${session.licensePlate} đang đỗ trong phân khu ${session.zoneName || "phân khu"}. Vui lòng quét ra khỏi phân khu trước khi check-out.`;
+        setApiError(errorMsg);
+        setTicketMessage(errorMsg);
         setSessionData(null);
-        setApiError(err.response?.data?.message || 'Không tìm thấy phiên gửi xe đang hoạt động cho biển số này');
+        return false;
       }
+      setSessionData(session);
+      return true;
+    } catch (err) {
+      setSessionData(null);
+      const errMsg = err.response?.data?.message || 'Không tìm thấy phiên gửi xe đang hoạt động cho biển số này';
+      setApiError(errMsg);
+      setTicketMessage(errMsg);
+      return false;
     } finally {
       setIsSearching(false);
     }
@@ -1112,12 +1098,15 @@ export default function StaffCheckOut() {
     }, 1000);
   };
 
-  const parseQrData = (qrText) => {
+  const parseQrData = async (qrText) => {
     if (!qrText) return;
     const cleanedText = qrText.trim().toUpperCase();
 
-    // Tự động kích hoạt chuỗi chụp ảnh (biển số 3s, sau đó mặt 2s)
-    triggerAutoCaptureSequence();
+    // Kiểm tra tính hợp lệ của phiên gửi xe trước khi khởi động camera
+    const isValid = await autoSearchPlate(cleanedText);
+    if (!isValid) {
+      return; // Dừng lại luôn
+    }
 
     if (cleanedText.startsWith("PS")) {
       setTicketInput(cleanedText);
