@@ -425,8 +425,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
       const payload = {
         handledByUserId: user.id,
-        resolutionNote: resolveForm.resolutionNote.trim(),
-        imageUrls: uploadedUrls.length > 0 ? uploadedUrls : undefined
+        resolution: resolveForm.resolutionNote.trim(),
+        resolutionImageUrls: uploadedUrls.length > 0 ? uploadedUrls : undefined
       };
 
       await staffApi.resolveSecurityException(resolvingLog.id, payload);
