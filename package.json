@@ -31,6 +31,8 @@
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@emnapi/core": "^1.11.2",
+    "@emnapi/runtime": "^1.11.2",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
