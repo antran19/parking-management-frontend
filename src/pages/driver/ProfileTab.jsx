@@ -230,20 +230,48 @@ export default function ProfileTab({
 
   const getPlateSource = (plate) => {
     if (typeof plate === "string") return "PROFILE";
-    return plate?.source || "PROFILE";
+    return String(plate?.source || "PROFILE").toUpperCase();
   };
 
-  const managedPlates = (user.licensePlates || [])
+  const getPlateReadOnly = (plate) => {
+    if (typeof plate === "string") return false;
+    return Boolean(
+      plate?.readOnly || getPlateSource(plate) === "BICYCLE_PASS",
+    );
+  };
+
+  const vehicleRegistryEntries = (user?.licensePlates || [])
     .map((plate) => ({
       raw: plate,
       source: getPlateSource(plate),
+      readOnly: getPlateReadOnly(plate),
       licensePlate: getPlateValue(plate),
       vehicleTypeId: getPlateVehicleTypeId(plate),
       vehicleTypeName: getPlateVehicleTypeName(plate),
+      parkingPassId:
+        typeof plate === "string" ? null : plate?.parkingPassId || null,
+      parkingPassCode:
+        typeof plate === "string" ? null : plate?.parkingPassCode || null,
+      passType: typeof plate === "string" ? null : plate?.passType || null,
+      passStatus:
+        typeof plate === "string" ? null : plate?.passStatus || null,
+      startDate: typeof plate === "string" ? null : plate?.startDate || null,
+      endDate: typeof plate === "string" ? null : plate?.endDate || null,
     }))
-    .filter((plate) => Boolean(plate.licensePlate))
+    .filter((plate) => Boolean(plate.licensePlate));
+
+  const managedPlates = vehicleRegistryEntries
     .filter((plate) => plate.source === "PROFILE")
     .filter((plate) => !isBicycleVehicleTypeName(plate.vehicleTypeName));
+
+  const bicyclePassCodes = vehicleRegistryEntries
+    .filter((plate) => plate.source === "BICYCLE_PASS")
+    .filter((plate) => isBicycleVehicleTypeName(plate.vehicleTypeName));
+
+  const displayedVehicleRegistry = [
+    ...managedPlates,
+    ...bicyclePassCodes,
+  ];
 
   const plateVehicleTypes = (config.vehicleTypes || [])
     .map((vehicleType) => ({
@@ -557,7 +585,7 @@ export default function ProfileTab({
       label: "Biển số",
       description: "Xe đã lưu",
       icon: "🚘",
-      count: managedPlates.length,
+      count: displayedVehicleRegistry.length,
     },
     {
       id: "PENDING",
@@ -897,38 +925,65 @@ export default function ProfileTab({
           <div className="space-y-6 p-6 md:p-8">
             <div>
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3.5">
-                Xe đã đăng ký trong hồ sơ
+                Phương tiện và mã xe đạp đã đăng ký
               </span>
-              {managedPlates.length === 0 ? (
+              {displayedVehicleRegistry.length === 0 ? (
                 <p className="text-slate-400 font-bold italic py-2 text-xs">
-                  Chưa có biển số xe nào được liên kết vào tài khoản.
+                  Chưa có phương tiện nào được liên kết với tài khoản.
                 </p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {managedPlates.map((plate, idx) => (
-                    <div
-                      key={idx}
-                      className="flex justify-between items-center bg-slate-50 border border-slate-150 p-4 rounded-2xl hover:border-indigo-100 transition-colors"
-                    >
-                      <div>
-                        <LicensePlate
-                          plate={plate.licensePlate}
-                          vehicleTypeName={plate.vehicleTypeName}
-                        />
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          {plate.vehicleTypeName}
-                        </p>
-                      </div>
+                  {displayedVehicleRegistry.map((plate, idx) => {
+                    const isBicyclePass = plate.source === "BICYCLE_PASS";
+                    const passLabel =
+                      PASS_TYPE_INFO[plate.passType]?.label || "Gói hội viên";
 
-                      <button
-                        onClick={() => handleDeletePlate(plate.licensePlate)}
-                        className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer"
-                        title="Xóa biển số này"
+                    return (
+                      <div
+                        key={`${plate.source}-${plate.licensePlate}-${idx}`}
+                        className={`flex justify-between items-center border p-4 rounded-2xl transition-colors ${
+                          isBicyclePass
+                            ? "border-cyan-200 bg-cyan-50/60 hover:border-cyan-300"
+                            : "border-slate-150 bg-slate-50 hover:border-indigo-100"
+                        }`}
                       >
-                        Xóa
-                      </button>
-                    </div>
-                  ))}
+                        <div>
+                          <LicensePlate
+                            plate={plate.licensePlate}
+                            vehicleTypeName={plate.vehicleTypeName}
+                          />
+                          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            {plate.vehicleTypeName}
+                          </p>
+                          {isBicyclePass && (
+                            <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-cyan-700">
+                              Mã xe đạp từ {passLabel}
+                            </p>
+                          )}
+                        </div>
+
+                        {!plate.readOnly && plate.source === "PROFILE" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDeletePlate(plate.licensePlate)
+                            }
+                            className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-all cursor-pointer"
+                            title="Xóa biển số này"
+                          >
+                            Xóa
+                          </button>
+                        ) : (
+                          <span
+                            className="rounded-xl border border-cyan-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-wider text-cyan-700"
+                            title="Mã được hệ thống cấp từ gói xe đạp và không thể xóa tại đây"
+                          >
+                            Mã từ gói
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
