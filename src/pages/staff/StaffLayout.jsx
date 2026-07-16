@@ -244,8 +244,24 @@ export default function StaffLayout({ onLogout }) {
     };
   }, []);
 
-  // Lắng nghe SOS từ hệ thống qua WebSocket
+  // Lắng nghe SOS từ hệ thống qua WebSocket + Fetch trạng thái ban đầu khi mount
   useEffect(() => {
+    const fetchInitialSosStatus = async () => {
+      try {
+        const res = await staffApi.getEmergencyStatus();
+        const data = res.data.data;
+        if (data) {
+          const active = data.active === true || data.active === "true";
+          setSystemSosStatus({ active, ...data });
+          setShowSystemSosModal(active);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch initial SOS status for Staff:", err);
+      }
+    };
+
+    fetchInitialSosStatus();
+
     const client = new Client({
       webSocketFactory: () => {
         const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
@@ -265,7 +281,7 @@ export default function StaffLayout({ onLogout }) {
       client.subscribe("/topic/emergency", (message) => {
         try {
           const data = JSON.parse(message.body);
-          const active = Boolean(data.active);
+          const active = data.active === true || data.active === "true";
           setSystemSosStatus({ active, ...data });
 
           if (active) {
