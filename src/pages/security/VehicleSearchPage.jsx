@@ -471,12 +471,13 @@ export default function VehicleSearchPage({ showToast }) {
               })()}
 
               {/* Images */}
-              {viewingLogDetail.imageUrls?.length > 0 && (() => {
-                const validImages = viewingLogDetail.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http')));
-                const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
-                const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+              {(viewingLogDetail.imageUrls?.length > 0 || viewingLogDetail.resolutionImageUrls?.length > 0) && (() => {
+                const evidenceImages = (viewingLogDetail.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                const resolveImages = (viewingLogDetail.resolutionImageUrls || []).length > 0
+                    ? viewingLogDetail.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                    : (viewingLogDetail.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
-                if (validImages.length === 0) return null;
+                if (evidenceImages.length === 0 && resolveImages.length === 0) return null;
 
                 return (
                   <div className="flex flex-wrap gap-8">

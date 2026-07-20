@@ -741,7 +741,7 @@ export default function BlacklistPage({ showToast, user }) {
 
                     {/* Image Thumbnails */}
                     {(() => {
-                      const validImages = item.imageUrls ? item.imageUrls.filter(url => url && url.startsWith('http')) : [];
+                      const validImages = item.imageUrls ? item.imageUrls.filter(url => url) : [];
                       return validImages.length > 0 ? (
                         <div className="flex flex-wrap gap-2 mt-1">
                           {validImages.map((url, idx) => (

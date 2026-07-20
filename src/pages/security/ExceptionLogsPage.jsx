@@ -806,10 +806,10 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
                   {/* Image Thumbnails */}
                   {(() => {
-                    const evidenceImages = (log.imageUrls || []).filter(url => url && url.startsWith('http') && !url.startsWith('[RESOLVE]'));
-                    const resolveImagesFromUrls = (log.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
-                    const resolveImagesFromField = (log.resolutionImageUrls || []).filter(url => typeof url === 'string').map(url => url.replace('[RESOLVE]', '')).filter(url => url && url.startsWith('http'));
-                    const resolveImages = [...resolveImagesFromUrls, ...resolveImagesFromField];
+                    const evidenceImages = (log.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                    const resolveImages = (log.resolutionImageUrls || []).length > 0
+                        ? log.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                        : (log.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
                     return (evidenceImages.length > 0 || resolveImages.length > 0) ? (
                       <div className="flex flex-wrap gap-6 mt-2">
@@ -962,10 +962,10 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
               {/* Images */}
               {(viewingLogDetail.imageUrls?.length > 0 || viewingLogDetail.resolutionImageUrls?.length > 0) && (() => {
-                const evidenceImages = (viewingLogDetail.imageUrls || []).filter(url => url && url.startsWith('http') && !url.startsWith('[RESOLVE]'));
-                const resolveImagesFromUrls = (viewingLogDetail.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
-                const resolveImagesFromField = (viewingLogDetail.resolutionImageUrls || []).filter(url => typeof url === 'string').map(url => url.replace('[RESOLVE]', '')).filter(url => url && url.startsWith('http'));
-                const resolveImages = [...resolveImagesFromUrls, ...resolveImagesFromField];
+                const evidenceImages = (viewingLogDetail.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                const resolveImages = (viewingLogDetail.resolutionImageUrls || []).length > 0
+                    ? viewingLogDetail.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                    : (viewingLogDetail.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
                 if (evidenceImages.length === 0 && resolveImages.length === 0) return null;
 
