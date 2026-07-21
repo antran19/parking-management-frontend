@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ProfileTab — Quản lý hồ sơ Driver (Quảng phụ trách)
  *
  * TODO (Quảng): Implement:
@@ -123,27 +123,22 @@ const ACTIVE_PASS_GROUP_INFO = [
   {
     key: "MOTORBIKE",
     label: "Xe máy",
-    icon: "🏍️",
   },
   {
     key: "CAR",
     label: "Ô tô",
-    icon: "🚗",
   },
   {
     key: "BICYCLE",
     label: "Xe đạp",
-    icon: "🚲",
   },
   {
     key: "TRUCK",
     label: "Xe tải",
-    icon: "🚚",
   },
   {
     key: "UNKNOWN",
     label: "Loại xe khác",
-    icon: "🚙",
   },
 ];
 
@@ -200,7 +195,8 @@ export default function ProfileTab({
   const [addPlateVehicleTypeId, setAddPlateVehicleTypeId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
-  const [showAllExpiredPasses, setShowAllExpiredPasses] = useState(false);
+  const [expiredPassesPage, setExpiredPassesPage] = useState(1);
+  const [selectedActivePassGroupKey, setSelectedActivePassGroupKey] = useState(null);
   const [selectedPassDetail, setSelectedPassDetail] = useState(null);
   const [selectedVehicleDetail, setSelectedVehicleDetail] = useState(null);
   const [profileSectionTab, setProfileSectionTab] = useState("MARKETPLACE");
@@ -388,6 +384,54 @@ export default function ProfileTab({
       }
     })();
   }, []);
+
+  // Auto-cancel expired pending payments (older than 15 minutes)
+  useEffect(() => {
+    if (!myPasses || myPasses.length === 0) return;
+
+    const checkAndCancelExpiredPasses = async () => {
+      const pendingPasses = myPasses.filter((p) => p.status === "PENDING_PAYMENT");
+      const EXPIRE_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+      
+      const expiredList = pendingPasses.filter((pass) => {
+        if (!pass.createdAt) return false;
+        const createdTime = new Date(pass.createdAt).getTime();
+        return Date.now() - createdTime > EXPIRE_TIMEOUT;
+      });
+
+      if (expiredList.length === 0) return;
+
+      console.log(`Auto-cancelling ${expiredList.length} expired pending payments`);
+      
+      let hasCancelledAny = false;
+      for (const pass of expiredList) {
+        try {
+          await staffApi.cancelDriverPass(pass.id);
+          hasCancelledAny = true;
+        } catch (err) {
+          console.error(`Failed to auto-cancel pass ${pass.id}`, err);
+        }
+      }
+
+      if (hasCancelledAny) {
+        try {
+          showToast("Đơn chờ thanh toán đã hết hạn và tự động hủy.", "info");
+          const passesRes = await staffApi.getDriverPasses();
+          setMyPasses(passesRes.data?.data || []);
+          if (typeof loadUserData === "function") {
+            loadUserData();
+          }
+        } catch (err) {
+          console.warn("Failed to reload passes after auto-cancellation", err);
+        }
+      }
+    };
+
+    checkAndCancelExpiredPasses();
+
+    const interval = setInterval(checkAndCancelExpiredPasses, 15000);
+    return () => clearInterval(interval);
+  }, [myPasses, loadUserData]);
 
   const calcFee = (monthlyPrice, passType) => {
     const mp = Number(monthlyPrice || 0);
@@ -608,17 +652,13 @@ export default function ProfileTab({
     (p) => !["ACTIVE", "PENDING_PAYMENT"].includes(p.status),
   );
 
-  const EXPIRED_PASS_PREVIEW_LIMIT = 5;
+  const EXPIRED_PASS_PAGE_SIZE = 5;
+  const totalExpiredPassesPages = Math.ceil(expiredPasses.length / EXPIRED_PASS_PAGE_SIZE);
+  const currentExpiredPassesPage = Math.max(1, Math.min(expiredPassesPage, totalExpiredPassesPages || 1));
 
-  const visibleExpiredPasses = showAllExpiredPasses
-    ? expiredPasses
-    : expiredPasses.slice(0, EXPIRED_PASS_PREVIEW_LIMIT);
-
-  const hasMoreExpiredPasses = expiredPasses.length > EXPIRED_PASS_PREVIEW_LIMIT;
-
-  const hiddenExpiredPassCount = Math.max(
-    0,
-    expiredPasses.length - EXPIRED_PASS_PREVIEW_LIMIT,
+  const visibleExpiredPasses = expiredPasses.slice(
+    (currentExpiredPassesPage - 1) * EXPIRED_PASS_PAGE_SIZE,
+    currentExpiredPassesPage * EXPIRED_PASS_PAGE_SIZE,
   );
 
   const primaryPass = activePasses[0];
@@ -644,35 +684,30 @@ export default function ProfileTab({
       id: "MARKETPLACE",
       label: "Mua gói",
       description: "Đăng ký gói",
-      icon: "💳",
       count: pricingPlans.length,
     },
     {
       id: "ACTIVE_PASSES",
       label: "Gói của tôi",
       description: "Đang hiệu lực",
-      icon: "🎫",
       count: activePasses.length,
     },
     {
       id: "PLATES",
       label: "Biển số",
       description: "Xe đã lưu",
-      icon: "🚘",
       count: displayedVehicleRegistry.length,
     },
     {
       id: "PENDING",
       label: "Chờ thanh toán",
       description: "Đơn chưa trả",
-      icon: "⏳",
       count: pendingPasses.length,
     },
     {
       id: "EXPIRED",
       label: "Gói cũ",
       description: "Hết hạn / hủy",
-      icon: "🗂️",
       count: expiredPasses.length,
     },
   ];
@@ -791,15 +826,6 @@ export default function ProfileTab({
                   )}
 
                   <div className="relative flex items-center gap-3">
-                    <span
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base shadow-sm ${active
-                        ? "bg-white/20 text-white"
-                        : "bg-slate-50 text-indigo-600 ring-1 ring-slate-200"
-                        }`}
-                    >
-                      {tab.icon}
-                    </span>
-
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <p
@@ -1389,7 +1415,6 @@ export default function ProfileTab({
           </div>
         ) : (
           <EmptyProfileSection
-            icon="⏳"
             title="Không có đơn chờ thanh toán"
             description="Các đơn mua gói chưa thanh toán sẽ xuất hiện tại đây."
           />
@@ -1398,142 +1423,168 @@ export default function ProfileTab({
       {/* ===== VÉ ĐÃ MUA ===== */}
       {profileSectionTab === "ACTIVE_PASSES" && (
         activePasses.length > 0 ? (
-          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-[0.18em]">
-                  Gói đang hoạt động ({activePasses.length})
-                </h4>
-                <p className="mt-1 text-xs font-medium text-slate-400">
-                  Các quyền gửi xe còn hiệu lực, hiển thị theo thời hạn còn lại.
-                </p>
-              </div>
-            </div>
-            <div className="space-y-8">
-              {groupedActivePasses.map((group) => (
-                <section key={group.key}>
-                  <div className="mb-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-xl">
-                        {group.icon}
-                      </span>
+          (() => {
+            const currentActivePassGroupKey = selectedActivePassGroupKey || groupedActivePasses[0]?.key;
+            const currentActiveGroup = groupedActivePasses.find((g) => g.key === currentActivePassGroupKey) || groupedActivePasses[0];
 
+            return (
+              <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6 md:p-8 animate-fadeIn">
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-[0.18em]">
+                      Gói đang hoạt động ({activePasses.length})
+                    </h4>
+                    <p className="mt-1 text-xs font-medium text-slate-400">
+                      Chọn loại xe để xem chi tiết các gói đăng ký tương ứng.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Grid of vehicle types */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  {groupedActivePasses.map((group) => {
+                    const isActive = group.key === currentActivePassGroupKey;
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        onClick={() => setSelectedActivePassGroupKey(group.key)}
+                        className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all text-center cursor-pointer ${
+                          isActive
+                            ? "border-blue-500 bg-blue-600 text-white shadow-md shadow-blue-500/25 scale-[1.02]"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-350 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="text-xs font-black uppercase tracking-widest">
+                          {group.label}
+                        </span>
+                        <span className={`mt-2 rounded-full px-2.5 py-0.5 text-[10px] font-black ${
+                          isActive ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-600 border border-blue-100'
+                        }`}>
+                          {group.passes.length} gói
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Group Passes */}
+                {currentActiveGroup && (
+                  <div className="space-y-4 animate-fadeIn" key={currentActiveGroup.key}>
+                    <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                       <div>
                         <h5 className="text-sm font-black uppercase tracking-[0.12em] text-slate-900">
-                          {group.label}
+                          {currentActiveGroup.label}
                         </h5>
-
                         <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
-                          Các gói đang hoạt động dành cho {group.label.toLowerCase()}
+                          Các gói đang hoạt động dành cho {currentActiveGroup.label.toLowerCase()}
                         </p>
                       </div>
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-[11px] font-black text-blue-600">
+                        {currentActiveGroup.passes.length} gói
+                      </span>
                     </div>
 
-                    <span className="rounded-full bg-blue-50 px-3 py-1 text-[11px] font-black text-blue-600">
-                      {group.passes.length} gói
-                    </span>
-                  </div>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      {currentActiveGroup.passes.map((pass) => {
+                        const info =
+                          PASS_TYPE_INFO[pass.passType] || PASS_TYPE_INFO.MONTHLY;
 
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    {group.passes.map((pass) => {
-                      const info =
-                        PASS_TYPE_INFO[pass.passType] || PASS_TYPE_INFO.MONTHLY;
+                        const vehicleTypeName =
+                          pass.vehicleTypeName ||
+                          pass.vehicleType?.name ||
+                          currentActiveGroup.label;
 
-                      const vehicleTypeName =
-                        pass.vehicleTypeName ||
-                        pass.vehicleType?.name ||
-                        group.label;
+                        const daysLeft = Math.max(
+                          0,
+                          Math.ceil(
+                            (new Date(pass.endDate) - new Date()) /
+                            (1000 * 60 * 60 * 24),
+                          ),
+                        );
 
-                      const daysLeft = Math.max(
-                        0,
-                        Math.ceil(
-                          (new Date(pass.endDate) - new Date()) /
-                          (1000 * 60 * 60 * 24),
-                        ),
-                      );
+                        return (
+                          <button
+                            type="button"
+                            key={pass.id}
+                            onClick={() => setSelectedPassDetail(pass)}
+                            className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${info.color} p-6 text-left text-white shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-2xl active:scale-[0.98] cursor-pointer`}
+                          >
+                            <div className="absolute right-0 top-0 -mr-10 -mt-10 h-28 w-28 rounded-full bg-white/10 blur-xl" />
 
-                      return (
-                        <button
-                          type="button"
-                          key={pass.id}
-                          onClick={() => setSelectedPassDetail(pass)}
-                          className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${info.color} p-6 text-left text-white shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-2xl active:scale-[0.98]`}
-                        >
-                          <div className="absolute right-0 top-0 -mr-10 -mt-10 h-28 w-28 rounded-full bg-white/10 blur-xl" />
+                            <div className="mb-4 flex items-start justify-between">
+                              <div>
+                                <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest">
+                                  {info.label}
+                                </span>
 
-                          <div className="mb-4 flex items-start justify-between">
-                            <div>
-                              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest">
-                                {info.label}
+                                <p className="mt-2 text-lg font-black">
+                                  {vehicleTypeName}
+                                </p>
+                              </div>
+
+                              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-xs font-black tracking-widest text-white">
+                                {info.code}
                               </span>
+                            </div>
 
-                              <p className="mt-2 text-lg font-black">
-                                {vehicleTypeName}
+                            <div className="space-y-1 text-xs font-semibold text-white/85">
+                              <p>
+                                Biển số:{" "}
+                                <span className="font-mono font-black text-white">
+                                  {formatLicensePlate(
+                                    pass.licensePlate,
+                                    vehicleTypeName,
+                                  )}
+                                </span>
+                              </p>
+
+                              <p>
+                                Hiệu lực:{" "}
+                                {new Date(pass.startDate).toLocaleDateString("vi-VN")} →{" "}
+                                {new Date(pass.endDate).toLocaleDateString("vi-VN")}
+                              </p>
+
+                              <p>
+                                Phí:{" "}
+                                <span className="font-black text-white">
+                                  {Number(pass.fee || 0).toLocaleString("vi-VN")}đ
+                                </span>
                               </p>
                             </div>
 
-                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-xs font-black tracking-widest text-white">
-                              {info.code}
-                            </span>
-                          </div>
+                            <div className="mt-4 flex items-center gap-2">
+                              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20">
+                                <div
+                                  className="h-full rounded-full bg-white/80 transition-all"
+                                  style={{
+                                    width: `${Math.min(
+                                      100,
+                                      (daysLeft / (info.months * 30)) * 100,
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
 
-                          <div className="space-y-1 text-xs font-semibold text-white/85">
-                            <p>
-                              Biển số:{" "}
-                              <span className="font-mono font-black text-white">
-                                {formatLicensePlate(
-                                  pass.licensePlate,
-                                  vehicleTypeName,
-                                )}
+                              <span className="text-[10px] font-black">
+                                {daysLeft} ngày
                               </span>
-                            </p>
-
-                            <p>
-                              Hiệu lực:{" "}
-                              {new Date(pass.startDate).toLocaleDateString("vi-VN")} →{" "}
-                              {new Date(pass.endDate).toLocaleDateString("vi-VN")}
-                            </p>
-
-                            <p>
-                              Phí:{" "}
-                              <span className="font-black text-white">
-                                {Number(pass.fee || 0).toLocaleString("vi-VN")}đ
-                              </span>
-                            </p>
-                          </div>
-
-                          <div className="mt-4 flex items-center gap-2">
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20">
-                              <div
-                                className="h-full rounded-full bg-white/80 transition-all"
-                                style={{
-                                  width: `${Math.min(
-                                    100,
-                                    (daysLeft / (info.months * 30)) * 100,
-                                  )}%`,
-                                }}
-                              />
                             </div>
 
-                            <span className="text-[10px] font-black">
-                              {daysLeft} ngày
-                            </span>
-                          </div>
-
-                          <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-white/70">
-                            Nhấn để xem chi tiết
-                          </p>
-                        </button>
-                      );
-                    })}
+                            <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-white/70">
+                              Nhấn để xem chi tiết
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </section>
-              ))}
-            </div>
-          </div>
+                )}
+              </div>
+            );
+          })()
         ) : (
           <EmptyProfileSection
-            icon="🎫"
             title="Chưa có gói đang hoạt động"
             description="Các gói gửi xe đã thanh toán và còn hiệu lực sẽ hiển thị tại đây."
           />
@@ -1642,21 +1693,83 @@ export default function ProfileTab({
               })}
             </div>
 
-            {hasMoreExpiredPasses && (
-              <div className="border-t border-slate-100 bg-white px-5 py-3 text-center">
-                <button
-                  type="button"
-                  onClick={() => setShowAllExpiredPasses((prev) => !prev)}
-                  className="inline-flex items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-4 py-2 text-[11px] font-bold text-blue-600 transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-sm"
-                >
-                  {showAllExpiredPasses ? "Thu gọn" : "Xem thêm"}
-                </button>
+            {totalExpiredPassesPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 bg-white px-6 py-4">
+                <div className="text-xs font-semibold text-slate-500">
+                  Trang <span className="font-bold text-slate-800">{currentExpiredPassesPage}</span> / <span className="font-bold text-slate-850">{totalExpiredPassesPages}</span>
+                </div>
+                
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={currentExpiredPassesPage === 1}
+                    onClick={() => setExpiredPassesPage(1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                  >
+                    «
+                  </button>
+                  
+                  <button
+                    type="button"
+                    disabled={currentExpiredPassesPage === 1}
+                    onClick={() => setExpiredPassesPage((prev) => Math.max(prev - 1, 1))}
+                    className="flex h-9 px-3 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                  >
+                    Trước
+                  </button>
+
+                  {(() => {
+                    const pages = [];
+                    const maxVisible = 5;
+                    let start = Math.max(1, currentExpiredPassesPage - 2);
+                    let end = Math.min(totalExpiredPassesPages, start + maxVisible - 1);
+                    
+                    if (end - start < maxVisible - 1) {
+                      start = Math.max(1, end - maxVisible + 1);
+                    }
+
+                    for (let p = start; p <= end; p++) {
+                      pages.push(
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setExpiredPassesPage(p)}
+                          className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-black transition-all cursor-pointer ${
+                            currentExpiredPassesPage === p
+                              ? "bg-rose-500 text-white shadow-md shadow-rose-500/20"
+                              : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    }
+                    return pages;
+                  })()}
+
+                  <button
+                    type="button"
+                    disabled={currentExpiredPassesPage === totalExpiredPassesPages}
+                    onClick={() => setExpiredPassesPage((prev) => Math.min(prev + 1, totalExpiredPassesPages))}
+                    className="flex h-9 px-3 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                  >
+                    Sau
+                  </button>
+                  
+                  <button
+                    type="button"
+                    disabled={currentExpiredPassesPage === totalExpiredPassesPages}
+                    onClick={() => setExpiredPassesPage(totalExpiredPassesPages)}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                  >
+                    »
+                  </button>
+                </div>
               </div>
             )}
           </div>
         ) : (
           <EmptyProfileSection
-            icon="🗂️"
             title="Chưa có gói cũ"
             description="Gói hết hạn, đã hủy hoặc không còn hiệu lực sẽ nằm ở đây."
           />
@@ -1775,14 +1888,10 @@ export default function ProfileTab({
   );
 }
 
-function EmptyProfileSection({ icon, title, description }) {
+function EmptyProfileSection({ title, description }) {
   return (
     <div className="rounded-[2rem] border border-dashed border-slate-200 bg-white p-10 text-center shadow-sm">
-      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-2xl shadow-inner">
-        {icon}
-      </div>
-
-      <h4 className="mt-4 text-sm font-black text-slate-900">
+      <h4 className="text-sm font-black text-slate-900">
         {title}
       </h4>
 
@@ -1891,8 +2000,6 @@ function VehiclePassHistoryModal({
 
           {passes.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-              <div className="text-3xl">📦</div>
-
               <h5 className="mt-3 text-sm font-black text-slate-800">
                 Chưa từng đăng ký gói
               </h5>

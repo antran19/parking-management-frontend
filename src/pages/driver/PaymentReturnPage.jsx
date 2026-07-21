@@ -1,4 +1,4 @@
-﻿/**
+/**
  * PaymentReturnPage — Trang kết quả thanh toán VNPAY (Quảng phụ trách)
  *
  * TODO (Quảng): Implement:
@@ -374,7 +374,7 @@ export default function PaymentReturnPage() {
               <ReceiptRow label="Thời gian" value={formattedDate} />
               <ReceiptRow
                 label="Trạng thái"
-                value={state.success ? "✓ Đã thanh toán" : "✗ Thất bại"}
+                value={state.success ? "Đã thanh toán" : "Thất bại"}
                 highlight={state.success}
               />
             </div>

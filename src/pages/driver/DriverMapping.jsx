@@ -1,4 +1,4 @@
-﻿/**
+/**
  * DriverMapping — Bản đồ bãi xe cho Driver (Quảng phụ trách)
  *
  * TODO (Quảng): Implement sơ đồ bãi xe visual
@@ -1212,63 +1212,37 @@ export default function DriverMapping({ onLogout }) {
           <SideLink
             collapsed={collapsed}
             to="/driver/dashboard"
-            icon={<IconDashboard />}
             label="Bảng điều khiển"
           />
           <SideLink
             collapsed={collapsed}
             to="/driver/map"
-            icon={<IconMap />}
             label="Sơ đồ bãi xe"
             active
           />
           <SideLink
             collapsed={collapsed}
             to="/driver/3d-map"
-            icon={
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 16V8a2 2 0 00-1-1.732l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.732l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3.3 7L12 12l8.7-5M12 22V12"
-                />
-              </svg>
-            }
             label="Mô phỏng 3D"
           />
           <SideLink
             collapsed={collapsed}
             to="/driver/dashboard#current-session"
-            icon={<IconSession />}
             label="Phiên gửi xe"
           />
           <SideLink
             collapsed={collapsed}
             to="/driver/dashboard#my-reservations"
-            icon={<IconSession />}
             label="Đặt chỗ của tôi"
           />
           <SideLink
             collapsed={collapsed}
             to="/driver/dashboard#history-table"
-            icon={<IconHistory />}
             label="Lịch sử đỗ xe"
           />
           <SideLink
             collapsed={collapsed}
             to="/driver/dashboard#profile-vip"
-            icon={<IconProfile />}
             label="Hồ sơ & hội viên"
           />
         </nav>
@@ -1278,7 +1252,6 @@ export default function DriverMapping({ onLogout }) {
             onClick={onLogout}
             className="flex w-full items-center gap-3 rounded-xl px-4 py-3 font-semibold text-rose-400 hover:bg-rose-950/30 hover:text-rose-300 transition-all duration-200"
           >
-            <IconLogout />
             {!collapsed && <span className="whitespace-nowrap">Đăng xuất</span>}
           </button>
         </div>
@@ -1454,169 +1427,7 @@ export default function DriverMapping({ onLogout }) {
 
             {/* Cột phải: Bản đồ dẫn đường SVG mini, biểu phí bãi đỗ & hướng dẫn sử dụng */}
             <div className="action-panel-item lg:col-span-4 space-y-6">
-              {/* Bản đồ định vị nhanh */}
-              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-                <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
-                  <span className="text-xl">🗺️</span>
-                  <h3 className="text-sm font-bold text-slate-800">
-                    Định vị nhanh (
-                    {activeFloor === "B1" || activeFloor === "B2"
-                      ? "Tầng Hầm"
-                      : "Tầng Nổi"}
-                    )
-                  </h3>
-                </div>
 
-                {/* SVG Live Direction Map */}
-                <div className="relative rounded-2xl bg-slate-900 aspect-[4/3] w-full flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
-                  <div className="absolute inset-0 bg-[linear-gradient(rgba(79,70,229,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(79,70,229,0.05)_1px,transparent_1px)] bg-[size:16px_16px]" />
-
-                  <svg
-                    className="w-4/5 h-4/5 text-slate-600 z-10"
-                    viewBox="0 0 200 150"
-                  >
-                    <rect
-                      x="10"
-                      y="10"
-                      width="180"
-                      height="130"
-                      rx="8"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeDasharray="4 4"
-                    />
-
-                    <text
-                      x="25"
-                      y="25"
-                      className="fill-emerald-400 font-sans text-[7px] font-black tracking-widest"
-                    >
-                      CỔNG VÀO
-                    </text>
-                    <path
-                      d="M 10 30 L 40 30"
-                      stroke="#34d399"
-                      strokeWidth="1.5"
-                    />
-
-                    <text
-                      x="130"
-                      y="138"
-                      className="fill-rose-400 font-sans text-[7px] font-black tracking-widest"
-                    >
-                      CỔNG RA
-                    </text>
-                    <path
-                      d="M 160 120 L 190 120"
-                      stroke="#f87171"
-                      strokeWidth="1.5"
-                    />
-
-                    <line
-                      x1="85"
-                      y1="10"
-                      x2="85"
-                      y2="140"
-                      stroke="#475569"
-                      strokeWidth="1.5"
-                      strokeDasharray="3 3"
-                    />
-
-                    <g className="opacity-50">
-                      <rect
-                        x="25"
-                        y="45"
-                        width="20"
-                        height="12"
-                        rx="1.5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1"
-                      />
-                      <rect
-                        x="25"
-                        y="65"
-                        width="20"
-                        height="12"
-                        rx="1.5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1"
-                      />
-                      <rect
-                        x="25"
-                        y="85"
-                        width="20"
-                        height="12"
-                        rx="1.5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1"
-                      />
-
-                      <rect
-                        x="155"
-                        y="45"
-                        width="20"
-                        height="12"
-                        rx="1.5"
-                        fill="none"
-                        stroke="#6366f1"
-                        strokeWidth="1.5"
-                      />
-                      <text
-                        x="157"
-                        y="53"
-                        className="fill-indigo-400 font-mono text-[5px] font-bold"
-                      >
-                        B1-B
-                      </text>
-                      <rect
-                        x="155"
-                        y="65"
-                        width="20"
-                        height="12"
-                        rx="1.5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1"
-                      />
-                      <rect
-                        x="155"
-                        y="85"
-                        width="20"
-                        height="12"
-                        rx="1.5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1"
-                      />
-                    </g>
-
-                    <circle
-                      cx="100"
-                      cy="75"
-                      r="16"
-                      className="fill-indigo-500/10 stroke-indigo-500/30"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x="100"
-                      y="78"
-                      textAnchor="middle"
-                      className="fill-indigo-400 font-sans text-[8px] font-bold"
-                    >
-                      Lối di chuyển
-                    </text>
-                  </svg>
-
-                  <div className="absolute bottom-3 left-4 text-[9px] font-semibold text-slate-400 flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Hệ thống lưu thông thông minh
-                  </div>
-                </div>
-              </div>
 
               {/* Biểu phí áp dụng */}
               <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
@@ -1710,22 +1521,18 @@ function MobileMapNav({ onLogout }) {
   return (
     <nav className="mobile-driver-nav md:hidden">
       <Link to="/driver/dashboard" className="mobile-nav-item">
-        <span className="mobile-nav-icon">🏠</span>
         <span className="mobile-nav-label">Home</span>
       </Link>
 
       <Link to="/driver/map" className="mobile-nav-item mobile-nav-active">
-        <span className="mobile-nav-icon">🗺️</span>
         <span className="mobile-nav-label">Map</span>
       </Link>
 
       <Link to="/driver/dashboard#current-session" className="mobile-nav-item">
-        <span className="mobile-nav-icon">🎫</span>
         <span className="mobile-nav-label">Vé</span>
       </Link>
 
       <Link to="/driver/dashboard#profile-vip" className="mobile-nav-item">
-        <span className="mobile-nav-icon">👤</span>
         <span className="mobile-nav-label">Hồ sơ</span>
       </Link>
 
@@ -1734,13 +1541,12 @@ function MobileMapNav({ onLogout }) {
         onClick={onLogout}
         className="mobile-nav-item mobile-nav-danger"
       >
-        <span className="mobile-nav-icon">↪</span>
         <span className="mobile-nav-label">Thoát</span>
       </button>
     </nav>
   );
 }
-function SideLink({ to, icon, label, active, collapsed }) {
+function SideLink({ to, label, active, collapsed }) {
   return (
     <Link
       to={to}
@@ -1749,7 +1555,6 @@ function SideLink({ to, icon, label, active, collapsed }) {
         : "text-slate-400 hover:bg-slate-800 hover:text-white"
         }`}
     >
-      <span className="flex-shrink-0">{icon}</span>
       {!collapsed && <span className="whitespace-nowrap">{label}</span>}
     </Link>
   );
@@ -2141,7 +1946,7 @@ function ZoneModal({
           {emergencyActive && (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left animate-pulse">
               <p className="text-xs font-black uppercase tracking-widest text-rose-700">
-                🚨 ĐANG CÓ SOS BÁO ĐỘNG
+                ĐANG CÓ SOS BÁO ĐỘNG
               </p>
               <p className="mt-2 text-xs font-semibold leading-relaxed text-rose-800">
                 Hệ thống đang trong tình trạng khẩn cấp. Tài xế không thể tạo đặt chỗ mới. Vui lòng làm theo hướng dẫn của nhân viên bãi xe.
@@ -2232,8 +2037,6 @@ function ZoneModal({
                   {plateOptions.length > 0 ? (
                     <>
                       <div className="flex items-start gap-3">
-                        <span className="text-xl">🚲</span>
-
                         <div>
                           <p className="text-sm font-extrabold text-indigo-950">
                             Chọn mã xe đạp từ gói
@@ -2337,8 +2140,6 @@ function ZoneModal({
                     </>
                   ) : (
                     <div className="flex items-start gap-3">
-                      <span className="text-xl">🚲</span>
-
                       <div className="text-xs font-semibold leading-relaxed text-indigo-900/80">
                         <p className="mb-1 text-sm font-extrabold text-indigo-950">
                           Vé đặt giữ chỗ xe đạp
@@ -2395,7 +2196,6 @@ function ZoneModal({
                 </div>
 
                 <div className="rounded-xl bg-amber-50 border border-amber-200/60 p-3 flex items-start gap-2.5">
-                  <span className="text-sm">⚠️</span>
                   <p className="text-[10.5px] font-bold leading-normal text-amber-800">
                     Vui lòng check-in trước <span className="font-extrabold text-amber-950 font-mono">{reservedToPreview.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>. Sau thời điểm này, vé đặt chỗ của bạn sẽ tự động hủy để giải phóng mặt bằng cho xe khác.
                   </p>
