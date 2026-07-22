@@ -615,7 +615,7 @@ export default function DriverDashboard({ onLogout }) {
   const [timerSeconds, setTimerSeconds] = useState(0); // Bắt đầu đếm từ 0 giây thực tế
   const [activeTab, setActiveTab] = useState("dashboard"); // 'dashboard', 'session', 'history', 'profile'
   const [showAllReservations, setShowAllReservations] = useState(false);
-  const [showAllHistory, setShowAllHistory] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
 
   const [emergencyStatus, setEmergencyStatus] = useState({
     loading: true,
@@ -1738,13 +1738,14 @@ export default function DriverDashboard({ onLogout }) {
     });
   });
 
-  const HISTORY_PREVIEW_LIMIT = 4;
+  const HISTORY_PAGE_SIZE = 6;
+  const totalHistoryPages = Math.ceil(filteredHistory.length / HISTORY_PAGE_SIZE);
+  const currentHistoryPage = Math.max(1, Math.min(historyPage, totalHistoryPages || 1));
 
-  const visibleHistory = showAllHistory
-    ? filteredHistory
-    : filteredHistory.slice(0, HISTORY_PREVIEW_LIMIT);
-
-  const hasMoreHistory = filteredHistory.length > HISTORY_PREVIEW_LIMIT;
+  const visibleHistory = filteredHistory.slice(
+    (currentHistoryPage - 1) * HISTORY_PAGE_SIZE,
+    currentHistoryPage * HISTORY_PAGE_SIZE,
+  );
 
   const isHistorySearchActive =
     searchTerm.trim() || historyQuickFilter !== "ALL";
@@ -1829,9 +1830,6 @@ export default function DriverDashboard({ onLogout }) {
               : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
-            <span className="flex-shrink-0">
-              <IconDashboard />
-            </span>
             {!collapsed && (
               <span className="whitespace-nowrap">Bảng điều khiển</span>
             )}
@@ -1840,32 +1838,11 @@ export default function DriverDashboard({ onLogout }) {
           <SideLink
             collapsed={collapsed}
             to="/driver/map"
-            icon={<IconMap />}
             label="Sơ đồ bãi xe"
           />
           <SideLink
             collapsed={collapsed}
             to="/driver/3d-map"
-            icon={
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 16V8a2 2 0 00-1-1.732l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.732l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3.3 7L12 12l8.7-5M12 22V12"
-                />
-              </svg>
-            }
             label="Mô phỏng 3D"
           />
 
@@ -1876,9 +1853,6 @@ export default function DriverDashboard({ onLogout }) {
               : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
-            <span className="flex-shrink-0">
-              <IconSession />
-            </span>
             {!collapsed && (
               <span className="whitespace-nowrap">Phiên gửi xe</span>
             )}
@@ -1891,9 +1865,6 @@ export default function DriverDashboard({ onLogout }) {
               : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
-            <span className="flex-shrink-0">
-              <IconSession />
-            </span>
             {!collapsed && (
               <span className="whitespace-nowrap">Đặt chỗ của tôi</span>
             )}
@@ -1906,9 +1877,6 @@ export default function DriverDashboard({ onLogout }) {
               : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
-            <span className="flex-shrink-0">
-              <IconHistory />
-            </span>
             {!collapsed && (
               <span className="whitespace-nowrap">Lịch sử đỗ xe</span>
             )}
@@ -1921,9 +1889,6 @@ export default function DriverDashboard({ onLogout }) {
               : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
           >
-            <span className="flex-shrink-0">
-              <IconProfile />
-            </span>
             {!collapsed && (
               <span className="whitespace-nowrap">Hồ sơ & hội viên</span>
             )}
@@ -1959,7 +1924,7 @@ export default function DriverDashboard({ onLogout }) {
               {emergencyStatus.loading
                 ? "Đang kiểm tra..."
                 : emergencyStatus.active
-                  ? "🚨 SOS / Khẩn cấp"
+                  ? "SOS / Khẩn cấp"
                   : "Bình thường"}
             </p>
 
@@ -1992,7 +1957,6 @@ export default function DriverDashboard({ onLogout }) {
             onClick={onLogout}
             className="flex w-full items-center gap-3 rounded-xl px-4 py-3 font-semibold text-rose-400 hover:bg-rose-950/30 hover:text-rose-300 transition-all duration-200"
           >
-            <IconLogout />
             {!collapsed && <span className="whitespace-nowrap">Đăng xuất</span>}
           </button>
         </div>
@@ -2080,10 +2044,10 @@ export default function DriverDashboard({ onLogout }) {
                 <div className="absolute right-0 top-0 -mr-20 -mt-20 h-60 w-60 rounded-full bg-indigo-600/30 blur-3xl" />
                 <div className="relative z-10">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold mb-4 border border-indigo-500/30">
-                    💡 Driver Hub v2
+                    Driver Hub v2
                   </span>
                   <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
-                    Xin chào, {user.name} 👋
+                    Xin chào, {user.name}
                   </h1>
                   <p className="mt-2.5 text-slate-350 text-sm leading-relaxed max-w-2xl">
                     Cập nhật thông tin phiên đỗ xe thực tế, quét mã QR vào bãi
@@ -2093,7 +2057,7 @@ export default function DriverDashboard({ onLogout }) {
                 {user.licensePlates.length === 0 && (
                   <div className="relative z-10 flex-shrink-0 bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 text-xs max-w-xs">
                     <p className="font-bold text-yellow-400">
-                      💡 Chưa có biển số xe
+                      Chưa có biển số xe
                     </p>
                     <p className="mt-1 text-slate-300">
                       Vui lòng đăng ký biển số xe tại mục "Hồ sơ & Hội viên" để
@@ -2114,25 +2078,21 @@ export default function DriverDashboard({ onLogout }) {
                 <StatItem
                   title="Tổng lượt đỗ"
                   value={stats.totalParking}
-                  icon="🅿️"
                   desc="Cập nhật tự động"
                 />
                 <StatItem
                   title="Tổng giờ đỗ"
                   value={stats.totalHours}
-                  icon="⏱️"
                   desc="Tích lũy từ đầu năm"
                 />
                 <StatItem
                   title="Tổng chi tiêu"
                   value={stats.totalCost}
-                  icon="💳"
                   desc="Đã thanh toán online"
                 />
                 <StatItem
                   title="Sức chứa trống"
                   value={stats.availableSlots}
-                  icon="🚦"
                   desc="Đề xuất zone tối ưu"
                 />
               </div>
@@ -2370,7 +2330,7 @@ export default function DriverDashboard({ onLogout }) {
                   {/* Member Card Summary */}
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                     <span className="text-[9px] font-black text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-100 tracking-wider uppercase inline-block mb-3.5">
-                      🌟 VIP Member
+                      VIP Member
                     </span>
                     <h4 className="text-xs font-bold text-slate-900">
                       Quyền lợi VIP hoạt động
@@ -2605,10 +2565,6 @@ export default function DriverDashboard({ onLogout }) {
                                 value={formatDateTime(reservation.reservedTo)}
                               />
                               <InfoRow
-                                label="Thời gian tạo"
-                                value={formatDateTime(reservation.createdAt)}
-                              />
-                              <InfoRow
                                 label="Khu vực"
                                 value={`${reservation.floorName}-${reservation.zoneCode}`}
                                 mono
@@ -2749,19 +2705,16 @@ export default function DriverDashboard({ onLogout }) {
                   <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-white/10 p-3 shadow-inner shadow-black/10">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
                       <div className="relative flex-1">
-                        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">
-                          🔍
-                        </span>
 
                         <input
                           type="text"
                           value={searchTerm}
                           onChange={(e) => {
                             setSearchTerm(e.target.value);
-                            setShowAllHistory(false);
+                            setHistoryPage(1);
                           }}
                           placeholder="Tìm mã phiên, mã xe đạp, biển số, khu, tầng..."
-                          className="h-11 w-full rounded-2xl border border-white/20 bg-white/95 pl-11 pr-11 text-sm font-bold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-400/20"
+                          className="h-11 w-full rounded-2xl border border-white/20 bg-white/95 pl-4 pr-11 text-sm font-bold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-400/20"
                         />
 
                         {searchTerm && (
@@ -2769,7 +2722,7 @@ export default function DriverDashboard({ onLogout }) {
                             type="button"
                             onClick={() => {
                               setSearchTerm("");
-                              setShowAllHistory(false);
+                              setHistoryPage(1);
                             }}
                             className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
                           >
@@ -2791,7 +2744,7 @@ export default function DriverDashboard({ onLogout }) {
                             type="button"
                             onClick={() => {
                               setHistoryQuickFilter(filter.value);
-                              setShowAllHistory(false);
+                              setHistoryPage(1);
                             }}
                             className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-wider transition ${historyQuickFilter === filter.value
                               ? "border-blue-300 bg-blue-500 text-white shadow-md shadow-blue-950/20"
@@ -2817,7 +2770,7 @@ export default function DriverDashboard({ onLogout }) {
                           onClick={() => {
                             setSearchTerm("");
                             setHistoryQuickFilter("ALL");
-                            setShowAllHistory(false);
+                            setHistoryPage(1);
                           }}
                           className="w-fit rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-white/20"
                         >
@@ -2830,11 +2783,7 @@ export default function DriverDashboard({ onLogout }) {
 
                 {filteredHistory.length === 0 ? (
                   <div className="bg-slate-50 px-6 py-16 text-center">
-                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-xl">
-                      🅿️
-                    </div>
-
-                    <h4 className="mt-4 text-sm font-black text-slate-900">
+                    <h4 className="text-sm font-black text-slate-900">
                       Không tìm thấy dữ liệu đỗ xe phù hợp
                     </h4>
 
@@ -3024,17 +2973,78 @@ export default function DriverDashboard({ onLogout }) {
                       ))}
                     </div>
 
-                    {hasMoreHistory && (
-                      <div className="flex justify-center border-t border-slate-100 bg-slate-50 px-4 pb-6 pt-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowAllHistory((prev) => !prev)}
-                          className="inline-flex items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest text-blue-600 transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-sm"
-                        >
-                          {showAllHistory
-                            ? "Thu gọn"
-                            : `Xem thêm ${filteredHistory.length - HISTORY_PREVIEW_LIMIT} lượt`}
-                        </button>
+                    {totalHistoryPages > 1 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 bg-slate-50 px-6 py-4">
+                        <div className="text-xs font-semibold text-slate-500">
+                          Trang <span className="font-bold text-slate-800">{currentHistoryPage}</span> / <span className="font-bold text-slate-850">{totalHistoryPages}</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={currentHistoryPage === 1}
+                            onClick={() => setHistoryPage(1)}
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                          >
+                            «
+                          </button>
+                          
+                          <button
+                            type="button"
+                            disabled={currentHistoryPage === 1}
+                            onClick={() => setHistoryPage((prev) => Math.max(prev - 1, 1))}
+                            className="flex h-9 px-3 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                          >
+                            Trước
+                          </button>
+
+                          {(() => {
+                            const pages = [];
+                            const maxVisible = 5;
+                            let start = Math.max(1, currentHistoryPage - 2);
+                            let end = Math.min(totalHistoryPages, start + maxVisible - 1);
+                            
+                            if (end - start < maxVisible - 1) {
+                              start = Math.max(1, end - maxVisible + 1);
+                            }
+
+                            for (let p = start; p <= end; p++) {
+                              pages.push(
+                                <button
+                                  key={p}
+                                  type="button"
+                                  onClick={() => setHistoryPage(p)}
+                                  className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-black transition-all cursor-pointer ${
+                                    currentHistoryPage === p
+                                      ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
+                                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  {p}
+                                </button>
+                              );
+                            }
+                            return pages;
+                          })()}
+
+                          <button
+                            type="button"
+                            disabled={currentHistoryPage === totalHistoryPages}
+                            onClick={() => setHistoryPage((prev) => Math.min(prev + 1, totalHistoryPages))}
+                            className="flex h-9 px-3 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                          >
+                            Sau
+                          </button>
+                          
+                          <button
+                            type="button"
+                            disabled={currentHistoryPage === totalHistoryPages}
+                            onClick={() => setHistoryPage(totalHistoryPages)}
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white cursor-pointer"
+                          >
+                            »
+                          </button>
+                        </div>
                       </div>
                     )}
                   </>
@@ -3669,7 +3679,6 @@ function MobileDriverNav({ activeTab, setActiveTab, navigate, onLogout }) {
         onClick={() => setActiveTab("dashboard")}
         className={itemClass(activeTab === "dashboard")}
       >
-        <span className="mobile-nav-icon">🏠</span>
         <span className="mobile-nav-label">Home</span>
       </button>
 
@@ -3678,7 +3687,6 @@ function MobileDriverNav({ activeTab, setActiveTab, navigate, onLogout }) {
         onClick={() => navigate("/driver/map")}
         className={itemClass(false)}
       >
-        <span className="mobile-nav-icon">🗺️</span>
         <span className="mobile-nav-label">Map</span>
       </button>
 
@@ -3687,7 +3695,6 @@ function MobileDriverNav({ activeTab, setActiveTab, navigate, onLogout }) {
         onClick={() => setActiveTab("session")}
         className={itemClass(activeTab === "session")}
       >
-        <span className="mobile-nav-icon">🎫</span>
         <span className="mobile-nav-label">Vé</span>
       </button>
 
@@ -3696,7 +3703,6 @@ function MobileDriverNav({ activeTab, setActiveTab, navigate, onLogout }) {
         onClick={() => setActiveTab("profile")}
         className={itemClass(activeTab === "profile")}
       >
-        <span className="mobile-nav-icon">👤</span>
         <span className="mobile-nav-label">Hồ sơ</span>
       </button>
 
@@ -3705,7 +3711,6 @@ function MobileDriverNav({ activeTab, setActiveTab, navigate, onLogout }) {
         onClick={onLogout}
         className="mobile-nav-item mobile-nav-danger"
       >
-        <span className="mobile-nav-icon">↪</span>
         <span className="mobile-nav-label">Thoát</span>
       </button>
     </nav>
@@ -3713,7 +3718,7 @@ function MobileDriverNav({ activeTab, setActiveTab, navigate, onLogout }) {
 }
 
 // Side Navigation helper components
-function SideLink({ to, icon, label, active, collapsed }) {
+function SideLink({ to, label, active, collapsed }) {
   return (
     <Link
       to={to}
@@ -3722,7 +3727,6 @@ function SideLink({ to, icon, label, active, collapsed }) {
         : "text-slate-400 hover:bg-slate-800 hover:text-white"
         }`}
     >
-      <span className="flex-shrink-0">{icon}</span>
       {!collapsed && <span className="whitespace-nowrap">{label}</span>}
     </Link>
   );
@@ -3950,10 +3954,6 @@ function DashboardPricingBoard({
                         {getPricingUnitLabel(primaryPlan?._pricingType)}
                       </p>
                     </div>
-
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 text-lg">
-                      {getVehicleIcon(group.vehicleTypeName)}
-                    </div>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -3983,7 +3983,7 @@ function DashboardPricingBoard({
   );
 }
 
-function StatItem({ title, value, icon, desc }) {
+function StatItem({ title, value, desc }) {
   return (
     <div className="stat-card-item group rounded-[1.5rem] border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/70 transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-lg hover:shadow-slate-200/80">
       <div className="flex items-start justify-between gap-4">
@@ -3999,10 +3999,6 @@ function StatItem({ title, value, icon, desc }) {
           <p className="mt-2 text-[11px] font-semibold text-slate-400">
             {desc}
           </p>
-        </div>
-
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-base shadow-sm transition group-hover:border-indigo-100 group-hover:bg-indigo-50">
-          {icon}
         </div>
       </div>
     </div>
