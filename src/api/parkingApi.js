@@ -223,6 +223,66 @@ export const staffApi = {
     return axiosClient.put("/admin/settings", data);
   },
 
+  // === Cấu hình hạ tầng (MỚI — theo góp ý giảng viên 18/07) ===
+  // Buildings
+  getBuildings() {
+    return axiosClient.get("/admin/buildings");
+  },
+  createBuilding(data) {
+    return axiosClient.post("/admin/buildings", data);
+  },
+  updateBuilding(id, data) {
+    return axiosClient.put(`/admin/buildings/${id}`, data);
+  },
+  deleteBuilding(id) {
+    return axiosClient.delete(`/admin/buildings/${id}`);
+  },
+
+  // Floors
+  getFloors(buildingId) {
+    const params = buildingId ? { buildingId } : {};
+    return axiosClient.get("/admin/floors", { params });
+  },
+  createFloor(data) {
+    return axiosClient.post("/admin/floors", data);
+  },
+  updateFloor(id, data) {
+    return axiosClient.put(`/admin/floors/${id}`, data);
+  },
+  deleteFloor(id) {
+    return axiosClient.delete(`/admin/floors/${id}`);
+  },
+
+  // Quy hoạch zone theo diện tích tầng
+  getFloorCapacitySummary(floorId) {
+    return axiosClient.get(`/admin/floors/${floorId}/capacity-summary`);
+  },
+  previewFloorZones(floorId, data) {
+    return axiosClient.post(`/admin/floors/${floorId}/zones/preview`, data);
+  },
+  generateFloorZones(floorId, data) {
+    return axiosClient.post(`/admin/floors/${floorId}/zones/generate`, data);
+  },
+
+  // Vehicle Types
+  getVehicleTypes() {
+    return axiosClient.get("/admin/vehicle-types");
+  },
+  createVehicleType(data) {
+    return axiosClient.post("/admin/vehicle-types", data);
+  },
+  updateVehicleType(id, data) {
+    return axiosClient.put(`/admin/vehicle-types/${id}`, data);
+  },
+  deleteVehicleType(id) {
+    return axiosClient.delete(`/admin/vehicle-types/${id}`);
+  },
+
+  // Auto-calculate slots: maxSlots = floor(zoneArea / slotAreaSqm)
+  calculateSlots(data) {
+    return axiosClient.post("/admin/calculate-slots", data);
+  },
+
   // === Quản lý toàn bộ phiên gửi xe dành cho Staff/Manager — Lưu DB ===
   getAllSessionsHistory(params) {
     return axiosClient.get("/staff/sessions/history", { params });

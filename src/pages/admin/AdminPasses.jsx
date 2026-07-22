@@ -22,7 +22,7 @@ export default function AdminPasses({
           <p className="text-xs text-slate-400">Kiểm soát vé định kỳ theo tháng, quý, năm cho biển số đăng ký và cấp quyền ra vào tự động.</p>
         </div>
         <button onClick={handleOpenAddPass} className="rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-purple-500/10">
-          🎫 Phát hành vé định kỳ mới
+          Phát hành vé định kỳ mới
         </button>
       </div>
 

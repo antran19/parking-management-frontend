@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { staffApi } from "../../api/parkingApi";
+import { getLicensePlateValidationError } from "../../utils/licensePlate";
 import ParkingDigitalTwin3D from "../manager/ParkingDigitalTwin3D";
 import AdminOverview from "./AdminOverview";
 import AdminUsers from "./AdminUsers";
@@ -12,6 +13,7 @@ import AdminExceptionLogs from "./AdminExceptionLogs";
 import AdminBlacklist from "./AdminBlacklist";
 import AdminReports from "./AdminReports";
 import AdminSettings from "./AdminSettings";
+import AdminInfrastructure from "./AdminInfrastructure";
 import gsap from "gsap";
 
 // Icons
@@ -146,25 +148,12 @@ export default function AdminDashboard({ onLogout }) {
   const [sessions, setSessions] = useState([]);
   const [payments, setPayments] = useState([]);
 
-  // Cài đặt hệ thống chung
+  // Cài đặt hệ thống chung — chỉ còn sosEnabled là có tác dụng thật (chặn/cho phép Security
+  // kích hoạt SOS), gracePeriod/currency/vat giữ lại cho tương thích API cũ nhưng không còn
+  // form nào chỉnh sửa nữa (đã dời "phút miễn phí" thật sang freeMinutes theo từng biểu giá).
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem("admin_settings");
-    return saved ? JSON.parse(saved) : { gracePeriod: 10, currency: "VND", vat: 10, systemName: "Bãi xe Thông minh SmartParking v2" };
-  });
-
-  const [settingsSubTab, setSettingsSubTab] = useState("business");
-  const [enterpriseSettings, setEnterpriseSettings] = useState(() => {
-    const saved = localStorage.getItem("admin_enterprise_settings");
-    return saved ? JSON.parse(saved) : {
-      vnpTmnCode: "TC202391",
-      vnpHashSecret: "AB8972C10F928D37E82810CBE4D3E83B",
-      vnpUrl: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
-      autoLockBlacklist: true,
-      occupancyAlertThreshold: 90,
-      alertEmail: "admin@smartparking.com",
-      backupInterval: "daily",
-      enableApiLogging: true
-    };
+    return saved ? JSON.parse(saved) : { gracePeriod: 10, currency: "VND", vat: 10, sosEnabled: true };
   });
 
   // --- MODAL STATES ---
@@ -336,7 +325,7 @@ export default function AdminDashboard({ onLogout }) {
     const fetchSettings = async () => {
       try {
         const res = await staffApi.getAdminSettings();
-        setSettings(res.data.data || { gracePeriod: 10, currency: "VND", vat: 10, systemName: "Bãi xe Thông minh SmartParking v2" });
+        setSettings(res.data.data || { gracePeriod: 10, currency: "VND", vat: 10 });
       } catch (err) {
         console.warn("Failed to load settings from backend:", err);
       }
@@ -388,27 +377,16 @@ export default function AdminDashboard({ onLogout }) {
 
   const firstBuildingId = () => parkingConfig.buildings?.[0]?.id || "";
   const firstVehicleTypeId = () => parkingConfig.vehicleTypes?.[0]?.id || "";
-  const firstFloorId = () => parkingConfig.floors?.[0]?.id || "";
   const vehicleTypeNameById = (id) => parkingConfig.vehicleTypes?.find((v) => v.id === id)?.name || "Xe máy";
-  const toZoneCode = (name) => {
-    const normalized = String(name || "ZONE")
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .toUpperCase()
-      .replace(/Đ/g, "D")
-      .replace(/[^A-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    return (normalized || "ZONE").slice(0, 10);
-  };
 
   const mapPasses = (items) => (items || []).map((p) => ({
     id: p.id,
-    owner: p.user?.fullName || "--",
-    userId: p.user?.id || "",
-    buildingId: p.building?.id || "",
-    vehicleTypeId: p.vehicleType?.id || "",
+    owner: p.userName || "--",
+    userId: p.userId || "",
+    buildingId: p.buildingId || "",
+    vehicleTypeId: p.vehicleTypeId || "",
     plate: p.licensePlate,
-    type: p.vehicleType?.name || "--",
+    type: p.vehicleTypeName || "--",
     start: p.startDate,
     end: p.endDate,
     status: String(p.status || "active").toLowerCase(),
@@ -438,6 +416,7 @@ export default function AdminDashboard({ onLogout }) {
         vehicleTypeId: z.vehicleTypeId,
         floorId: z.floorId,
         floorName: z.floorName || floor?.floorName || "Chưa rõ tầng",
+        floorNumber: floor?.floorNumber,
         buildingName: z.buildingName || floor?.buildingName || "Smart Parking",
         status: z.status || "ACTIVE",
         capacity: z.capacity || 100,
@@ -475,6 +454,14 @@ export default function AdminDashboard({ onLogout }) {
   const handleOpenEditUser = (u) => { setUserForm({ ...u, password: "" }); setIsEditingUser(true); setIsUserModalOpen(true); };
   const handleSaveUser = async (e) => {
     e.preventDefault();
+    if (!/^[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}$/.test(userForm.email)) {
+      showToast("Email không hợp lệ (thiếu tên miền, vd: ...@gmail.com)", "warning");
+      return;
+    }
+    if (!/^(0|\+84)\d{9}$/.test(userForm.phone)) {
+      showToast("Số điện thoại không hợp lệ (định dạng: 0xxxxxxxxx hoặc +84xxxxxxxxx)", "warning");
+      return;
+    }
     try {
       if (isEditingUser) {
         await staffApi.updateAdminUser(userForm.id, userForm);
@@ -530,14 +517,11 @@ export default function AdminDashboard({ onLogout }) {
     }
   };
 
-  const handleOpenAddZone = () => {
-    const vehicleTypeId = firstVehicleTypeId();
-    setZoneForm({ id: "", name: "", type: vehicleTypeNameById(vehicleTypeId), capacity: 100, occupied: 0, floorId: firstFloorId(), vehicleTypeId, status: "ACTIVE" });
-    setIsEditingZone(false);
-    setIsZoneModalOpen(true);
-  };
+  // Tạo zone mới đã chuyển sang wizard "Quy hoạch zone" (AdminInfrastructure/ZonePlanningWizard) —
+  // ở đây chỉ còn giữ chức năng Sửa tên/trạng thái cho zone đã có. Sức chứa (capacity) sửa riêng
+  // ở tab "Cấu hình hạ tầng" vì cần tính lại zoneArea + validate diện tích tầng còn trống.
   const handleOpenEditZone = (zone) => {
-    setZoneForm({ ...zone, vehicleTypeId: zone.vehicleTypeId || firstVehicleTypeId(), floorId: zone.floorId || firstFloorId() });
+    setZoneForm({ ...zone });
     setIsEditingZone(true);
     setIsZoneModalOpen(true);
   };
@@ -545,20 +529,15 @@ export default function AdminDashboard({ onLogout }) {
     e.preventDefault();
     try {
       const payload = {
-        floorId: zoneForm.floorId || firstFloorId(),
-        vehicleTypeId: zoneForm.vehicleTypeId || firstVehicleTypeId(),
-        zoneCode: toZoneCode(zoneForm.name),
         zoneName: zoneForm.name,
-        capacity: zoneForm.capacity,
         status: zoneForm.status || "ACTIVE"
       };
-      if (isEditingZone) await staffApi.updateZone(zoneForm.id, payload);
-      else await staffApi.createZone(payload);
+      await staffApi.updateZone(zoneForm.id, payload);
       await reloadAdminConfig();
       setIsZoneModalOpen(false);
-      showToast(isEditingZone ? "Đã cập nhật zone" : "Đã tạo zone mới");
+      showToast("Đã cập nhật zone");
     } catch (err) {
-      showToast(err.response?.data?.message || "Thao tác zone thất bại", "warning");
+      showToast(err.response?.data?.message || "Cập nhật zone thất bại", "warning");
     }
   };
   const handleDeleteZone = async (id, name) => {
@@ -669,7 +648,7 @@ export default function AdminDashboard({ onLogout }) {
     if (!startDateStr) return "";
     const date = new Date(startDateStr);
     if (isNaN(date.getTime())) return "";
-    
+
     if (passType === "MONTHLY") {
       date.setMonth(date.getMonth() + 1);
     } else if (passType === "QUARTERLY") {
@@ -678,11 +657,32 @@ export default function AdminDashboard({ onLogout }) {
       date.setFullYear(date.getFullYear() + 1);
     }
     date.setDate(date.getDate() - 1);
-    
+
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, "0");
     const dd = String(date.getDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const getPricingRuleFee = (buildingId, vehicleTypeId, passType) => {
+    const rule = tariffs.find(
+      t => t.buildingId === buildingId &&
+        t.vehicleTypeId === vehicleTypeId &&
+        t.type === passType
+    );
+    if (rule) return rule.price;
+
+    const monthlyRule = tariffs.find(
+      t => t.buildingId === buildingId &&
+        t.vehicleTypeId === vehicleTypeId &&
+        t.type === "MONTHLY"
+    );
+    if (monthlyRule) {
+      if (passType === "QUARTERLY") return monthlyRule.price * 3;
+      if (passType === "YEARLY") return monthlyRule.price * 12;
+      return monthlyRule.price;
+    }
+    return 0;
   };
 
   const handleOpenAddPass = () => {
@@ -691,20 +691,23 @@ export default function AdminDashboard({ onLogout }) {
     const todayStr = new Date().toISOString().split("T")[0];
     const defaultPassType = "MONTHLY";
     const calculatedEnd = calculateEndDate(todayStr, defaultPassType);
-    
-    setPassForm({ 
-      id: "", 
-      owner: driver?.name || "", 
-      userId: driver?.id || "", 
-      plate: "", 
-      type: vehicleTypeNameById(vehicleTypeId), 
-      vehicleTypeId, 
-      buildingId: firstBuildingId(), 
-      start: todayStr, 
-      end: calculatedEnd, 
-      status: "active", 
-      passType: defaultPassType, 
-      fee: 0 
+
+    const bId = firstBuildingId();
+    const defaultFee = getPricingRuleFee(bId, vehicleTypeId, defaultPassType);
+
+    setPassForm({
+      id: "",
+      owner: driver?.name || "",
+      userId: driver?.id || "",
+      plate: "",
+      type: vehicleTypeNameById(vehicleTypeId),
+      vehicleTypeId,
+      buildingId: bId,
+      start: todayStr,
+      end: calculatedEnd,
+      status: "active",
+      passType: defaultPassType,
+      fee: defaultFee
     });
     setIsEditingPass(false);
     setIsPassModalOpen(true);
@@ -719,6 +722,7 @@ export default function AdminDashboard({ onLogout }) {
       vehicleTypeId: pass.vehicleTypeId || firstVehicleTypeId(),
       buildingId: pass.buildingId || firstBuildingId(),
       start: pass.start,
+      originalStart: pass.start,
       end: pass.end,
       status: pass.status,
       passType: pass.passType || "MONTHLY",
@@ -729,6 +733,18 @@ export default function AdminDashboard({ onLogout }) {
   };
   const handleSavePass = async (e) => {
     e.preventDefault();
+    const selectedVT = parkingConfig.vehicleTypes.find(v => v.id === passForm.vehicleTypeId);
+    const isBike = selectedVT?.name?.toLowerCase().includes("đạp") || selectedVT?.name?.toLowerCase().includes("dap");
+    if (!isBike) {
+      const plateError = getLicensePlateValidationError(passForm.plate, selectedVT?.name);
+      if (plateError) { showToast(plateError, "warning"); return; }
+    }
+    const todayStr = new Date().toISOString().split("T")[0];
+    const startDateChanged = !isEditingPass || passForm.start !== passForm.originalStart;
+    if (startDateChanged && passForm.start < todayStr) {
+      showToast("Ngày bắt đầu không được ở quá khứ", "warning");
+      return;
+    }
     try {
       if (isEditingPass) {
         await staffApi.updateParkingPass(passForm.id, {
@@ -778,21 +794,29 @@ export default function AdminDashboard({ onLogout }) {
     showToast(`Đã xóa vé định kỳ ${plate}`, "warning");
   };
 
-  // Calculate dynamic stats from real backend data
-  const todaySessionRevenue = sessions
-    .filter(s => {
-      if (!s.exitTime) return false;
-      const exitDate = new Date(s.exitTime);
+  // Calculate dynamic stats from real backend data.
+  // QUAN TRỌNG: mỗi lượt checkout (tiền mặt/VietQR/VNPay) backend đều ghi CẢ session.totalFee
+  // LẪN 1 Payment record riêng (referenceType="SESSION") cho CÙNG 1 giao dịch — nên doanh thu
+  // chỉ được cộng từ `payments` (nguồn duy nhất, không trùng lặp), KHÔNG được cộng thêm từ
+  // sessions.fee nữa, nếu không sẽ bị tính gấp đôi mọi lượt gửi xe. `payments.referenceType`
+  // phân biệt "SESSION" (phí gửi xe lượt) và "MONTHLY_PASS" (vé định kỳ) để giữ nguyên phần
+  // hiển thị tách "Lượt" / "Vé" như cũ.
+  const todaySessionRevenue = payments
+    .filter(p => {
+      if (!p.paidAt || p.referenceType !== "SESSION") return false;
+      const paidDate = p.paidAt;
       const today = new Date();
-      return exitDate.getDate() === today.getDate() &&
-        exitDate.getMonth() === today.getMonth() &&
-        exitDate.getFullYear() === today.getFullYear();
+      return paidDate.getDate() === today.getDate() &&
+        paidDate.getMonth() === today.getMonth() &&
+        paidDate.getFullYear() === today.getFullYear();
     })
-    .reduce((acc, curr) => acc + (curr.fee || 0), 0);
+    .reduce((acc, curr) => acc + curr.amount, 0);
 
   const todayPaymentRevenue = payments
     .filter(p => {
-      if (!p.paidAt) return false;
+      // referenceType thật của Payment vé định kỳ là "PASS" (không phải "MONTHLY_PASS"
+      // như comment trong Payment.java ghi — đã kiểm tra trực tiếp DriverController.java:634)
+      if (!p.paidAt || p.referenceType !== "PASS") return false;
       const paidDate = p.paidAt;
       const today = new Date();
       return paidDate.getDate() === today.getDate() &&
@@ -840,17 +864,9 @@ export default function AdminDashboard({ onLogout }) {
       d.setDate(today.getDate() - i);
       const dayLabel = days[d.getDay()];
 
-      const dailySessionRevenue = sessions
-        .filter(s => {
-          if (!s.exitTime) return false;
-          const exitDate = new Date(s.exitTime);
-          return exitDate.getDate() === d.getDate() &&
-            exitDate.getMonth() === d.getMonth() &&
-            exitDate.getFullYear() === d.getFullYear();
-        })
-        .reduce((acc, curr) => acc + (curr.fee || 0), 0);
-
-      const dailyPaymentRevenue = payments
+      // Cùng lý do như todayRevenue phía trên: chỉ cộng từ payments (nguồn không trùng lặp),
+      // không cộng thêm sessions.fee nữa.
+      const dailyRevenue = payments
         .filter(p => {
           if (!p.paidAt) return false;
           const paidDate = p.paidAt;
@@ -859,8 +875,6 @@ export default function AdminDashboard({ onLogout }) {
             paidDate.getFullYear() === d.getFullYear();
         })
         .reduce((acc, curr) => acc + curr.amount, 0);
-
-      const dailyRevenue = dailySessionRevenue + dailyPaymentRevenue;
 
       result.push({
         day: dayLabel,
@@ -949,9 +963,10 @@ export default function AdminDashboard({ onLogout }) {
           <SidebarBtn active={activeTab === "zones"} collapsed={collapsed} label="Phân khu đỗ xe" icon={<IconZones />} onClick={() => setActiveTab("zones")} />
           <SidebarBtn active={activeTab === "gates"} collapsed={collapsed} label="Cổng kiểm soát" icon={<IconGates />} onClick={() => setActiveTab("gates")} />
           <SidebarBtn active={activeTab === "tariffs"} collapsed={collapsed} label="Bảng biểu giá gửi" icon={<IconTariffs />} onClick={() => setActiveTab("tariffs")} />
-          <SidebarBtn active={activeTab === "passes"} collapsed={collapsed} label="Vé định kỳ" icon={<IconPasses />} onClick={() => setActiveTab("passes")} />
+          <SidebarBtn active={activeTab === "passes"} collapsed={collapsed} label="Gói định kỳ" icon={<IconPasses />} onClick={() => setActiveTab("passes")} />
           <SidebarBtn active={activeTab === "exceptions"} collapsed={collapsed} label="Nhật ký sự cố" icon={<IconExceptions />} onClick={() => setActiveTab("exceptions")} />
           <SidebarBtn active={activeTab === "reports"} collapsed={collapsed} label="Báo cáo doanh thu" icon={<IconReports />} onClick={() => setActiveTab("reports")} />
+          <SidebarBtn active={activeTab === "infrastructure"} collapsed={collapsed} label="Cấu hình hạ tầng" icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>} onClick={() => setActiveTab("infrastructure")} />
           <SidebarBtn active={activeTab === "settings"} collapsed={collapsed} label="Cấu hình hệ thống" icon={<IconSettings />} onClick={() => setActiveTab("settings")} />
         </nav>
 
@@ -985,6 +1000,7 @@ export default function AdminDashboard({ onLogout }) {
               {activeTab === "exceptions" && "Nhật ký Ngoại lệ & Log an ninh"}
               {activeTab === "reports" && "Phân tích Số liệu Doanh thu"}
               {activeTab === "settings" && "Cài đặt Nghiệp vụ Bãi xe"}
+              {activeTab === "infrastructure" && "Cấu hình Hạ tầng Bãi đỗ xe"}
               {activeTab === "digitalTwin" && "Mô phỏng 3D Digital Twin"}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">{liveDate}</p>
@@ -1028,13 +1044,13 @@ export default function AdminDashboard({ onLogout }) {
             <div className="relative z-10 max-w-2xl text-left">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/20 text-purple-400 text-xs font-semibold mb-4 border border-purple-500/20">
                 <span className="h-2 w-2 rounded-full bg-purple-500 animate-ping"></span>
-                🛡️ TRUNG TÂM QUẢN TRỊ CAO CẤP
+                TRUNG TÂM QUẢN TRỊ CAO CẤP
               </span>
               <h1 className="text-3xl font-extrabold tracking-tight">
-                Hệ thống Quản trị SmartParking 👋
+                Hệ thống Quản trị SmartParking
               </h1>
               <p className="mt-2.5 text-slate-300 text-sm leading-relaxed max-w-lg">
-                Chào mừng trở lại trung tâm kiểm soát {settings.systemName}. Giám sát hoạt động an ninh, doanh thu, thiết lập giá gửi, phân quyền nhân sự, và cứu hộ barrier trực tuyến.
+                Chào mừng trở lại trung tâm kiểm soát {parkingConfig.buildings[0]?.name || "SmartParking"}. Giám sát hoạt động an ninh, doanh thu, thiết lập giá gửi, phân quyền nhân sự, và cứu hộ barrier trực tuyến.
               </p>
             </div>
           </div>
@@ -1048,7 +1064,6 @@ export default function AdminDashboard({ onLogout }) {
               logs={logs}
               todayRevenue={todayRevenue}
               settings={settings}
-              toggleBarrier={toggleBarrier}
             />
           )}
 
@@ -1068,7 +1083,6 @@ export default function AdminDashboard({ onLogout }) {
           {activeTab === "zones" && (
             <AdminZones
               zones={zones}
-              handleOpenAddZone={handleOpenAddZone}
               handleOpenEditZone={handleOpenEditZone}
               handleDeleteZone={handleDeleteZone}
             />
@@ -1116,7 +1130,7 @@ export default function AdminDashboard({ onLogout }) {
             <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-6">
               <div className="flex justify-between items-center text-left border-b border-slate-100 pb-5">
                 <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">🚨 Log an ninh & Danh sách chặn (Blacklist)</h3>
+                  <h3 className="font-extrabold text-slate-900 text-base"> Log an ninh & Danh sách chặn (Blacklist)</h3>
                   <p className="text-xs text-slate-400 mt-1">Quản lý các sự cố an ninh và kiểm soát các phương tiện nằm trong danh sách đen của tòa nhà.</p>
                 </div>
               </div>
@@ -1156,7 +1170,6 @@ export default function AdminDashboard({ onLogout }) {
               todayRevenue={todayRevenue}
               todaySessionRevenue={todaySessionRevenue}
               todayPaymentRevenue={todayPaymentRevenue}
-              sessions={sessions}
               payments={payments}
               occupancyPercent={occupancyPercent}
               activePassesCount={activePassesCount}
@@ -1172,10 +1185,6 @@ export default function AdminDashboard({ onLogout }) {
             <AdminSettings
               settings={settings}
               setSettings={setSettings}
-              enterpriseSettings={enterpriseSettings}
-              setEnterpriseSettings={setEnterpriseSettings}
-              settingsSubTab={settingsSubTab}
-              setSettingsSubTab={setSettingsSubTab}
               users={users}
               zones={zones}
               gates={gates}
@@ -1184,6 +1193,11 @@ export default function AdminDashboard({ onLogout }) {
               parkingConfig={parkingConfig}
               showToast={showToast}
             />
+          )}
+
+          {/* TAB 10: INFRASTRUCTURE */}
+          {activeTab === "infrastructure" && (
+            <AdminInfrastructure showToast={showToast} reloadAdminConfig={reloadAdminConfig} />
           )}
 
         </section>
@@ -1265,38 +1279,18 @@ export default function AdminDashboard({ onLogout }) {
         </div>
       )}
 
-      {/* 2. ZONE MODAL */}
+      {/* 2. ZONE MODAL — chỉ sửa tên zone đã có. Sức chứa sửa ở tab "Cấu hình hạ tầng" (cần tính lại
+          diện tích/validate theo diện tích tầng thật). Tạo zone mới dùng wizard "Quy hoạch zone". */}
       {isZoneModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-6 text-left border border-slate-200">
-            <h3 className="font-extrabold text-slate-900 text-base">{isEditingZone ? "Sửa khu vực" : "Thêm khu vực"}</h3>
+            <h3 className="font-extrabold text-slate-900 text-base">Sửa khu vực</h3>
             <form onSubmit={handleSaveZone} className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase">Tên phân khu đỗ</label>
                 <input type="text" required value={zoneForm.name} onChange={e => setZoneForm({ ...zoneForm, name: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none" />
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Tầng áp dụng</label>
-                <select value={zoneForm.floorId} onChange={e => setZoneForm({ ...zoneForm, floorId: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
-                  {parkingConfig.floors.map((floor) => (
-                    <option key={floor.id} value={floor.id}>{floor.buildingName} · {floor.floorName}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Loại xe đỗ</label>
-                  <select value={zoneForm.vehicleTypeId} onChange={e => setZoneForm({ ...zoneForm, vehicleTypeId: e.target.value, type: vehicleTypeNameById(e.target.value) })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
-                    {parkingConfig.vehicleTypes.map((vehicleType) => (
-                      <option key={vehicleType.id} value={vehicleType.id}>{vehicleType.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Sức chứa tối đa</label>
-                  <input type="number" required min="1" value={zoneForm.capacity} onChange={e => setZoneForm({ ...zoneForm, capacity: parseInt(e.target.value) || 0 })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none" />
-                </div>
-              </div>
+              <p className="text-[10px] text-slate-400">Muốn đổi sức chứa, vào tab "Cấu hình hạ tầng" → bấm vào zone tương ứng.</p>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsZoneModalOpen(false)} className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-550 hover:bg-slate-100 transition-colors cursor-pointer">Hủy</button>
                 <button type="submit" className="flex-1 rounded-xl bg-purple-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors">Lưu lại</button>
@@ -1428,33 +1422,70 @@ export default function AdminDashboard({ onLogout }) {
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase">Tòa nhà</label>
-                <select value={passForm.buildingId} onChange={e => setPassForm({ ...passForm, buildingId: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
+                <select value={passForm.buildingId} onChange={e => {
+                  const bId = e.target.value;
+                  const newFee = getPricingRuleFee(bId, passForm.vehicleTypeId, passForm.passType);
+                  setPassForm({ ...passForm, buildingId: bId, fee: newFee });
+                }} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
                   {parkingConfig.buildings.map((building) => (
                     <option key={building.id} value={building.id}>{building.name}</option>
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Biển số đăng ký</label>
-                  <input type="text" required value={passForm.plate} onChange={e => setPassForm({ ...passForm, plate: e.target.value.toUpperCase() })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Loại xe</label>
-                  <select value={passForm.vehicleTypeId} onChange={e => setPassForm({ ...passForm, vehicleTypeId: e.target.value, type: vehicleTypeNameById(e.target.value) })} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
-                    {parkingConfig.vehicleTypes.map((vehicleType) => (
-                      <option key={vehicleType.id} value={vehicleType.id}>{vehicleType.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              {(() => {
+                const selectedVT = parkingConfig.vehicleTypes.find(v => v.id === passForm.vehicleTypeId);
+                const isBike = selectedVT?.name?.toLowerCase().includes("đạp") || selectedVT?.name?.toLowerCase().includes("dap");
+                return (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">
+                        {isBike ? "Mã định danh (Hệ thống tự sinh)" : "Biển số đăng ký"}
+                      </label>
+                      <input
+                        type="text"
+                        required={!isBike}
+                        disabled={isBike}
+                        placeholder={isBike ? "Sẽ tự sinh khi lưu (VD: BC260701-0001)" : "VD: 30E-12345"}
+                        value={isBike ? (passForm.plate || "") : passForm.plate}
+                        onChange={e => setPassForm({ ...passForm, plate: e.target.value.toUpperCase() })}
+                        className={`w-full rounded-xl border border-slate-200 p-3 text-xs font-bold focus:outline-none ${isBike ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-slate-50 text-slate-800"}`}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Loại xe</label>
+                      <select
+                        value={passForm.vehicleTypeId}
+                        onChange={e => {
+                          const vId = e.target.value;
+                          const vType = parkingConfig.vehicleTypes.find(v => v.id === vId);
+                          const nextIsBike = vType?.name?.toLowerCase().includes("đạp") || vType?.name?.toLowerCase().includes("dap");
+                          const newFee = getPricingRuleFee(passForm.buildingId, vId, passForm.passType);
+                          setPassForm({
+                            ...passForm,
+                            vehicleTypeId: vId,
+                            type: vType?.name || "Xe máy",
+                            plate: nextIsBike ? "" : passForm.plate,
+                            fee: newFee
+                          });
+                        }}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white"
+                      >
+                        {parkingConfig.vehicleTypes.map((vehicleType) => (
+                          <option key={vehicleType.id} value={vehicleType.id}>{vehicleType.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-400 uppercase">Gói vé định kỳ</label>
                   <select value={passForm.passType} onChange={e => {
                     const newType = e.target.value;
                     const newEnd = calculateEndDate(passForm.start, newType);
-                    setPassForm({ ...passForm, passType: newType, end: newEnd });
+                    const newFee = getPricingRuleFee(passForm.buildingId, passForm.vehicleTypeId, newType);
+                    setPassForm({ ...passForm, passType: newType, end: newEnd, fee: newFee });
                   }} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 focus:outline-none bg-white">
                     <option value="MONTHLY">Vé tháng</option>
                     <option value="QUARTERLY">Vé quý</option>

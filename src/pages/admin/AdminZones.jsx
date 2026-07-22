@@ -1,23 +1,18 @@
 import React from "react";
 
-export default function AdminZones({ zones, handleOpenAddZone, handleOpenEditZone, handleDeleteZone }) {
-  // Group zones by floor, sorted logically
-  const floorOrder = (name) => {
-    const n = (name || "").toUpperCase();
-    if (n.includes("B2")) return 1;
-    if (n.includes("B1")) return 2;
-    if (n.includes("T1") || n.includes("1")) return 3;
-    if (n.includes("T2") || n.includes("2")) return 4;
-    if (n.includes("T3") || n.includes("3")) return 5;
-    return 99;
-  };
+export default function AdminZones({ zones, handleOpenEditZone, handleDeleteZone }) {
+  // Group zones by floor, sorted theo Floor.floorNumber thật (âm = tầng hầm, dương = tầng tháp)
   const grouped = {};
   zones.forEach(z => {
     const key = z.floorName || "Chưa phân tầng";
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(z);
   });
-  const sortedFloors = Object.keys(grouped).sort((a, b) => floorOrder(a) - floorOrder(b));
+  const floorNumberOf = (floorName) => {
+    const withNumber = grouped[floorName].find(z => z.floorNumber != null);
+    return withNumber ? withNumber.floorNumber : Number.MAX_SAFE_INTEGER;
+  };
+  const sortedFloors = Object.keys(grouped).sort((a, b) => floorNumberOf(a) - floorNumberOf(b));
   sortedFloors.forEach(f => grouped[f].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
 
   return (
@@ -25,11 +20,8 @@ export default function AdminZones({ zones, handleOpenAddZone, handleOpenEditZon
       <div className="flex justify-between items-center text-left">
         <div>
           <h3 className="font-extrabold text-slate-900 text-base">Quy hoạch phân khu đỗ xe</h3>
-          <p className="text-xs text-slate-400">Phân định quy chuẩn sức chứa từng zone đỗ riêng biệt trong bãi. Tổng {zones.length} khu vực.</p>
+          <p className="text-xs text-slate-400">Phân định quy chuẩn sức chứa từng zone đỗ riêng biệt trong bãi. Tổng {zones.length} khu vực. Tạo zone mới ở trang Hạ tầng → "Quy hoạch zone".</p>
         </div>
-        <button onClick={handleOpenAddZone} className="rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-purple-500/10">
-          Thêm khu vực mới
-        </button>
       </div>
 
       {sortedFloors.map(floorName => {

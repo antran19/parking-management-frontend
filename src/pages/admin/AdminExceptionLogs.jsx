@@ -149,7 +149,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
           onClick={() => { resetForm(); setShowForm(true); }}
           className="rounded-xl bg-red-600 hover:bg-red-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-red-500/10"
         >
-          📝 Ghi nhận sự cố mới
+          Ghi nhận sự cố mới
         </button>
       </div>
 
@@ -157,7 +157,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
       {showForm && (
         <div className="rounded-2xl border border-red-200 bg-red-50/30 p-5 space-y-4">
           <h4 className="text-sm font-extrabold text-slate-900">
-            {editingId ? "✏️ Chỉnh sửa sự cố" : "📝 Ghi nhận sự cố mới"}
+            {editingId ? " Chỉnh sửa sự cố" : " Ghi nhận sự cố mới"}
           </h4>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -186,7 +186,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
               <div className="flex items-end gap-2">
                 <button type="submit" disabled={submitting}
                   className="flex-1 rounded-xl bg-red-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors disabled:opacity-50">
-                  {submitting ? "Đang lưu..." : editingId ? "💾 Lưu chỉnh sửa" : "✅ Ghi nhận"}
+                  {submitting ? "Đang lưu..." : editingId ? " Lưu chỉnh sửa" : " Ghi nhận"}
                 </button>
                 <button type="button" onClick={resetForm}
                   className="rounded-xl border border-slate-200 bg-white py-3 px-4 text-xs font-bold text-slate-500 cursor-pointer hover:bg-slate-50">
@@ -213,7 +213,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
         <input
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          placeholder="🔍 Tìm theo mô tả hoặc biển số..."
+          placeholder=" Tìm theo mô tả hoặc biển số..."
           className="flex-1 min-w-[200px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-700 focus:outline-none"
         />
         <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
@@ -224,21 +224,21 @@ export default function AdminExceptionLogs({ showToast, user }) {
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
           className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 focus:outline-none min-w-[140px]">
           <option value="all">Tất cả trạng thái</option>
-          <option value="pending">⏳ Đang xử lý</option>
-          <option value="resolved">✅ Đã giải quyết</option>
+          <option value="pending"> Đang xử lý</option>
+          <option value="resolved"> Đã giải quyết</option>
         </select>
       </div>
 
       {/* Summary badges */}
       <div className="flex flex-wrap gap-3">
         <span className="rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-xs font-bold text-blue-600">
-          📋 Tổng: {logs.length}
+          Tổng: {logs.length}
         </span>
         <span className="rounded-full bg-amber-50 border border-amber-100 px-3 py-1 text-xs font-bold text-amber-700">
-          ⏳ Đang xử lý: {logs.filter(l => l.status !== "RESOLVED").length}
+          Đang xử lý: {logs.filter(l => l.status !== "RESOLVED").length}
         </span>
         <span className="rounded-full bg-emerald-50 border border-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-          ✅ Đã giải quyết: {logs.filter(l => l.status === "RESOLVED").length}
+          Đã giải quyết: {logs.filter(l => l.status === "RESOLVED").length}
         </span>
       </div>
 
@@ -286,7 +286,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border ${isResolved
                         ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                         : "bg-amber-50 text-amber-700 border-amber-200"
-                      }`}>
+                        }`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${isResolved ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
                         {isResolved ? "Đã giải quyết" : "Đang xử lý"}
                       </span>
@@ -326,7 +326,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
       {resolvingLog && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 text-left border border-slate-200">
-            <h3 className="font-extrabold text-slate-900 text-base">✅ Giải quyết sự cố</h3>
+            <h3 className="font-extrabold text-slate-900 text-base"> Giải quyết sự cố</h3>
             <div className="rounded-xl bg-slate-50 p-4 border border-slate-100 space-y-2">
               <div className="flex gap-2 items-center">
                 <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${BADGE_COLOR[resolvingLog.exceptionType] || ""}`}>
@@ -356,7 +356,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
                 </button>
                 <button type="submit" disabled={resolvingSubmitting}
                   className="flex-1 rounded-xl bg-emerald-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors disabled:opacity-50 shadow-lg shadow-emerald-500/10">
-                  {resolvingSubmitting ? "Đang lưu..." : "✅ Xác nhận giải quyết"}
+                  {resolvingSubmitting ? "Đang lưu..." : " Xác nhận giải quyết"}
                 </button>
               </div>
             </form>
@@ -369,7 +369,7 @@ export default function AdminExceptionLogs({ showToast, user }) {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setViewingLog(null)}>
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-left border border-slate-200" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center">
-              <h3 className="font-extrabold text-slate-900 text-base">📋 Chi tiết sự cố</h3>
+              <h3 className="font-extrabold text-slate-900 text-base"> Chi tiết sự cố</h3>
               <button onClick={() => setViewingLog(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer text-lg font-bold">✕</button>
             </div>
             <div className="space-y-3">
@@ -380,8 +380,8 @@ export default function AdminExceptionLogs({ showToast, user }) {
                 <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${viewingLog.status === "RESOLVED"
                   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                   : "bg-amber-50 text-amber-700 border-amber-200"
-                }`}>
-                  {viewingLog.status === "RESOLVED" ? "✅ Đã giải quyết" : "⏳ Đang xử lý"}
+                  }`}>
+                  {viewingLog.status === "RESOLVED" ? " Đã giải quyết" : " Đang xử lý"}
                 </span>
               </div>
               {viewingLog.licensePlate && (

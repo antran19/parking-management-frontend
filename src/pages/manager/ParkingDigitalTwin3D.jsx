@@ -396,35 +396,28 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
         floorGroup.add(pillar);
       });
 
-      // Gate / ramp — color based on barrier state
-      const floorGates = (gates || []).filter((g, gi) => {
-        // Map gates to floors: distribute gates evenly across floors
-        const gateFloorIndex = gi % floorsToRender.length;
-        return gateFloorIndex === floorIndex;
-      });
-      const gateForFloor = floorGates[0];
-      const barrierState = gateForFloor
-        ? (gateStatesRef.current[gateForFloor.id] || gateForFloor.barrierState || gateForFloor.barrier || "CLOSED")
-        : "CLOSED";
-      const gateColor = barrierState === "OPEN" ? 0x22c55e : 0xef4444;
-      const ramp = new THREE.Mesh(
-        new THREE.BoxGeometry(1.1, 0.22, 5.6),
-        makeMat(gateColor, barrierState === "OPEN" ? 0.35 : 0.18, 0.85)
-      );
-      ramp.position.set(6.6, 0.24, 0);
-      ramp.rotation.z = -0.08;
-      ramp.userData.gateId = gateForFloor?.id;
-      ramp.userData.barrierState = barrierState;
-      ramp.name = `gate-${floorIndex}`;
-      floorGroup.add(ramp);
-      gateMeshesRef.current.push(ramp);
+      // Cổng vào/ra của từng zone — chỉ vẽ khi đang xem 1 tầng cụ thể (không vẽ khi xem "Tất cả tầng",
+      // vì cổng chính tòa nhà đã có khu sảnh riêng, còn cổng zone gắn liền với ô zone bên dưới).
+      const addZoneGateRamp = (gate, x, z) => {
+        if (!gate) return;
+        const barrierState = gateStatesRef.current[gate.id] || gate.barrierState || gate.barrier || "CLOSED";
+        const gateColor = barrierState === "OPEN" ? 0x22c55e : 0xef4444;
+        const ramp = new THREE.Mesh(
+          new THREE.BoxGeometry(0.6, 0.16, 0.42),
+          makeMat(gateColor, barrierState === "OPEN" ? 0.35 : 0.18, 0.85)
+        );
+        ramp.position.set(x, 0.24, z);
+        ramp.userData.gateId = gate.id;
+        ramp.userData.barrierState = barrierState;
+        ramp.name = `zone-gate-${gate.id}`;
+        floorGroup.add(ramp);
+        gateMeshesRef.current.push(ramp);
 
-      // Gate label indicator
-      const gateLightColor = barrierState === "OPEN" ? 0x22c55e : 0xef4444;
-      const gateLight = new THREE.PointLight(gateLightColor, 1.5, 4);
-      gateLight.position.set(6.6, 0.8, 0);
-      ramp.userData.light = gateLight;
-      floorGroup.add(gateLight);
+        const gateLight = new THREE.PointLight(gateColor, 0.9, 2.4);
+        gateLight.position.set(x, 0.6, z);
+        ramp.userData.light = gateLight;
+        floorGroup.add(gateLight);
+      };
 
       const cols = Math.max(2, Math.ceil(Math.sqrt(floorZones.length || 1)));
       const laneWidth = 3.25;
@@ -457,6 +450,17 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
         zoneOutline.position.copy(zoneMesh.position);
         floorGroup.add(zoneOutline);
 
+        // Cổng vào/ra của zone — hiện ở cả Tower View lẫn khi xem riêng 1 tầng
+        const zoneEntryGate = (gates || []).find(
+          (g) => g.zoneId === zone.id && (g.type === "ZONE_ENTRY" || g.type === "ZONE_BOTH")
+        );
+        const zoneExitGate = (gates || []).find(
+          (g) => g.zoneId === zone.id && (g.type === "ZONE_EXIT" || g.type === "ZONE_BOTH")
+        );
+        const gateZ = z - 1.68 / 2 - 0.28;
+        addZoneGateRamp(zoneEntryGate, x - 0.75, gateZ);
+        addZoneGateRamp(zoneExitGate, x + 0.75, gateZ);
+
         const carCount = Math.min(12, Math.round(usage * 12));
         for (let i = 0; i < carCount; i += 1) {
           const carBody = new THREE.Mesh(
@@ -477,6 +481,59 @@ export default function ParkingDigitalTwin3D({ zones = [], floors = [], gates = 
       animatedRef.current.floors.push({ group: floorGroup, targetY: yTarget, targetX: activeFloor === "all" ? 0 : 0.8 });
     });
 
+    // Sảnh chính tòa nhà — cổng chính vào/ra không thuộc tầng nào, chỉ hiện ở chế độ xem "Tất cả tầng"
+    if (activeFloor === "all") {
+      const mainEntryGate = (gates || []).find((g) => g.type === "MAIN_ENTRY" || g.type === "MAIN_BOTH");
+      const mainExitGate = (gates || []).find((g) => g.type === "MAIN_EXIT" || g.type === "MAIN_BOTH");
+
+      const lobbyGroup = new THREE.Group();
+      const lobbyY = -1.2 - 2.2;
+      lobbyGroup.position.set(0, lobbyY, 0);
+
+      const lobbySlab = new THREE.Mesh(
+        new THREE.BoxGeometry(14.6, 0.14, 8.4),
+        new THREE.MeshPhysicalMaterial({
+          color: 0x0b1e33,
+          metalness: 0.2,
+          roughness: 0.25,
+          transparent: true,
+          opacity: 0.6,
+        })
+      );
+      lobbyGroup.add(lobbySlab);
+
+      const lobbyEdge = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(14.8, 0.18, 8.6)),
+        new THREE.LineBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.5 })
+      );
+      lobbyGroup.add(lobbyEdge);
+
+      const addMainGateRamp = (gate, x) => {
+        if (!gate) return;
+        const barrierState = gateStatesRef.current[gate.id] || gate.barrierState || gate.barrier || "CLOSED";
+        const gateColor = barrierState === "OPEN" ? 0x22c55e : 0xef4444;
+        const ramp = new THREE.Mesh(
+          new THREE.BoxGeometry(1.7, 0.22, 3.6),
+          makeMat(gateColor, barrierState === "OPEN" ? 0.35 : 0.18, 0.85)
+        );
+        ramp.position.set(x, 0.24, 0);
+        ramp.userData.gateId = gate.id;
+        ramp.userData.barrierState = barrierState;
+        ramp.name = `main-gate-${gate.id}`;
+        lobbyGroup.add(ramp);
+        gateMeshesRef.current.push(ramp);
+
+        const gateLight = new THREE.PointLight(gateColor, 1.3, 4);
+        gateLight.position.set(x, 0.7, 0);
+        ramp.userData.light = gateLight;
+        lobbyGroup.add(gateLight);
+      };
+      addMainGateRamp(mainEntryGate, -5.8);
+      addMainGateRamp(mainExitGate, 5.8);
+
+      root.add(lobbyGroup);
+      animatedRef.current.floors.push({ group: lobbyGroup, targetY: lobbyY, targetX: 0 });
+    }
 
     scene.add(root);
   }, [activeFloor, sortedFloors, normalizedZones, gates]);
