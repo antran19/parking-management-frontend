@@ -65,40 +65,42 @@ function Empty({ text }) {
 // COMPONENT CHÍNH — Trang ghi nhận sự cố an ninh (Exception Logs)
 // ==============================================================
 export default function ExceptionLogsPage({ showToast, user }) {
+  // --- QUẢN LÝ TRẠNG THÁI (STATE) CỦA COMPONENT ---
+  // State quản lý danh sách sự cố và trạng thái tải dữ liệu
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(false); // Trạng thái khi đang gửi form (submit)
 
-  // Danh sách loại phương tiện tải từ API thực
+  // Danh sách loại phương tiện (xe số, xe ga, ô tô...) lấy từ cấu hình bãi xe
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [loadingConfig, setLoadingConfig] = useState(true);
 
-  // Upload file
+  // Upload file: Lưu trữ danh sách các file ảnh được chọn từ thiết bị
   const [selectedFiles, setSelectedFiles] = useState([]);
 
-  // Webcam
+  // Webcam: Các state và ref để bật/tắt camera trực tiếp trên trình duyệt
   const [showWebcam, setShowWebcam] = useState(false);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
+  const videoRef = useRef(null); // Ref để gắn stream vào thẻ <video>
+  const streamRef = useRef(null); // Ref giữ stream để tắt luồng video (track) khi không dùng nữa
 
-  // Lọc
+  // Lọc (Filter): State lưu giá trị bộ lọc trên danh sách
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchText, setSearchText] = useState("");
 
-  // Edit mode
+  // Edit mode: Chứa ID của sự cố đang được chỉnh sửa. Nếu null nghĩa là đang tạo mới.
   const [editingId, setEditingId] = useState(null);
 
-  // Image Modal
+  // Image Modal: Chứa URL của ảnh đang được phóng to
   const [viewingImage, setViewingImage] = useState(null);
 
-  // Detail Modal
+  // Detail Modal: Chứa object sự cố đang xem chi tiết (mở modal)
   const [viewingLogDetail, setViewingLogDetail] = useState(null);
 
-  // Resolve Modal
+  // Resolve Modal (Giải quyết sự cố): State quản lý luồng "Đánh dấu đã giải quyết"
   const [resolvingLog, setResolvingLog] = useState(null);
   const [resolveForm, setResolveForm] = useState({
-    resolutionNote: "",
+    resolutionNote: "", // Ghi chú lý do / kết quả giải quyết
     selectedFiles: [],
   });
   const [resolvingSubmitting, setResolvingSubmitting] = useState(false);
@@ -106,10 +108,10 @@ export default function ExceptionLogsPage({ showToast, user }) {
   const resolveVideoRef = useRef(null);
   const resolveStreamRef = useRef(null);
 
-  // State: Có liên quan phương tiện hay không?
+  // State: Có liên quan phương tiện hay không? (để hiện/ẩn ô nhập biển số)
   const [isVehicleRelated, setIsVehicleRelated] = useState(false);
 
-  // Form
+  // Form: State lưu trữ dữ liệu của Form tạo mới hoặc chỉnh sửa sự cố
   const [form, setForm] = useState({
     exceptionType: "LOST_TICKET",
     description: "",
@@ -120,6 +122,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
     existingImages: [],
   });
 
+  // Hàm xử lý sự kiện khi người dùng nhập xong biển số (blur khỏi ô input)
+  // Tính năng: Tự động format biển số chuẩn (VD: 59A112345 -> 59A1-123.45)
+  // và gọi API kiểm tra xem xe này có đang đỗ trong bãi hay không.
   const handleLicensePlateBlur = async () => {
     if (!isVehicleRelated) return;
 
@@ -152,7 +157,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
     setForm({ ...form, sessionId: val });
   };
 
-  // Fetch logs
+  // Hàm gọi API lấy danh sách toàn bộ sự cố từ Server
+  // Sau khi lấy về sẽ sắp xếp theo thời gian mới nhất (descending)
   const fetchLogs = async () => {
     setLoading(true);
     try {
@@ -221,7 +227,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
     e.target.value = null;
   };
 
-  // Webcam
+  // --- CÁC HÀM XỬ LÝ WEBCAM VÀ ẢNH ---
+  // Hàm xin quyền và bật camera của thiết bị (máy tính/điện thoại)
   const startWebcam = async () => {
     setShowWebcam(true);
     try {
@@ -234,6 +241,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
+  // Hàm tắt camera, giải phóng tài nguyên khi không dùng nữa
   const stopWebcam = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -242,6 +250,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
     setShowWebcam(false);
   };
 
+  // Hàm chụp ảnh từ camera: Lấy khung hình hiện tại trên thẻ <video> vẽ ra <canvas> rồi convert sang file ảnh
   const captureImage = () => {
     if (videoRef.current) {
       const canvas = document.createElement("canvas");
@@ -392,6 +401,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
+  // Hàm gọi API để lưu thông tin "Giải quyết sự cố"
+  // Sẽ upload ảnh lên Cloudinary (nếu có) trước, sau đó gửi data giải quyết lên backend
   const submitResolve = async (e) => {
     e.preventDefault();
     if (!user?.id) {
@@ -440,7 +451,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
-  // Submit Form (Create / Edit)
+  // --- HÀM SUBMIT FORM CHÍNH ---
+  // Hàm xử lý gửi dữ liệu khi tạo mới hoặc chỉnh sửa sự cố
+  // Sẽ validate dữ liệu, upload ảnh lên Cloudinary (nếu có) và gọi API tương ứng
   const submitException = async (e) => {
     e.preventDefault();
     if (!form.description.trim()) {
@@ -529,6 +542,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
+  // --- LOGIC LỌC DỮ LIỆU HIỂN THỊ ---
+  // Mảng chứa các sự cố sau khi đã đi qua các bộ lọc (Loại, Trạng thái, Tìm kiếm)
+  // Đây là mảng sẽ được dùng để render ra danh sách trên UI thay vì mảng 'logs' gốc
   const filteredLogs = logs.filter((log) => {
     const matchType = filterType === "all" || log.exceptionType === filterType;
     const matchStatus =
@@ -790,11 +806,12 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
                   {/* Image Thumbnails */}
                   {(() => {
-                    const validImages = log.imageUrls ? log.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http'))) : [];
-                    const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
-                    const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+                    const evidenceImages = (log.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                    const resolveImages = (log.resolutionImageUrls || []).length > 0
+                        ? log.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                        : (log.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
-                    return validImages.length > 0 ? (
+                    return (evidenceImages.length > 0 || resolveImages.length > 0) ? (
                       <div className="flex flex-wrap gap-6 mt-2">
                         {evidenceImages.length > 0 && (
                           <div className="flex-1 min-w-[120px]">
@@ -944,12 +961,13 @@ export default function ExceptionLogsPage({ showToast, user }) {
               })()}
 
               {/* Images */}
-              {viewingLogDetail.imageUrls?.length > 0 && (() => {
-                const validImages = viewingLogDetail.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http')));
-                const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
-                const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+              {(viewingLogDetail.imageUrls?.length > 0 || viewingLogDetail.resolutionImageUrls?.length > 0) && (() => {
+                const evidenceImages = (viewingLogDetail.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                const resolveImages = (viewingLogDetail.resolutionImageUrls || []).length > 0
+                    ? viewingLogDetail.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                    : (viewingLogDetail.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
-                if (validImages.length === 0) return null;
+                if (evidenceImages.length === 0 && resolveImages.length === 0) return null;
 
                 return (
                   <div className="flex flex-wrap gap-8">
