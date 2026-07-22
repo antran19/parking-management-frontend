@@ -87,6 +87,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchText, setSearchText] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Edit mode: Chứa ID của sự cố đang được chỉnh sửa. Nếu null nghĩa là đang tạo mới.
   const [editingId, setEditingId] = useState(null);
@@ -558,6 +559,11 @@ export default function ExceptionLogsPage({ showToast, user }) {
     return matchType && matchStatus && matchSearch;
   });
 
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedLogs = filteredLogs.slice(startIndex, startIndex + itemsPerPage);
+
   return (
     <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] mt-8 relative">
       {/* ── Form ghi nhận/edit sự cố ── */}
@@ -708,15 +714,15 @@ export default function ExceptionLogsPage({ showToast, user }) {
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1); }}
             placeholder="Tìm theo mô tả hoặc biển số..."
             className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none"
           />
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
+          <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setCurrentPage(1); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
             <option value="all">Tất cả loại</option>
             {Object.entries(EXCEPTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
+          <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setCurrentPage(1); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
             <option value="all">Tất cả trạng thái</option>
             <option value="pending">⏳ Đang xử lý</option>
             <option value="resolved">✓ Đã giải quyết</option>
@@ -725,7 +731,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
         {!loading && (
           <p className="mb-3 text-xs text-slate-400 font-semibold">
-            Hiển thị {filteredLogs.length}/{logs.length} sự cố
+            Hiển thị {filteredLogs.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + itemsPerPage, filteredLogs.length)} trên tổng số {filteredLogs.length} sự cố (Trang {currentPage}/{totalPages || 1})
           </p>
         )}
 
@@ -735,7 +741,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
           <Empty text="Không tìm thấy sự cố phù hợp." />
         ) : (
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-            {filteredLogs.map((log) => {
+            {paginatedLogs.map((log) => {
               const isResolved = log.status === "RESOLVED";
               return (
                 <div key={log.id} onClick={() => setViewingLogDetail(log)} className="cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col gap-2">
@@ -851,6 +857,41 @@ export default function ExceptionLogsPage({ showToast, user }) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Phân trang */}
+        {!loading && totalPages > 1 && (
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+            >
+              Trước
+            </button>
+            <div className="flex items-center gap-1 overflow-x-auto max-w-[250px] sm:max-w-none custom-scrollbar pb-1 sm:pb-0">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-sm font-medium transition-colors ${
+                    currentPage === page
+                      ? "border-red-600 bg-red-600 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+            >
+              Tiếp
+            </button>
           </div>
         )}
       </Panel>

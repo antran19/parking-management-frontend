@@ -67,15 +67,25 @@ const REASON_VI = {
 // Props: logs — mảng các sự kiện SOS đã xảy ra
 // ---------------------------------------------------------------
 function SosHistoryList({ logs }) {
+  const [currentPage, setCurrentPage] = useState(1);
+
   // Nếu mảng rỗng, hiện thông báo "chưa có dữ liệu"
   if (logs.length === 0) {
     return <Empty text="Chưa có lịch sử SOS nào." />;
   }
 
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(logs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedLogs = logs.slice(startIndex, startIndex + itemsPerPage);
+
   return (
-    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-      {/* Chỉ hiện tối đa 15 mục gần nhất */}
-      {logs.slice(0, 15).map((log, idx) => {
+    <div>
+      <p className="mb-3 text-xs text-slate-400 font-semibold">
+        Hiển thị {logs.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + itemsPerPage, logs.length)} trên tổng số {logs.length} sự cố (Trang {currentPage}/{totalPages || 1})
+      </p>
+      <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+        {paginatedLogs.map((log, idx) => {
         // log.eventId là ID duy nhất — nếu không có thì dùng idx (vị trí trong mảng)
         const itemKey = log.eventId || idx;
 
@@ -113,6 +123,42 @@ function SosHistoryList({ logs }) {
           </div>
         );
       })}
+      </div>
+      
+      {/* Phân trang */}
+      {totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <button
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+            className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+          >
+            Trước
+          </button>
+          <div className="flex items-center gap-1 overflow-x-auto max-w-[200px] sm:max-w-none custom-scrollbar pb-1 sm:pb-0">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-sm font-medium transition-colors ${
+                  currentPage === page
+                    ? "border-red-600 bg-red-600 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages}
+            className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+          >
+            Tiếp
+          </button>
+        </div>
+      )}
     </div>
   );
 }

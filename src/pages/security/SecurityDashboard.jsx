@@ -115,7 +115,12 @@ export default function SecurityDashboard({ onLogout }) {
 
   // State giao diện chính
   const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem("securityActiveTab") || "overview");
+
+  useEffect(() => {
+    sessionStorage.setItem("securityActiveTab", activeTab);
+  }, [activeTab]);
+
   const [liveTime, setLiveTime] = useState("");
   const [liveDate, setLiveDate] = useState("");
 
