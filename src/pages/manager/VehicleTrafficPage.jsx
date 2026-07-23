@@ -104,7 +104,13 @@ const VehicleTrafficPage = () => {
 
   // Fetch dữ liệu chart lượt gửi xe
   useEffect(() => {
-    if (filterType === "custom" && (!filterFrom || !filterTo)) return;
+    if (filterType === "custom") {
+      if (!filterFrom || !filterTo) return;
+      if (new Date(filterFrom) > new Date(filterTo)) {
+        triggerToast("Ngày bắt đầu không được lớn hơn ngày kết thúc", "error");
+        return;
+      }
+    }
 
     const fetchVisits = async () => {
       setLoading(true);
