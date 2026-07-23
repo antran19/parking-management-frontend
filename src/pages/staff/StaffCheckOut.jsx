@@ -191,10 +191,13 @@ export default function StaffCheckOut() {
 
   const fetchCheckoutHistory = async () => {
     try {
-      const res = await staffApi.getAllSessionsHistory();
-      const data = res.data.data || [];
+      // Gọi lịch sử các phiên đã checkout (status = checked_out) với kích thước lớn hơn để lọc ngày hôm nay
+      const res = await staffApi.getAllSessionsHistory({ status: "checked_out", size: 50 });
+      const pageObj = res.data?.data;
+      const data = pageObj?.content || (Array.isArray(pageObj) ? pageObj : []);
+      const todayStr = new Date().toDateString();
       const completedSessions = data
-        .filter(s => s.status === "COMPLETED")
+        .filter(s => s.status === "COMPLETED" && s.exitTime && new Date(s.exitTime).toDateString() === todayStr)
         .sort((a, b) => new Date(b.exitTime || 0) - new Date(a.exitTime || 0))
         .slice(0, 5)
         .map(s => {
@@ -964,7 +967,7 @@ export default function StaffCheckOut() {
   };
 
   const autoSearchPlate = async (query) => {
-    if (!query || !query.trim()) return false;
+    if (!query || !query.trim()) return null;
     const searchTerm = query.trim().toUpperCase();
 
     setIsSearching(true);
@@ -982,7 +985,7 @@ export default function StaffCheckOut() {
       if (plateError) {
         setApiError(plateError);
         setIsSearching(false);
-        return false;
+        return null;
       }
     }
 
@@ -998,22 +1001,22 @@ export default function StaffCheckOut() {
         setApiError(errorMsg);
         setTicketMessage(errorMsg);
         setSessionData(null);
-        return false;
+        return null;
       }
       setSessionData(session);
-      return true;
+      return session;
     } catch (err) {
       setSessionData(null);
       const errMsg = err.response?.data?.message || 'Không tìm thấy phiên gửi xe đang hoạt động cho biển số này';
       setApiError(errMsg);
       setTicketMessage(errMsg);
-      return false;
+      return null;
     } finally {
       setIsSearching(false);
     }
   };
 
-  const triggerAutoCaptureSequence = async () => {
+  const triggerAutoCaptureSequence = async (isBicyclePassed = false, vehicleTypePassed = null) => {
     // Nếu đang chạy countdown rồi thì thôi
     if (countdown !== null) return;
 
@@ -1061,9 +1064,8 @@ export default function StaffCheckOut() {
               setUploadedUrl("");
               stopPlateScanner();
 
-              // Kiểm tra xe đạp
-              const isBicycle = sessionData?.vehicleType ? getVehicleTypeKey(sessionData.vehicleType) === "BICYCLE" : false;
-              if (isBicycle) {
+              // Kiểm tra xe đạp từ tham số truyền vào
+              if (isBicyclePassed) {
                 setPlateMessage("✅ Đã chụp ảnh xe đạp.");
                 setIsUploading(false);
                 return;
@@ -1095,7 +1097,7 @@ export default function StaffCheckOut() {
                     if (ocrRes.results && ocrRes.results.length > 0) {
                       detectedPlate = ocrRes.results[0].plate.toUpperCase();
                       const normalized = normalizeLicensePlate(detectedPlate);
-                      const formatted = formatLicensePlate(normalized, sessionData?.vehicleType);
+                      const formatted = formatLicensePlate(normalized, vehicleTypePassed);
                       setPlateInput(formatted);
                       setPlateMessage(`Nhận diện thành công: ${formatted}`);
                     }
@@ -1153,8 +1155,8 @@ export default function StaffCheckOut() {
     const cleanedText = qrText.trim().toUpperCase();
 
     // Kiểm tra tính hợp lệ của phiên gửi xe trước khi khởi động camera
-    const isValid = await autoSearchPlate(cleanedText);
-    if (!isValid) {
+    const activeSession = await autoSearchPlate(cleanedText);
+    if (!activeSession) {
       setTicketMessage("KHÔNG TÌM THẤY PHIÊN GỬI XE HOẠT ĐỘNG");
       return; // Dừng lại luôn
     }
@@ -1167,8 +1169,11 @@ export default function StaffCheckOut() {
       setTicketMessage(`ĐÃ ĐỌC BIỂN SỐ QR: ${cleanedText}`);
     }
 
+    // Xác định xem có phải xe đạp từ activeSession hay không
+    const isBicycle = activeSession.vehicleType ? getVehicleTypeKey(activeSession.vehicleType) === "BICYCLE" : false;
+
     // Tự động kích hoạt chuỗi chụp ảnh (biển số 7s, sau đó mặt 3s)
-    triggerAutoCaptureSequence();
+    triggerAutoCaptureSequence(isBicycle, activeSession.vehicleType);
   };
 
   const handleCheckOut = async () => {
@@ -2063,17 +2068,18 @@ export default function StaffCheckOut() {
               </div>
             )}
             <label className="block text-[9px] font-black uppercase tracking-wider text-slate-600 text-center mt-1">Phương thức thanh toán</label>
-            <div className="grid grid-cols-2 gap-4 px-3 ">
+            <div className="flex justify-center px-3">
               <button
                 type="button"
                 onClick={() => setPaymentMethod("CASH")}
-                className={`rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "CASH"
+                className={`w-full max-w-[185px] rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "CASH"
                   ? "border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm border-2"
                   : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
                   }`}
               >
                 💵 Tiền mặt
               </button>
+              {/* 
               <button
                 type="button"
                 onClick={() => setPaymentMethod("VIETQR")}
@@ -2084,6 +2090,7 @@ export default function StaffCheckOut() {
               >
                 ▣ VietQR CK
               </button>
+              */}
             </div>
 
 

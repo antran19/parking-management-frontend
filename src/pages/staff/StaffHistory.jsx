@@ -84,10 +84,35 @@ export default function StaffHistory() {
     }
   };
 
-  const fetchHistoryData = async () => {
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+
+  const fetchHistoryData = async (targetPage = page) => {
     try {
-      const res = await staffApi.getAllSessionsHistory();
-      const rawData = res.data.data || [];
+      const params = {
+        page: targetPage,
+        size: 20,
+      };
+      if (search && search.trim()) {
+        params.licensePlate = search.trim();
+      }
+      if (statusFilter && statusFilter !== "all") {
+        params.status = statusFilter;
+      }
+
+      const res = await staffApi.getAllSessionsHistory(params);
+      const dataObj = res.data?.data;
+      const rawData = dataObj?.content || (Array.isArray(dataObj) ? dataObj : []);
+
+      if (dataObj?.totalPages !== undefined) {
+        setTotalPages(dataObj.totalPages || 1);
+        setTotalElements(dataObj.totalElements || rawData.length);
+      } else {
+        setTotalPages(1);
+        setTotalElements(rawData.length);
+      }
+
       const formattedData = rawData.map((item) => ({
         id: item.sessionCode || `PS-${item.sessionId?.slice(0, 6).toUpperCase()}`,
         plate: item.licensePlate,
@@ -129,10 +154,17 @@ export default function StaffHistory() {
     }
   };
 
+  const handlePageChange = (newPage) => {
+    if (newPage >= 0 && newPage < totalPages) {
+      setPage(newPage);
+      fetchHistoryData(newPage);
+    }
+  };
+
   useEffect(() => {
-    fetchHistoryData();
+    fetchHistoryData(0);
     fetchConfig();
-  }, []);
+  }, [search, statusFilter]);
 
   const getVehicleLabel = (type) => {
     if (!type) return "---";
@@ -512,6 +544,32 @@ export default function StaffHistory() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Thanh Phân Trang Cố Định 20 Items/Trang */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 px-2">
+        <div className="text-xs font-semibold text-slate-500">
+          Hiển thị trang <span className="font-bold text-slate-900">{page + 1}</span> / <span className="font-bold text-slate-900">{totalPages || 1}</span> (Tổng <span className="font-bold text-slate-900">{totalElements}</span> bản ghi, cố định 20 bản ghi/trang)
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handlePageChange(page - 1)}
+            disabled={page <= 0}
+            className="px-3.5 py-1.5 rounded-xl border border-slate-250 bg-white font-bold text-slate-700 text-xs shadow-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+          >
+            ← Trang trước
+          </button>
+          <span className="text-xs font-bold font-mono px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100">
+            {page + 1}
+          </span>
+          <button
+            onClick={() => handlePageChange(page + 1)}
+            disabled={page >= totalPages - 1}
+            className="px-3.5 py-1.5 rounded-xl border border-slate-250 bg-white font-bold text-slate-700 text-xs shadow-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+          >
+            Trang sau →
+          </button>
         </div>
       </div>
 
