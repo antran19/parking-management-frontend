@@ -1045,7 +1045,24 @@ export default function ExceptionLogsPage({ showToast, user }) {
                           ))}
                         </div>
                       </div>
-                    );
+                    )}
+                    {resolveImages.length > 0 && (
+                      <div className="flex-1 min-w-[150px]">
+                        <span className="block text-xs font-bold uppercase text-emerald-600 mb-3">Hình ảnh giải quyết</span>
+                        <div className="flex flex-wrap gap-3">
+                          {resolveImages.map((url, idx) => (
+                            <div key={`res-${idx}`} onClick={(e) => { e.stopPropagation(); setViewingImage(url); }} className="cursor-pointer group relative overflow-hidden rounded-2xl border-2 border-emerald-200 shadow-sm transition-all hover:border-emerald-400">
+                              <img src={url} alt="Giải quyết" className="h-28 w-28 object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
                   })()}
                 </>
               )}
