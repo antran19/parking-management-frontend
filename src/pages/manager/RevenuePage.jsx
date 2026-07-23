@@ -81,6 +81,7 @@ const RevenuePage = () => {
       if (!filterFrom || !filterTo) return;
       if (new Date(filterFrom) > new Date(filterTo)) {
         triggerToast("Ngày bắt đầu không được lớn hơn ngày kết thúc", "error");
+        setRevenueData(null);
         return;
       }
     }
