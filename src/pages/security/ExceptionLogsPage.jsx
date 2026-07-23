@@ -143,9 +143,14 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
       if (!editingId) {
         try {
-          await staffApi.getActiveSessionByPlate(formattedPlate);
+          const checkRes = await staffApi.checkPlateForException(formattedPlate);
+          const { hasActiveSession, hasActivePass } = checkRes.data.data;
+          if (!hasActiveSession && !hasActivePass) {
+            showToast("Hiện tại xe chưa có trong bãi và không có gói cước hoạt động", "error");
+            setForm(prev => ({ ...prev, licensePlate: "" }));
+          }
         } catch (err) {
-          showToast("Hiện tại xe chưa có trong bãi", "error");
+          showToast(err.response?.data?.message || "Lỗi khi kiểm tra biển số xe", "error");
           setForm(prev => ({ ...prev, licensePlate: "" }));
         }
       }
@@ -472,9 +477,14 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
       if (!editingId) {
         try {
-          await staffApi.getActiveSessionByPlate(formattedPlate);
+          const checkRes = await staffApi.checkPlateForException(formattedPlate);
+          const { hasActiveSession, hasActivePass } = checkRes.data.data;
+          if (!hasActiveSession && !hasActivePass) {
+            showToast("Hiện tại xe chưa có trong bãi và không có gói cước hoạt động", "error");
+            return;
+          }
         } catch (err) {
-          showToast("Hiện tại xe chưa có trong bãi", "error");
+          showToast(err.response?.data?.message || "Lỗi khi kiểm tra biển số xe", "error");
           return;
         }
       }

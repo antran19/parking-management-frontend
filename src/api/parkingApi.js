@@ -237,6 +237,10 @@ export const staffApi = {
     return axiosClient.post("/security/exceptions", data);
   },
 
+  checkPlateForException(licensePlate) {
+    return axiosClient.get(`/security/exceptions/check-plate?plate=${encodeURIComponent(licensePlate)}`);
+  },
+
   getSecurityExceptions() {
     return axiosClient.get("/security/exceptions");
   },
