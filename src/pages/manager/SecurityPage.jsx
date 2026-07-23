@@ -30,6 +30,16 @@ const REASON_LABELS = {
 const SecurityPage = () => {
   const { triggerToast, currentUser } = useContext(ManagerContext);
   const [incidents, setIncidents] = useState([]);
+  const [canResolve, setCanResolve] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  useEffect(() => {
+    managerApi.getMyPermissions()
+      .then((res) => {
+        setCanResolve(!!res.data?.data?.canResolveIncident);
+        setCanManage(!!res.data?.data?.canManageBlacklist);
+      })
+      .catch(() => { setCanResolve(false); setCanManage(false); });
+  }, []);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [blacklist, setBlacklist] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -300,12 +310,14 @@ const SecurityPage = () => {
                               <td className="px-6 py-4 text-slate-550 text-xs">{item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : "—"}</td>
                               <td className="px-6 py-4">
                                 {!item.resolvedAt ? (
+                                  canResolve && (
                                   <button
                                     onClick={(e) => handleResolveIncident(item.id, e)}
                                     className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 transition-all cursor-pointer shadow-sm shadow-rose-100 border border-rose-600/10 flex items-center justify-center"
                                   >
                                     Giải quyết
                                   </button>
+                                  )
                                 ) : (
                                   <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100/50">Đã giải quyết</span>
                                 )}
@@ -438,7 +450,7 @@ const SecurityPage = () => {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            {item.isActive && (
+                            {item.isActive && canManage && (
                               <button
                                 onClick={() => handleRemoveFromBlacklist(item)}
                                 disabled={removingId === item.id}

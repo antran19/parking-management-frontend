@@ -223,6 +223,10 @@ export const staffApi = {
     return axiosClient.put("/admin/settings", data);
   },
 
+  getMyPermissions() {
+    return axiosClient.get("/me/permissions");
+  },
+
   // === Cấu hình hạ tầng (MỚI — theo góp ý giảng viên 18/07) ===
   // Buildings
   getBuildings() {
@@ -363,6 +367,9 @@ export const staffApi = {
 export default staffApi;
 // === API DÀNH RIÊNG CHO MANAGER ===
 export const managerApi = {
+  getMyPermissions() {
+    return axiosClient.get("/me/permissions");
+  },
   // Tổng quan
   getDashboard() {
     return axiosClient.get("/manager/dashboard");

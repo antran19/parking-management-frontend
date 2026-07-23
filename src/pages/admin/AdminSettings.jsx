@@ -44,6 +44,46 @@ export default function AdminSettings({
             </div>
           </div>
 
+          {/* Phân quyền thao tác an ninh */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden text-left">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Phân quyền thao tác an ninh</h4>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-[10px] text-slate-500">Chọn role được phép thực hiện. ADMIN luôn có quyền (không tắt được).</p>
+              {[
+                { key: "incidentResolverRoles", label: "Giải quyết sự cố" },
+                { key: "blacklistManagerRoles", label: "Quản lý blacklist (Thêm/Xóa)" },
+              ].map((perm) => (
+                <div key={perm.key} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                  <span className="text-sm font-semibold text-slate-700">{perm.label}</span>
+                  <div className="flex gap-3 items-center">
+                    {["SECURITY", "MANAGER"].map((role) => {
+                      const checked = (settings[perm.key] || []).includes(role);
+                      return (
+                        <label key={role} className="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const cur = settings[perm.key] || [];
+                              const next = checked ? cur.filter((r) => r !== role) : [...cur, role];
+                              setSettings({ ...settings, [perm.key]: next });
+                            }}
+                          />
+                          {role}
+                        </label>
+                      );
+                    })}
+                    <label className="flex items-center gap-1 text-[11px] font-bold text-slate-400 opacity-60">
+                      <input type="checkbox" checked disabled /> ADMIN
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Save button */}
           <div className="flex items-center gap-4 text-left">
             <button

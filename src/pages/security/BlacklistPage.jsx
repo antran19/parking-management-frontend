@@ -61,6 +61,12 @@ function Empty({ text }) {
 // ==============================================================
 export default function BlacklistPage({ showToast, user }) {
   const [blacklist, setBlacklist] = useState([]);
+  const [canManage, setCanManage] = useState(false);
+  useEffect(() => {
+    staffApi.getMyPermissions()
+      .then((res) => setCanManage(!!res.data?.data?.canManageBlacklist))
+      .catch(() => setCanManage(false));
+  }, []);
   const [loading, setLoading] = useState(true);
   const [submittingBlacklist, setSubmittingBlacklist] = useState(false);
 
@@ -656,6 +662,7 @@ export default function BlacklistPage({ showToast, user }) {
                 )}
               </div>
             </Field>
+            {canManage && (
             <button
               disabled={submittingBlacklist}
               className={`w-full rounded-xl py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors disabled:opacity-60 ${editingId
@@ -665,6 +672,7 @@ export default function BlacklistPage({ showToast, user }) {
             >
               {submittingBlacklist ? "Đang lưu..." : editingId ? "Lưu chỉnh sửa" : "Thêm vào blacklist"}
             </button>
+            )}
           </form>
         </Panel>
 

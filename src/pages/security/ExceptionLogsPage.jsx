@@ -99,6 +99,12 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
   // Resolve Modal (Giải quyết sự cố): State quản lý luồng "Đánh dấu đã giải quyết"
   const [resolvingLog, setResolvingLog] = useState(null);
+  const [canResolve, setCanResolve] = useState(false);
+  useEffect(() => {
+    staffApi.getMyPermissions()
+      .then((res) => setCanResolve(!!res.data?.data?.canResolveIncident))
+      .catch(() => setCanResolve(false));
+  }, []);
   const [resolveForm, setResolveForm] = useState({
     resolutionNote: "", // Ghi chú lý do / kết quả giải quyết
     selectedFiles: [],
@@ -767,7 +773,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-2">
-                      {!isResolved && (
+                      {!isResolved && canResolve && (
                         <button onClick={(e) => { e.stopPropagation(); openResolveModal(log); }} className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
                           Giải quyết
                         </button>
