@@ -356,6 +356,14 @@ export const managerApi = {
     return axiosClient.put(`/manager/blacklist/${id}/status`, data);
   },
 
+  // === EXPORT BÁO CÁO ===
+  exportExcel(type, params = {}) {
+    return axiosClient.get(`/manager/export/${type}`, {
+      params,
+      responseType: 'blob'
+    });
+  },
+
   // === CRUD TÀI NGUYÊN (Zone, PricingRule, Gate) ===
   // Zone
   createZone(data) {

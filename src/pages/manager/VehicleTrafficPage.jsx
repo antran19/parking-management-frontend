@@ -8,9 +8,9 @@ import {
 } from "recharts";
 
 const FILTER_OPTIONS = [
-  { value: "today",  label: "Hôm nay"   },
-  { value: "month",  label: "Tháng này" },
-  { value: "year",   label: "Năm nay"   },
+  { value: "today", label: "Hôm nay" },
+  { value: "month", label: "Tháng này" },
+  { value: "year", label: "Năm nay" },
   { value: "custom", label: "Tùy chỉnh" },
 ];
 
@@ -34,9 +34,9 @@ const PAYMENT_STATUS_LABELS = {
 
 const getXAxisLabel = (type) => {
   switch (type) {
-    case "today":  return "giờ";
-    case "month":  return "ngày";
-    case "year":   return "tháng";
+    case "today": return "giờ";
+    case "month": return "ngày";
+    case "year": return "tháng";
     case "custom": return "ngày";
     default: return "";
   }
@@ -133,6 +133,7 @@ const VehicleTrafficPage = () => {
       const params = {
         page: sessionsPage,
         size: 10,
+        sort: "entryTime,desc",
       };
       if (searchPlate.trim()) params.licensePlate = searchPlate.trim();
       if (searchStatus && searchStatus !== "all") params.status = searchStatus;
@@ -165,9 +166,9 @@ const VehicleTrafficPage = () => {
 
   const getFilterLabel = () => {
     switch (filterType) {
-      case "today":  return "Hôm nay";
-      case "month":  return "Tháng này";
-      case "year":   return "Năm nay";
+      case "today": return "Hôm nay";
+      case "month": return "Tháng này";
+      case "year": return "Năm nay";
       case "custom":
         if (filterFrom && filterTo)
           return `Từ ${new Date(filterFrom).toLocaleDateString("vi-VN")} đến ${new Date(filterTo).toLocaleDateString("vi-VN")}`;
@@ -200,12 +201,39 @@ const VehicleTrafficPage = () => {
     }));
   })();
 
+  const handleExportExcel = async () => {
+    try {
+      const res = await managerApi.exportExcel('sessions');
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'LuotGuiXe.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      triggerToast("Xuất báo cáo thành công", "success");
+    } catch (err) {
+      triggerToast("Lỗi khi xuất báo cáo", "error");
+    }
+  };
+
   return (
     <section className="flex-1 space-y-8 p-8">
       <div className="space-y-6 fade-up-element">
-        <div>
-          <h3 className="text-2xl font-black text-slate-900 tracking-tight">Lượt gửi xe</h3>
-          <p className="text-xs text-slate-500 mt-1">Dữ liệu thống kê lượt xe ra vào bãi.</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+          <div>
+            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Lượt gửi xe</h3>
+            <p className="text-xs text-slate-500 mt-1">Dữ liệu thống kê lượt xe ra vào bãi.</p>
+          </div>
+          <button
+            onClick={handleExportExcel}
+            className="px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer w-fit"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Xuất Excel
+          </button>
         </div>
 
         {/* Bộ lọc biểu đồ */}
@@ -214,11 +242,10 @@ const VehicleTrafficPage = () => {
             <button
               key={opt.value}
               onClick={() => setFilterType(opt.value)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-                filterType === opt.value
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${filterType === opt.value
                   ? "bg-indigo-600 text-white shadow"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+                }`}
             >
               {opt.label}
             </button>
@@ -273,7 +300,7 @@ const VehicleTrafficPage = () => {
 
               <div style={{ width: "100%", height: 300 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} barCategoryGap="40%">
+                  <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis
                       dataKey="label"
@@ -291,7 +318,7 @@ const VehicleTrafficPage = () => {
                       labelStyle={{ fontWeight: "bold", color: "#1e293b" }}
                       cursor={{ fill: "#f1f5f9" }}
                     />
-                    <Bar dataKey="sessions" name="Lượt gửi xe" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="sessions" name="Lượt gửi xe" fill="#6366f1" radius={0} barSize={24} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -376,9 +403,8 @@ const VehicleTrafficPage = () => {
                             {item.exitTime ? new Date(item.exitTime).toLocaleString("vi-VN") : "—"}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                              item.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-500 border border-slate-200"
-                            }`}>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${item.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-500 border border-slate-200"
+                              }`}>
                               {STATUS_LABELS[item.status] || item.status}
                             </span>
                           </td>
@@ -497,11 +523,10 @@ const VehicleTrafficPage = () => {
                 <div>
                   <p className="text-[10px] uppercase font-bold text-slate-400">Trạng thái</p>
                   <p className="mt-1">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      selectedSession.status === "ACTIVE"
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${selectedSession.status === "ACTIVE"
                         ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                         : "bg-slate-100 text-slate-500 border border-slate-200"
-                    }`}>
+                      }`}>
                       {STATUS_LABELS[selectedSession.status] || selectedSession.status}
                     </span>
                   </p>
@@ -520,11 +545,10 @@ const VehicleTrafficPage = () => {
                 <div>
                   <p className="text-[10px] uppercase font-bold text-slate-400">Trạng thái thanh toán</p>
                   <p className="mt-1">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      selectedSession.paymentStatus === "PAID"
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${selectedSession.paymentStatus === "PAID"
                         ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                         : "bg-amber-50 text-amber-700 border border-amber-200"
-                    }`}>
+                      }`}>
                       {PAYMENT_STATUS_LABELS[selectedSession.paymentStatus] || selectedSession.paymentStatus || "Chưa thanh toán"}
                     </span>
                   </p>
