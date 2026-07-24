@@ -29,15 +29,23 @@ const EXCEPTION_BADGE_COLOR = {
 };
 
 export default function VehicleSearchPage({ showToast }) {
-  const [searchText, setSearchText] = useState("");
-  const [sessionInfo, setSessionInfo] = useState(null);
-  const [historyList, setHistoryList] = useState([]);
-  const [exceptionList, setExceptionList] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [viewingLogDetail, setViewingLogDetail] = useState(null);
+  // --- QUẢN LÝ TRẠNG THÁI (STATE) ---
+  const [searchText, setSearchText] = useState(""); // Lưu trữ chuỗi biển số người dùng nhập vào ô tìm kiếm
+  
+  // Các state lưu trữ kết quả trả về từ API
+  const [sessionInfo, setSessionInfo] = useState(null); // Lưu thông tin phiên đỗ xe HIỆN TẠI (nếu xe đang ở trong bãi)
+  const [historyList, setHistoryList] = useState([]); // Lưu danh sách các phiên đỗ xe TRONG QUÁ KHỨ (đã vào và ra)
+  const [exceptionList, setExceptionList] = useState([]); // Lưu danh sách các SỰ CỐ AN NINH liên quan đến biển số này
+  const [blacklistInfo, setBlacklistInfo] = useState(null); // Lưu thông tin nếu xe đang nằm trong Danh sách đen
+  
+  // Các state quản lý UI (Giao diện)
+  const [searching, setSearching] = useState(false); // Trạng thái "Đang tìm kiếm..." (hiển thị loading)
+  const [hasSearched, setHasSearched] = useState(false); // Đánh dấu đã ấn nút tìm kiếm lần nào chưa (để hiện dòng "Không tìm thấy" thay vì trống trơn lúc đầu)
+  const [selectedImage, setSelectedImage] = useState(null); // Lưu URL ảnh đang được phóng to (Image Modal)
+  const [viewingLogDetail, setViewingLogDetail] = useState(null); // Lưu chi tiết sự cố đang được xem (Exception Detail Modal)
 
+  // --- HÀM XỬ LÝ TÌM KIẾM ---
+  // Được gọi khi người dùng ấn Enter hoặc click nút "Tìm kiếm"
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchText.trim()) {
@@ -45,9 +53,11 @@ export default function VehicleSearchPage({ showToast }) {
       return;
     }
 
+    // Tự động định dạng lại biển số (VD: 59A112345 -> 59A1-123.45)
     const formattedPlate = formatLicensePlate(searchText, "");
     setSearchText(formattedPlate);
 
+    // Bỏ qua validate format nếu là XEDAP (do xe đạp có mã số đặc biệt)
     if (!formattedPlate.startsWith("XEDAP")) {
       const validationError = getLicensePlateValidationError(formattedPlate, "ANY");
       if (validationError) {
@@ -59,20 +69,28 @@ export default function VehicleSearchPage({ showToast }) {
     setSearching(true);
     setHasSearched(true);
     try {
-      const [activeRes, historyRes, exceptionsRes] = await Promise.allSettled([
+      // Gọi ĐỒNG THỜI 3 API cùng một lúc để tăng tốc độ phản hồi (Promise.allSettled)
+      // 1. Tìm thông tin xe ĐANG TRONG BÃI
+      // 2. Tìm LỊCH SỬ RA VÀO (lấy 50 lượt gần nhất)
+      // 3. Tìm LỊCH SỬ SỰ CỐ
+      // 4. Kiểm tra xe CÓ TRONG DANH SÁCH ĐEN KHÔNG
+      const [activeRes, historyRes, exceptionsRes, blacklistRes] = await Promise.allSettled([
         staffApi.getActiveSessionByPlate(formattedPlate),
         staffApi.getAllSessionsHistory({ licensePlate: formattedPlate, page: 0, size: 50 }),
-        staffApi.getSecurityExceptions()
+        staffApi.getSecurityExceptions(),
+        staffApi.getBlacklist()
       ]);
 
+      // Xử lý kết quả 1: Trạng thái hiện tại trong bãi
       let foundActive = false;
       if (activeRes.status === 'fulfilled' && activeRes.value.data.data) {
-        setSessionInfo(activeRes.value.data.data);
+        setSessionInfo(activeRes.value.data.data); // Lưu thông tin vé/xe đang đỗ
         foundActive = true;
       } else {
         setSessionInfo(null);
       }
 
+      // Xử lý kết quả 2: Lịch sử đỗ xe (chỉ lấy các phiên đã hoàn thành/rời bãi)
       let pastSessions = [];
       if (historyRes.status === 'fulfilled' && historyRes.value.data.data) {
         const historyData = historyRes.value.data.data;
@@ -83,16 +101,30 @@ export default function VehicleSearchPage({ showToast }) {
         setHistoryList([]);
       }
 
+      // Xử lý kết quả 3: Lọc lấy lịch sử sự cố của riêng biển số này
+      // Do API lấy TẤT CẢ sự cố, ta cần dùng hàm filter() ở Frontend để lấy đúng xe đang tìm kiếm
       let pastExceptions = [];
       if (exceptionsRes.status === 'fulfilled' && exceptionsRes.value.data.data) {
         pastExceptions = exceptionsRes.value.data.data.filter(e => e.licensePlate && formatLicensePlate(e.licensePlate, "") === formattedPlate);
-        pastExceptions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        pastExceptions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)); // Sắp xếp mới nhất lên đầu
         setExceptionList(pastExceptions);
       } else {
         setExceptionList([]);
       }
 
-      if (foundActive || pastSessions.length > 0 || pastExceptions.length > 0) {
+      // Xử lý kết quả 4: Lọc lấy blacklist của riêng biển số này
+      let foundBlacklist = null;
+      if (blacklistRes.status === 'fulfilled' && blacklistRes.value.data.data) {
+        const bl = blacklistRes.value.data.data.find(e => 
+          e.licensePlate && 
+          formatLicensePlate(e.licensePlate, "") === formattedPlate && 
+          e.isActive !== false
+        );
+        if (bl) foundBlacklist = bl;
+      }
+      setBlacklistInfo(foundBlacklist);
+
+      if (foundActive || pastSessions.length > 0 || pastExceptions.length > 0 || foundBlacklist) {
         showToast("Đã lấy được thông tin xe", "success");
       } else {
         showToast("Không tìm thấy thông tin xe này", "warning");
@@ -130,6 +162,9 @@ export default function VehicleSearchPage({ showToast }) {
 
       {hasSearched && !searching && (
         <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
+          
+
+
           {sessionInfo ? (
             <div className="rounded-3xl border border-blue-200 bg-blue-50 p-6 md:p-8 shadow-sm relative overflow-hidden">
               <div className="absolute top-0 right-0 p-6 opacity-10 pointer-events-none">
@@ -151,6 +186,12 @@ export default function VehicleSearchPage({ showToast }) {
                         <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
                         Đang đỗ
                       </span>
+                      {blacklistInfo && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200 shadow-sm">
+                          <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse"></span>
+                          ĐANG BỊ CẤM
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -239,7 +280,7 @@ export default function VehicleSearchPage({ showToast }) {
              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 text-center shadow-sm">
                <h4 className="text-lg font-bold text-slate-700">Trạng thái: Xe không có trong bãi</h4>
              </div>
-          )}
+           )}
 
           {/* Lịch sử gửi xe */}
           {historyList.length > 0 && (
@@ -430,12 +471,13 @@ export default function VehicleSearchPage({ showToast }) {
               })()}
 
               {/* Images */}
-              {viewingLogDetail.imageUrls?.length > 0 && (() => {
-                const validImages = viewingLogDetail.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http')));
-                const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
-                const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+              {(viewingLogDetail.imageUrls?.length > 0 || viewingLogDetail.resolutionImageUrls?.length > 0) && (() => {
+                const evidenceImages = (viewingLogDetail.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                const resolveImages = (viewingLogDetail.resolutionImageUrls || []).length > 0
+                    ? viewingLogDetail.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                    : (viewingLogDetail.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
-                if (validImages.length === 0) return null;
+                if (evidenceImages.length === 0 && resolveImages.length === 0) return null;
 
                 return (
                   <div className="flex flex-wrap gap-8">
@@ -502,4 +544,3 @@ export default function VehicleSearchPage({ showToast }) {
     </div>
   );
 }
-

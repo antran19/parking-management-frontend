@@ -672,7 +672,6 @@ export default function DriverMapping({ onLogout }) {
   );
   const [liveDate, setLiveDate] = useState("");
   const [floors, setFloors] = useState(emptyFloors);
-  const [activeSession, setActiveSession] = useState(null);
   const [pricingPlans, setPricingPlans] = useState([]);
   const [emergencyStatus, setEmergencyStatus] = useState({
     active: false,
@@ -936,38 +935,16 @@ export default function DriverMapping({ onLogout }) {
         setPricingPlans([]);
       }
     };
-
-    const fetchActiveSession = async (inputPlates) => {
-      const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-      const registeredPlates = inputPlates || storedUser.licensePlates || [];
-
-      if (registeredPlates.length === 0) {
-        setActiveSession(null);
-        return;
-      }
-
-      const results = await Promise.all(
-        registeredPlates.map((plate) =>
-          staffApi
-            .getActiveSession(getPlateValue(plate))
-            .then((res) => res.data?.data)
-            .catch(() => null),
-        ),
-      );
-
-      setActiveSession(results.find(Boolean) || null);
-    };
     // NOTE:
     // Khi vào trang map, tải song song:
     // 1. Biển số của driver từ backend
     // 2. Cấu hình tầng/zone từ backend
     // 3. Phiên gửi xe đang active nếu có
     const bootstrapDriverMap = async () => {
-      const freshPlates = await fetchDriverPlates();
+      await fetchDriverPlates();
 
       await Promise.all([
         fetchRealtimeConfig(),
-        fetchActiveSession(freshPlates),
         fetchDriverPricingPlans(),
         loadEmergencyStatus(),
       ]);
@@ -977,11 +954,10 @@ export default function DriverMapping({ onLogout }) {
 
     const configInterval = setInterval(() => {
       const bootstrapDriverMap = async () => {
-        const freshPlates = await fetchDriverPlates();
+        await fetchDriverPlates();
 
         await Promise.all([
           fetchRealtimeConfig(),
-          fetchActiveSession(freshPlates),
           fetchDriverPricingPlans(),
           loadEmergencyStatus(),
         ]);
@@ -1011,18 +987,6 @@ export default function DriverMapping({ onLogout }) {
     () => groups.flatMap((group) => group.zones),
     [groups],
   );
-
-  const currentZoneId = useMemo(() => {
-    if (!activeSession?.zoneCode) return null;
-    const found = allZones.find(
-      (zone) =>
-        zone.zoneCode.endsWith(`ZONE-${activeSession.zoneCode}`) ||
-        zone.zoneCode === activeSession.zoneCode,
-    );
-    return found?.id || null;
-  }, [activeSession, allZones]);
-
-  const currentZone = allZones.find((zone) => zone.id === currentZoneId);
   const pricingRows = useMemo(() => {
     const hourlyRows = (pricingPlans || [])
       .map((plan, index) => {
@@ -1074,9 +1038,7 @@ export default function DriverMapping({ onLogout }) {
       zone.name.toLowerCase().includes(keyword) ||
       driverPlateText.includes(keyword);
     const matchStatus =
-      statusFilter === "all" ||
-      zoneStatus === statusFilter ||
-      (statusFilter === "mine" && zone.id === currentZoneId);
+      statusFilter === "all" || zoneStatus === statusFilter;
     const matchType = typeFilter === "all" || zone.type === typeFilter;
 
     return matchSearch && matchStatus && matchType;
@@ -1099,8 +1061,12 @@ export default function DriverMapping({ onLogout }) {
     }
 
     const isBicycle = isBicycleZone(zone);
-    const plate = isBicycle ? "" : normalizePlateForApi(licensePlate);
 
+    /*
+     * Xe đạp có thể truyền mã từ gói.
+     * Nếu không có mã thì plate sẽ rỗng và backend giữ luồng tự sinh mã cũ.
+     */
+    const plate = normalizePlateForApi(licensePlate || "");
     if (!isBicycle && !plate) {
       alert("Vui lòng chọn hoặc nhập biển số xe");
       return;
@@ -1179,11 +1145,16 @@ export default function DriverMapping({ onLogout }) {
       const reservationRes = await staffApi.createReservation({
         zoneId,
         vehicleTypeId: zone.vehicleTypeId,
-        licensePlate: isBicycle ? null : plate,
+
+        /*
+         * Có chọn mã xe đạp từ gói → gửi chính mã đó.
+         * Không có mã → gửi null để backend tự sinh theo luồng cũ.
+         */
+        licensePlate: plate || null,
+
         reservedFrom: toSpringLocalDateTime(reservedFrom),
         reservedTo: toSpringLocalDateTime(reservedTo),
       });
-
       const savedReservation = reservationRes?.data?.data;
       const vehicleIdentifier = savedReservation?.licensePlate || plate;
 
@@ -1414,7 +1385,6 @@ export default function DriverMapping({ onLogout }) {
               />
               <Badge color="red" label={`Đang gửi: ${counts.occupied}`} />
               <Badge color="amber" label={`Đã giữ chỗ: ${counts.reserved}`} />
-              {currentZone && <Badge color="blue" label="Zone của bạn" />}
             </div>
           </div>
 
@@ -1438,7 +1408,6 @@ export default function DriverMapping({ onLogout }) {
                 <option value="available">Còn sức chứa</option>
                 <option value="nearFull">Sắp đầy</option>
                 <option value="full">Đã đầy</option>
-                <option value="mine">Zone của bạn</option>
               </select>
             </div>
 
@@ -1475,7 +1444,6 @@ export default function DriverMapping({ onLogout }) {
                       <ZoneCard
                         key={zone.id}
                         zone={zone}
-                        isCurrent={zone.id === currentZoneId}
                         onClick={() => setSelectedZone(zone)}
                       />
                     ))}
@@ -1725,7 +1693,6 @@ export default function DriverMapping({ onLogout }) {
       {selectedZone && (
         <ZoneModal
           zone={selectedZone}
-          isCurrent={selectedZone.id === currentZoneId}
           onClose={() => setSelectedZone(null)}
           onReserve={(plate) => handleReserveZone(selectedZone.id, plate)}
           plates={plates}
@@ -1820,20 +1787,18 @@ function Badge({ color, label }) {
   );
 }
 
-function ZoneCard({ zone, isCurrent, onClick }) {
+function ZoneCard({ zone, onClick }) {
   const available = getZoneAvailability(zone);
   const usagePercent = getZoneUsagePercent(zone);
   const status = getZoneStatus(zone);
   const isClosed = getZoneStatus(zone) === "closed";
   const style = isClosed
     ? "border-slate-300 bg-slate-100 opacity-60 hover:opacity-80"
-    : isCurrent
-      ? "border-indigo-400 bg-indigo-50 ring-4 ring-indigo-100 shadow-md shadow-indigo-100"
-      : status === "available"
-        ? "border-emerald-100 bg-white hover:border-emerald-200 hover:shadow-md"
-        : status === "nearFull"
-          ? "border-amber-100 bg-amber-50/40 hover:border-amber-200 hover:shadow-md"
-          : "border-rose-100 bg-rose-50/40 hover:border-rose-200 hover:shadow-md";
+    : status === "available"
+      ? "border-emerald-100 bg-white hover:border-emerald-200 hover:shadow-md"
+      : status === "nearFull"
+        ? "border-amber-100 bg-amber-50/40 hover:border-amber-200 hover:shadow-md"
+        : "border-rose-100 bg-rose-50/40 hover:border-rose-200 hover:shadow-md";
   const barColor = isClosed
     ? "bg-slate-400"
     : status === "available"
@@ -1860,13 +1825,12 @@ function ZoneCard({ zone, isCurrent, onClick }) {
           </p>
         </div>
         <span
-          className={`zone-card-status rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${isClosed ? "bg-slate-600 text-white" : isCurrent ? "bg-indigo-600 text-white" : "bg-white text-slate-600 border border-slate-100"}`}
+          className={`zone-card-status rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${isClosed
+            ? "bg-slate-600 text-white"
+            : "bg-white text-slate-600 border border-slate-100"
+            }`}
         >
-          {isClosed
-            ? "Đã đóng"
-            : isCurrent
-              ? "Xe của bạn"
-              : getStatusLabel(status)}
+          {isClosed ? "Đã đóng" : getStatusLabel(status)}
         </span>
       </div>
 
@@ -1957,7 +1921,6 @@ function ZoneCard({ zone, isCurrent, onClick }) {
 
 function ZoneModal({
   zone,
-  isCurrent,
   onClose,
   onReserve,
   plates = [],
@@ -1967,11 +1930,16 @@ function ZoneModal({
   const available = getZoneAvailability(zone);
   const status = getZoneStatus(zone);
   const canReserve =
-    !emergencyActive && available > 0 && !isCurrent && zone.status === "ACTIVE";
+    !emergencyActive && available > 0 && zone.status === "ACTIVE";
   const isBicycle = isBicycleZone(zone);
 
   const [selectedPlate, setSelectedPlate] = useState("");
   const [newPlate, setNewPlate] = useState("");
+  /*
+ * false: dùng mã xe đạp từ gói.
+ * true: không dùng mã gói, backend tự sinh mã mới cho reservation.
+ */
+  const [useAutoBicycleCode, setUseAutoBicycleCode] = useState(false);
   const [realtimeNow, setRealtimeNow] = useState(new Date());
 
   useEffect(() => {
@@ -1992,36 +1960,122 @@ function ZoneModal({
     );
   }, [realtimeNow]);
 
-  const plateOptions = isBicycle
-    ? []
-    : (plates || [])
+  const plateOptions = useMemo(() => {
+    return (plates || [])
       .map((plate) => ({
         licensePlate: getPlateValue(plate),
         vehicleTypeId: getPlateVehicleTypeId(plate),
         vehicleTypeName: getPlateVehicleTypeName(plate),
+
+        source:
+          typeof plate === "string"
+            ? "PROFILE"
+            : String(plate?.source || "PROFILE").toUpperCase(),
+
+        readOnly:
+          typeof plate === "string"
+            ? false
+            : Boolean(plate?.readOnly),
+
+        passType:
+          typeof plate === "string"
+            ? null
+            : plate?.passType || null,
+
+        endDate:
+          typeof plate === "string"
+            ? null
+            : plate?.endDate || null,
       }))
       .filter((plate) => Boolean(plate.licensePlate))
       .filter(
         (plate) =>
           normalizeVehicleTypeId(plate.vehicleTypeId) ===
           normalizeVehicleTypeId(zone.vehicleTypeId),
-      );
+      )
+      .filter((plate) => {
+        /*
+         * Zone xe đạp chỉ lấy mã được cấp từ gói.
+         * Các zone khác chỉ lấy biển số hồ sơ thông thường.
+         */
+        if (isBicycle) {
+          return plate.source === "BICYCLE_PASS";
+        }
+
+        return plate.source === "PROFILE";
+      });
+  }, [plates, zone.vehicleTypeId, isBicycle]);
 
   useEffect(() => {
-    if (isBicycle) {
-      setSelectedPlate("");
-      setNewPlate("");
+    if (!isBicycle) {
+      setUseAutoBicycleCode(false);
+
+      setSelectedPlate((currentPlate) => {
+        const currentStillAvailable = plateOptions.some(
+          (plate) =>
+            normalizePlateForApi(plate.licensePlate) ===
+            normalizePlateForApi(currentPlate),
+        );
+
+        if (currentStillAvailable) {
+          return currentPlate;
+        }
+
+        return plateOptions[0]?.licensePlate || "";
+      });
+
       return;
     }
 
-    if (!selectedPlate && plateOptions.length > 0) {
-      setSelectedPlate(plateOptions[0].licensePlate);
-    }
-  }, [isBicycle, selectedPlate, plateOptions]);
+    setNewPlate("");
 
-  const finalPlate = isBicycle
-    ? ""
-    : normalizePlateForApi(newPlate || selectedPlate);
+    /*
+     * Không có mã gói thì tự động dùng luồng sinh mã mới.
+     */
+    if (plateOptions.length === 0) {
+      setUseAutoBicycleCode(true);
+      setSelectedPlate("");
+      return;
+    }
+
+    /*
+     * Người dùng chủ động chọn không dùng mã gói.
+     */
+    if (useAutoBicycleCode) {
+      setSelectedPlate("");
+      return;
+    }
+
+    /*
+     * Mặc định chọn mã gói đầu tiên nếu người dùng chưa chọn mã.
+     */
+    setSelectedPlate((currentPlate) => {
+      const currentStillAvailable = plateOptions.some(
+        (plate) =>
+          normalizePlateForApi(plate.licensePlate) ===
+          normalizePlateForApi(currentPlate),
+      );
+
+      if (currentStillAvailable) {
+        return currentPlate;
+      }
+
+      return plateOptions[0]?.licensePlate || "";
+    });
+  }, [isBicycle, plateOptions, useAutoBicycleCode]);
+
+  const finalPlate = normalizePlateForApi(
+    isBicycle
+      ? useAutoBicycleCode
+        ? ""
+        : selectedPlate
+      : newPlate || selectedPlate,
+  );
+
+  const requiresBicycleCodeSelection =
+    isBicycle &&
+    plateOptions.length > 0 &&
+    !useAutoBicycleCode;
 
   const submitReservation = async () => {
     if (isSubmitting) return;
@@ -2031,6 +2085,12 @@ function ZoneModal({
       return;
     }
 
+    if (requiresBicycleCodeSelection && !finalPlate) {
+      alert(
+        "Vui lòng chọn mã xe đạp từ gói hoặc chọn hệ thống tự sinh mã mới",
+      );
+      return;
+    }
     const plateError = !isBicycle
       ? getLicensePlateValidationError(finalPlate, getVehicleLabel(zone.type))
       : null;
@@ -2043,7 +2103,11 @@ function ZoneModal({
     setIsSubmitting(true);
 
     try {
-      await onReserve(isBicycle ? null : finalPlate);
+      /*
+      * Có mã gói xe đạp thì gửi mã gói.
+      * Không có mã gói thì gửi null để backend giữ luồng tự sinh mã cũ.
+      */
+      await onReserve(finalPlate || null);
     } catch (err) {
       console.error(err);
     } finally {
@@ -2094,26 +2158,22 @@ function ZoneModal({
           <div
             className={`rounded-2xl border px-4 py-3 flex items-center justify-between text-xs font-bold ${zone.status === "CLOSED"
               ? "bg-slate-100 border-slate-200 text-slate-600"
-              : isCurrent
-                ? "bg-indigo-50 border-indigo-100 text-indigo-800"
-                : status === "available"
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-850"
-                  : status === "nearFull"
-                    ? "bg-amber-50 border-amber-200 text-amber-850"
-                    : "bg-rose-50 border-rose-200 text-rose-850"
+              : status === "available"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-850"
+                : status === "nearFull"
+                  ? "bg-amber-50 border-amber-200 text-amber-850"
+                  : "bg-rose-50 border-rose-200 text-rose-850"
               }`}
           >
             <span>Trạng thái zone:</span>
             <span className="uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-white shadow-xs">
               {zone.status === "CLOSED"
                 ? "Đã đóng"
-                : isCurrent
-                  ? "Xe đang gửi"
-                  : status === "available"
-                    ? "Còn chỗ trống"
-                    : status === "nearFull"
-                      ? "Sắp đầy"
-                      : "Đã đầy"}
+                : status === "available"
+                  ? "Còn chỗ trống"
+                  : status === "nearFull"
+                    ? "Sắp đầy"
+                    : "Đã đầy"}
             </span>
           </div>
 
@@ -2168,12 +2228,127 @@ function ZoneModal({
                   </div>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-5 text-left flex items-start gap-3 animate-fade-in">
-                  <span className="text-xl">🚲</span>
-                  <div className="text-xs text-indigo-900/80 leading-relaxed font-semibold">
-                    <p className="font-extrabold text-indigo-950 text-sm mb-1">Vé đặt giữ chỗ Xe đạp</p>
-                    Hệ thống tự động sinh mã định danh vé xe đạp ngẫu nhiên dạng <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-150 text-indigo-800 font-extrabold">BCyymmdd-xxxx</code> cho bạn khi đến cổng check-in. Bạn không cần khai báo biển số.
-                  </div>
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-5 text-left animate-fade-in">
+                  {plateOptions.length > 0 ? (
+                    <>
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl">🚲</span>
+
+                        <div>
+                          <p className="text-sm font-extrabold text-indigo-950">
+                            Chọn mã xe đạp từ gói
+                          </p>
+
+                          <p className="mt-1 text-xs font-semibold leading-relaxed text-indigo-900/70">
+                            Reservation và Staff check-in sẽ sử dụng cùng một mã xe đạp.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUseAutoBicycleCode(true);
+                            setSelectedPlate("");
+                          }}
+                          className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-all ${useAutoBicycleCode
+                            ? "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm ring-2 ring-emerald-100"
+                            : "border-slate-200 bg-white/70 text-slate-600 hover:border-emerald-300"
+                            }`}
+                        >
+                          <div>
+                            <p className="text-xs font-black">
+                              Không dùng mã xe đạp từ gói
+                            </p>
+
+                            <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Hệ thống tự sinh mã mới cho lần đặt chỗ này
+                            </p>
+                          </div>
+
+                          <span
+                            className={`flex h-5 w-5 items-center justify-center rounded-full border ${useAutoBicycleCode
+                              ? "border-emerald-600 bg-emerald-600 text-white"
+                              : "border-slate-300 bg-white"
+                              }`}
+                          >
+                            {useAutoBicycleCode ? "✓" : ""}
+                          </span>
+                        </button>
+                        {plateOptions.map((plate) => {
+                          const selected =
+                            !useAutoBicycleCode &&
+                            normalizePlateForApi(selectedPlate) ===
+                            normalizePlateForApi(plate.licensePlate);
+
+                          const passLabel =
+                            plate.passType === "MONTHLY"
+                              ? "Gói tháng"
+                              : plate.passType === "QUARTERLY"
+                                ? "Gói quý"
+                                : plate.passType === "YEARLY"
+                                  ? "Gói năm"
+                                  : "Gói hội viên";
+
+                          return (
+                            <button
+                              key={plate.licensePlate}
+                              type="button"
+                              onClick={() => {
+                                setUseAutoBicycleCode(false);
+                                setSelectedPlate(plate.licensePlate);
+                              }}
+                              className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-all ${selected
+                                ? "border-indigo-500 bg-white text-indigo-800 shadow-sm ring-2 ring-indigo-100"
+                                : "border-indigo-100 bg-white/70 text-slate-600 hover:border-indigo-300"
+                                }`}
+                            >
+                              <div>
+                                <p className="font-mono text-xs font-black tracking-wider">
+                                  {formatLicensePlate(
+                                    plate.licensePlate,
+                                    plate.vehicleTypeName,
+                                  )}
+                                </p>
+
+                                <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  {passLabel}
+                                  {plate.endDate
+                                    ? ` · Hết hạn ${new Date(
+                                      plate.endDate,
+                                    ).toLocaleDateString("vi-VN")}`
+                                    : ""}
+                                </p>
+                              </div>
+
+                              <span
+                                className={`flex h-5 w-5 items-center justify-center rounded-full border ${selected
+                                  ? "border-indigo-600 bg-indigo-600 text-white"
+                                  : "border-slate-300 bg-white"
+                                  }`}
+                              >
+                                {selected ? "✓" : ""}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-start gap-3">
+                      <span className="text-xl">🚲</span>
+
+                      <div className="text-xs font-semibold leading-relaxed text-indigo-900/80">
+                        <p className="mb-1 text-sm font-extrabold text-indigo-950">
+                          Vé đặt giữ chỗ xe đạp
+                        </p>
+
+                        Bạn chưa có mã xe đạp từ gói đang hoạt động. Hệ thống vẫn giữ
+                        luồng cũ và sẽ tự sinh mã xe đạp cho reservation này.
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2251,7 +2426,11 @@ function ZoneModal({
             <button
               type="button"
               onClick={submitReservation}
-              disabled={isSubmitting}
+              disabled={
+                isSubmitting ||
+                (!isBicycle && !finalPlate) ||
+                (requiresBicycleCodeSelection && !finalPlate)
+              }
               className="flex-1 rounded-xl bg-slate-950 py-3 text-xs font-black text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer shadow-md text-center"
             >
               {isSubmitting ? "Đang tạo..." : "Xác nhận giữ chỗ"}

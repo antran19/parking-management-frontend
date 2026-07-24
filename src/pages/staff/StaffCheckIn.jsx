@@ -288,12 +288,12 @@ export default function StaffCheckIn() {
       try {
         if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
         if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
-      } catch (e) {}
+      } catch (e) { }
 
       try {
         if (sharedStreamRef.current) {
           sharedStreamRef.current.getTracks().forEach(track => {
-            try { track.stop(); } catch (e) {}
+            try { track.stop(); } catch (e) { }
           });
         }
       } catch (err) {
@@ -307,11 +307,11 @@ export default function StaffCheckIn() {
           if (scanner.isScanning) {
             scanner.stop()
               .then(() => {
-                try { scanner.clear(); } catch (e) {}
+                try { scanner.clear(); } catch (e) { }
               })
               .catch(err => console.warn("Lỗi stop scanner checkin on unmount:", err));
           } else {
-            try { scanner.clear(); } catch (e) {}
+            try { scanner.clear(); } catch (e) { }
           }
         }
       } catch (err) {
@@ -343,7 +343,7 @@ export default function StaffCheckIn() {
       if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
       if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
       sharedStream.getTracks().forEach(track => {
-        try { track.stop(); } catch (e) {}
+        try { track.stop(); } catch (e) { }
       });
       setSharedStream(null);
     }
@@ -638,7 +638,7 @@ export default function StaffCheckIn() {
     const runPreCheckInApi = async (detectedPlateVal) => {
       const finalPlate = detectedPlateVal || formData.plateNumber || "";
       const normalizedPlate = normalizeLicensePlate(finalPlate);
-      
+
       try {
         setIsLoadingPreview(true);
         setApiError("");
@@ -655,9 +655,10 @@ export default function StaffCheckIn() {
         const res = await staffApi.checkIn(payload);
         const preview = res.data.data;
 
+        const isBicyclePreview = preview.vehicleType ? getVehicleTypeKey(preview.vehicleType) === "BICYCLE" : false;
         setFormData(prev => ({
           ...prev,
-          plateNumber: preview.licensePlate || prev.plateNumber,
+          plateNumber: isBicyclePreview ? (preview.licensePlate || prev.plateNumber) : prev.plateNumber,
           vehicleTypeId: preview.vehicleTypeId || prev.vehicleTypeId,
           reservationCode: preview.reservationCode || (isReservation ? cleanedCode : ""),
           parkingPassCode: isPass ? cleanedCode : "",
@@ -729,6 +730,14 @@ export default function StaffCheckIn() {
             setPlateBlob(blob);
             setUploadedPlateUrl("");
             stopPlateCamera();
+
+            // Kiểm tra xe đạp
+            const isBicycle = initialPreview.vehicleType ? getVehicleTypeKey(initialPreview.vehicleType) === "BICYCLE" : false;
+            if (isBicycle) {
+              setOcrResult("✅ Đã chụp ảnh xe đạp.");
+              setPlateScanning(false);
+              return;
+            }
 
             // OCR chạy ngầm, không block luồng chụp mặt
             let detectedPlate = "";
@@ -963,7 +972,7 @@ export default function StaffCheckIn() {
       if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
       if (sharedStream) {
         sharedStream.getTracks().forEach(track => {
-          try { track.stop(); } catch (e) {}
+          try { track.stop(); } catch (e) { }
         });
         setSharedStream(null);
       }
@@ -1130,7 +1139,7 @@ export default function StaffCheckIn() {
           let savedDisabledIds = [];
           try {
             savedDisabledIds = JSON.parse(localStorage.getItem("disabled_vehicle_type_ids") || "[]");
-          } catch (e) {}
+          } catch (e) { }
 
           const firstActiveType = config.vehicleTypes.find(v => !savedDisabledIds.includes(v.id));
           const initialTypeId = firstActiveType ? firstActiveType.id : config.vehicleTypes[0].id;
@@ -1298,10 +1307,11 @@ export default function StaffCheckIn() {
     }
   };
 
-  // Tự động submit check-in đối với xe đặt giữ chỗ (PRE_BOOKED) khi đã chụp đủ biển số và mặt
+  // Tự động submit check-in đối với xe đặt giữ chỗ (PRE_BOOKED hoặc Vé tháng có đặt chỗ) khi đã chụp đủ biển số và mặt
   useEffect(() => {
+    const hasReservation = formData.driverType === "PRE_BOOKED" || !!formData.reservationCode;
     if (
-      formData.driverType === "PRE_BOOKED" &&
+      hasReservation &&
       faceBlob &&
       plateBlob &&
       isPreCheckedIn &&
@@ -1310,7 +1320,7 @@ export default function StaffCheckIn() {
     ) {
       handleCheckIn();
     }
-  }, [formData.driverType, faceBlob, plateBlob, isPreCheckedIn, isSuccess, isSubmitting]);
+  }, [formData.driverType, formData.reservationCode, faceBlob, plateBlob, isPreCheckedIn, isSuccess, isSubmitting]);
 
   const handleOpenChangeZone = async () => {
     if (!checkInResult?.sessionId) return;
@@ -1410,7 +1420,7 @@ export default function StaffCheckIn() {
 
     const resCode = checkInResult?.reservationCode || formData.reservationCode;
     const resCodeRow = resCode ? `
-      <div class="info-row" style="color: #4f46e5;">
+      <div class="info-row" >
         <span>Mã đặt chỗ:</span>
         <span class="info-value">${resCode}</span>
       </div>
@@ -1426,7 +1436,7 @@ export default function StaffCheckIn() {
 
     const ticketType = checkInResult
       ? (checkInResult.driverType === "SUBSCRIBER"
-        ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
+        ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})${checkInResult.reservationCode ? " - Đặt chỗ" : ""}`
         : checkInResult.driverType === "PRE_BOOKED"
           ? "Vé đặt trước"
           : "Vé lượt")
@@ -1616,7 +1626,12 @@ export default function StaffCheckIn() {
                     <button
                       type="button"
                       onClick={toggleBothCameras}
-                      className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer ${(isFaceCameraOn || isPlateCameraOn) ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'
+                      disabled={isSuccess || !!previewFaceUrl || !!previewPlateUrl}
+                      className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer ${(isSuccess || previewFaceUrl || previewPlateUrl)
+                          ? 'bg-slate-350 text-slate-500 cursor-not-allowed opacity-50'
+                          : (isFaceCameraOn || isPlateCameraOn)
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-indigo-600 text-white'
                         }`}
                     >
                       {(isFaceCameraOn || isPlateCameraOn) ? 'Tắt Cam' : 'Bật Cam'}
@@ -1624,7 +1639,7 @@ export default function StaffCheckIn() {
                     <button
                       type="button"
                       onClick={handleNormalCapture}
-                      disabled={!(isFaceCameraOn && isPlateCameraOn) || plateScanning || countdown !== null}
+                      disabled={isSuccess || !!previewFaceUrl || !!previewPlateUrl || !(isFaceCameraOn && isPlateCameraOn) || plateScanning || countdown !== null}
                       className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
                     >
                       Chụp
@@ -1632,8 +1647,11 @@ export default function StaffCheckIn() {
                   </div>
                   <div className="flex flex-col items-center justify-center gap-1.5 mt-0.5">
 
-                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 rounded border border-indigo-200 transition-all text-[8px] font-black uppercase active:scale-[0.98] shadow-sm">
-                      <svg className="w-3.5 h-3.5 text-indigo-650" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                    <label className={`inline-flex items-center gap-1.5 px-3 py-1 rounded border transition-all text-[8px] font-black uppercase shadow-sm ${isSuccess
+                        ? "bg-slate-100 text-slate-455 border-slate-200 cursor-not-allowed pointer-events-none"
+                        : "cursor-pointer bg-indigo-50 hover:bg-indigo-100 text-indigo-650 border border-indigo-200 active:scale-[0.98]"
+                      }`}>
+                      <svg className={`w-3.5 h-3.5 ${isSuccess ? 'text-slate-455' : 'text-indigo-650'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                       </svg>
                       Tải ảnh (Face & Plate)
@@ -1642,6 +1660,7 @@ export default function StaffCheckIn() {
                         multiple
                         accept="image/*"
                         className="hidden"
+                        disabled={isSuccess}
                         onChange={handleDoubleUpload}
                       />
                     </label>
@@ -1695,7 +1714,7 @@ export default function StaffCheckIn() {
 
                 {/* Điều khiển Cột 2 */}
                 <div className="bg-slate-50 p-3 flex flex-col gap-2 mt-auto min-h-[80px] justify-center">
-                  {(previewFaceUrl || previewPlateUrl) ? (
+                  {!isSuccess && (previewFaceUrl || previewPlateUrl) ? (
                     <div className="flex gap-1 w-full">
                       {/* Cột 1: Chân dung */}
                       {previewFaceUrl ? (
@@ -1738,8 +1757,8 @@ export default function StaffCheckIn() {
                       )}
                     </div>
                   ) : (
-                    <div className="text-center text-[10px] font-bold text-slate-500 py-1.5">
-                      {ocrResult}
+                    <div className={`text-center text-[10px] font-bold py-1.5 ${isSuccess ? 'text-emerald-600' : 'text-slate-500'}`}>
+                      {isSuccess ? "✅ Check-in thành công!" : ocrResult}
                     </div>
                   )}
 
@@ -1917,11 +1936,11 @@ export default function StaffCheckIn() {
                       ? "text-emerald-700 bg-emerald-100/50 border-emerald-200"
                       : "text-rose-700 bg-rose-100/50 border-rose-200"
                       }`}>
-                      {formData.plateNumber || "---"}
                       {(!scannedTicketInfo.licensePlate || !formData.plateNumber ||
                         normalizeLicensePlate(scannedTicketInfo.licensePlate) === normalizeLicensePlate(formData.plateNumber))
-                        ? " (Khớp)"
-                        : " (Lệch)"}
+                        ? "(Khớp) "
+                        : "(Lệch) "}
+                      {formatLicensePlate(formData.plateNumber, getVehicleLabel(formData.vehicleTypeId)) || "---"}
                     </span>
                   </div>
                 </div>
@@ -2125,13 +2144,13 @@ export default function StaffCheckIn() {
                 <span className="text-slate-600 font-extrabold">
                   {checkInResult
                     ? (checkInResult.driverType === "SUBSCRIBER"
-                      ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
+                      ? `Vé đăng ký (${checkInResult.passType === "MONTHLY" ? "Tháng" : checkInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})${checkInResult.reservationCode ? " - Đặt chỗ" : ""}`
                       : checkInResult.driverType === "PRE_BOOKED"
                         ? "Vé đặt trước"
                         : "Vé lượt")
                     : (preCheckInResult
                       ? (preCheckInResult.driverType === "SUBSCRIBER"
-                        ? `Vé đăng ký (${preCheckInResult.passType === "MONTHLY" ? "Tháng" : preCheckInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})`
+                        ? `Vé đăng ký (${preCheckInResult.passType === "MONTHLY" ? "Tháng" : preCheckInResult.passType === "QUARTERLY" ? "Quý" : "Năm"})${preCheckInResult.reservationCode ? " - Đặt chỗ" : ""}`
                         : preCheckInResult.driverType === "PRE_BOOKED"
                           ? "Vé đặt trước"
                           : "Vé lượt")
@@ -2262,7 +2281,7 @@ export default function StaffCheckIn() {
                   CAM 3: QUÉT QR VÉ ĐẶT TRƯỚC/ THÁNG
                 </span>
               </div>
-              
+
 
               {/* Nút bật/tắt thủ công & Ô nhập dự phòng */}
               <div className="flex gap-1.5 items-center mt-2 w-full font-sans">
@@ -2288,7 +2307,8 @@ export default function StaffCheckIn() {
                 <button
                   type="button"
                   onClick={() => manualTicketCode.trim() && handleProcessScannedQr(manualTicketCode)}
-                  className="h-[32px] px-3 bg-slate-800 text-white hover:bg-green-600 rounded-lg text-[9px] font-bold transition-colors cursor-pointer shrink-0 flex items-center justify-center font-sans"
+                  disabled={isSuccess}
+                  className="h-[32px] px-3 bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white hover:bg-green-600 rounded-lg text-[9px] font-bold transition-colors cursor-pointer shrink-0 flex items-center justify-center font-sans disabled:cursor-not-allowed"
                 >
                   Tìm
                 </button>

@@ -233,7 +233,7 @@ export default function StaffMapping() {
             <div class="info-row"><span>Biển số xe:</span><span class="info-value">${formatLicensePlate(res.licensePlate, res.vehicleTypeName) || "---"}</span></div>
             <div class="info-row"><span>Phương tiện:</span><span class="info-value">${res.vehicleTypeName || "---"}</span></div>
             <div class="info-row"><span>Khách hàng:</span><span class="info-value">${res.customerName || "---"}</span></div>
-            <div class="info-row"><span>Vị trí đỗ:</span><span class="info-value">${res.floorName}-ZONE-${res.zoneCode}</span></div>
+            <div class="info-row"><span>Vị trí đỗ:</span><span class="info-value">${res.floorName} - Khu ${res.zoneCode}</span></div>
             <div class="info-row"><span>Thời gian hẹn:</span><span class="info-value" style="font-size:10px;">${new Date(res.reservedFrom).toLocaleString("vi-VN")}</span></div>
             <div class="info-row"><span>Hạn đến:</span><span class="info-value" style="font-size:10px;">${new Date(res.reservedTo).toLocaleString("vi-VN")}</span></div>
             
@@ -624,16 +624,17 @@ function ZoneCard({ zone, isClosed, onViewParked, onViewReserved }) {
 
 // Modal hiển thị danh sách các xe đang đỗ (Đang gửi)
 function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }) {
-  const getTicketTypeLabel = (driverType, passType) => {
+  const getTicketTypeLabel = (driverType, passType, reservationCode) => {
     const dType = (driverType || "").toUpperCase();
     const pType = (passType || "").toUpperCase();
     if (dType === 'SUBSCRIBER') {
       const passTypeLabels = {
-        MONTHLY: "Vé tháng",
-        QUARTERLY: "Vé quý",
-        YEARLY: "Vé năm"
+        MONTHLY: "Vé đăng ký (Tháng)",
+        QUARTERLY: "Vé đăng ký (Quý)",
+        YEARLY: "Vé đăng ký (Năm)"
       };
-      return passTypeLabels[pType] || "Vé tháng";
+      const label = passTypeLabels[pType] || "Vé đăng ký (Tháng)";
+      return reservationCode ? `${label} - Đặt chỗ` : label;
     }
     if (dType === 'PRE_BOOKED') return "Vé đặt trước";
     return "Vé lượt";
@@ -700,7 +701,7 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
                             ? "bg-amber-50 text-amber-700 border border-amber-100"
                             : "bg-slate-100 text-slate-750"
                           }`}>
-                          {getTicketTypeLabel(sess.driverType, sess.passType)}
+                          {getTicketTypeLabel(sess.driverType, sess.passType, sess.reservationCode)}
                         </span>
                       </td>
                       <td className="p-3.5 text-slate-550">
@@ -745,16 +746,17 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
 
 // Modal hiển thị Biên Lai của xe đang đỗ (Tương tự StaffHistory, KHÔNG có nút in)
 function ParkedReceiptModal({ session, onClose }) {
-  const getTicketTypeLabel = (driverType, passType) => {
+  const getTicketTypeLabel = (driverType, passType, reservationCode) => {
     const dType = (driverType || "").toUpperCase();
     const pType = (passType || "").toUpperCase();
     if (dType === 'SUBSCRIBER') {
       const passTypeLabels = {
-        MONTHLY: "Vé tháng",
-        QUARTERLY: "Vé quý",
-        YEARLY: "Vé năm"
+        MONTHLY: "Vé đăng ký (Tháng)",
+        QUARTERLY: "Vé đăng ký (Quý)",
+        YEARLY: "Vé đăng ký (Năm)"
       };
-      return passTypeLabels[pType] || "Vé tháng";
+      const label = passTypeLabels[pType] || "Vé đăng ký (Tháng)";
+      return reservationCode ? `${label} - Đặt chỗ` : label;
     }
     if (dType === 'PRE_BOOKED') return "Vé đặt trước";
     return "Vé lượt";
@@ -769,7 +771,7 @@ function ParkedReceiptModal({ session, onClose }) {
     return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
   };
 
-  const ticketType = getTicketTypeLabel(session.driverType, session.passType);
+  const ticketType = getTicketTypeLabel(session.driverType, session.passType, session.reservationCode);
   const duration = formatDuration(session.entryTime);
   const feeText = session.totalFee !== null && session.totalFee !== undefined
     ? `${Number(session.totalFee).toLocaleString("vi-VN")}đ`
@@ -792,16 +794,8 @@ function ParkedReceiptModal({ session, onClose }) {
           </svg>
         </button>
 
-        {/* Ticket Header */}
-        <div className="text-center border-b border-dashed border-slate-200 pb-3">
-          <h4 className="font-extrabold text-sm text-slate-800 tracking-wider">SMART PAYMENT TICKET</h4>
-          <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider mt-1">
-            HÓA ĐƠN TẠM TÍNH
-          </p>
-        </div>
-
         {/* Ticket Details */}
-        <div className="space-y-2 text-xs font-semibold text-slate-500 pt-1">
+        <div className="space-y-2 text-xs font-semibold text-slate-500 pt-1 font-sans">
           <div className="flex justify-between items-center">
             <span>Mã phiên gửi:</span>
             <span className="text-slate-600 font-mono font-bold">
@@ -816,26 +810,20 @@ function ParkedReceiptModal({ session, onClose }) {
           </div>
           <div className="flex justify-between">
             <span>Loại xe:</span>
-            <span className="text-slate-600 font-black">
+            <span className="text-slate-600 font-extrabold">
               {getVehicleLabel(session.vehicleType)}
             </span>
           </div>
           <div className="flex justify-between">
-            <span>Loại vé:</span>
-            <span className="text-slate-600 font-black">
-              {ticketType}
-            </span>
-          </div>
-          <div className="flex justify-between">
             <span>Vị trí đỗ:</span>
-            <span className="text-slate-600 font-black">
-              {session.floorName}-ZONE-{session.zoneCode}
+            <span className="text-slate-600 font-extrabold">
+              {session.floorName} - Khu {session.zoneCode}
             </span>
           </div>
           <div className="flex justify-between">
             <span>Thời gian vào:</span>
-            <span className="text-slate-800 font-mono text-[11px] font-bold">
-              {new Date(session.entryTime).toLocaleString("vi-VN")}
+            <span className="text-slate-600 font-mono text-[11px] font-bold">
+              {session.entryTime ? new Date(session.entryTime).toLocaleString("vi-VN") : "---"}
             </span>
           </div>
           <div className="flex justify-between">
@@ -844,8 +832,34 @@ function ParkedReceiptModal({ session, onClose }) {
               {duration}
             </span>
           </div>
+          <div className="flex justify-between">
+            <span>Loại vé:</span>
+            <span className="text-slate-600 font-extrabold">
+              {ticketType}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span>Hình thức:</span>
+            <span className="text-slate-600 font-extrabold">
+              --
+            </span>
+          </div>
 
-          <div className="border-t border-dashed border-slate-200 pt-3 flex flex-col">
+          {session.customerName && (
+            <div className="flex justify-between">
+              <span>Khách hàng:</span>
+              <span className="text-slate-600 font-extrabold text-indigo-650">{session.customerName}</span>
+            </div>
+          )}
+
+          {session.reservationCode && (
+            <div className="flex justify-between">
+              <span>Mã đặt chỗ:</span>
+              <span className="text-slate-600 font-extrabold text-indigo-650">{session.reservationCode}</span>
+            </div>
+          )}
+
+          <div className="border-t border-dashed border-slate-200 pt-3 flex flex-col font-sans">
             <span className="text-[10px] text-slate-400 uppercase font-bold">
               Phí tạm tính:
             </span>
@@ -854,12 +868,12 @@ function ParkedReceiptModal({ session, onClose }) {
             </span>
           </div>
 
-          <div className="border-t border-dashed border-slate-200 pt-3 text-center text-[10px] text-slate-450 font-medium leading-normal mt-1">
+          <div className="border-t border-dashed border-slate-200 pt-3 text-center text-[10px] text-slate-450 font-medium leading-normal mt-1 font-sans">
             Chúc quý khách một ngày tốt lành!
           </div>
         </div>
 
-        <div className="flex border-t border-slate-100 pt-3 mt-1 ">
+        <div className="flex border-t border-slate-100 pt-3 mt-1">
           <button
             onClick={onClose}
             className="w-full rounded-xl border border-slate-250 bg-slate-50 py-2.5 font-bold text-slate-655 hover:bg-slate-100 text-xs transition-colors cursor-pointer text-center"
@@ -1052,7 +1066,7 @@ function ReservationTicketModal({ reservation, onClose, onPrint }) {
           <div className="flex justify-between">
             <span>Vị trí đỗ:</span>
             <span className="text-slate-600 font-black">
-              {reservation.floorName}-ZONE-{reservation.zoneCode}
+              {reservation.floorName} - Khu {reservation.zoneCode}
             </span>
           </div>
           <div className="flex justify-between">

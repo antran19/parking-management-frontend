@@ -41,6 +41,10 @@ const SecurityPage = () => {
   const [resolutionText, setResolutionText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [submittingResolution, setSubmittingResolution] = useState(false);
+  const [lightbox, setLightbox] = useState({ show: false, images: [], index: 0 });
+
+  const openLightbox = (images, index) => setLightbox({ show: true, images, index });
+  const closeLightbox = () => setLightbox({ show: false, images: [], index: 0 });
 
   const fetchIncidents = async () => {
     setLoading(true);
@@ -333,19 +337,20 @@ const SecurityPage = () => {
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Mô tả</p>
                           <p className="whitespace-pre-wrap text-slate-700">{selectedIncident.description || "Không có mô tả."}</p>
                         </div>
-                        {selectedIncident.imageUrls && selectedIncident.imageUrls.length > 0 && (
+                        {selectedIncident.imageUrls && selectedIncident.imageUrls.filter(url => url && !url.startsWith('[RESOLVE]')).length > 0 && (
                           <div>
                             <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Ảnh minh chứng sự cố</p>
                             <div className="grid grid-cols-2 gap-2">
-                              {selectedIncident.imageUrls.map((url, idx) => (
+                              {(() => { const imgs = selectedIncident.imageUrls.filter(url => url && !url.startsWith('[RESOLVE]')); return imgs.map((url, idx) => (
                                 <img
                                   key={idx}
                                   src={url}
                                   alt={`Ảnh sự cố ${idx + 1}`}
                                   className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
-                                  onClick={() => window.open(url, "_blank")}
+                                  onClick={() => openLightbox(imgs, idx)}
+                                  onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f1f5f9" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%2394a3b8" font-size="10">Không tải được</text></svg>'; }}
                                 />
-                              ))}
+                              )); })()}
                             </div>
                           </div>
                         )}
@@ -359,22 +364,28 @@ const SecurityPage = () => {
                               <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Phương án giải quyết</p>
                               <p className="font-semibold text-slate-800 whitespace-pre-wrap">{selectedIncident.resolution || "Không có chi tiết giải quyết."}</p>
                             </div>
-                            {selectedIncident.resolutionImageUrls && selectedIncident.resolutionImageUrls.length > 0 && (
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Ảnh minh chứng giải quyết</p>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {selectedIncident.resolutionImageUrls.map((url, idx) => (
-                                    <img
-                                      key={idx}
-                                      src={url}
-                                      alt={`Ảnh giải quyết ${idx + 1}`}
-                                      className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
-                                      onClick={() => window.open(url, "_blank")}
-                                    />
-                                  ))}
+                            {(() => {
+                              const resolveImgs = (selectedIncident.resolutionImageUrls && selectedIncident.resolutionImageUrls.length > 0)
+                                ? selectedIncident.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                                : (selectedIncident.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+                              return resolveImgs.length > 0 && (
+                                <div>
+                                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Ảnh minh chứng giải quyết</p>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {resolveImgs.map((url, idx) => (
+                                      <img
+                                        key={idx}
+                                        src={url}
+                                        alt={`Ảnh giải quyết ${idx + 1}`}
+                                        className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
+                                        onClick={() => openLightbox(resolveImgs, idx)}
+                                        onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f1f5f9" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%2394a3b8" font-size="10">Không tải được</text></svg>'; }}
+                                      />
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </>
                         )}
                         <div className="text-slate-500 text-xs pt-2 border-t border-slate-100">
@@ -561,6 +572,67 @@ const SecurityPage = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Lightbox Modal */}
+      {lightbox.show && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
+          onClick={closeLightbox}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeLightbox();
+            if (e.key === 'ArrowLeft') setLightbox(prev => ({ ...prev, index: Math.max(0, prev.index - 1) }));
+            if (e.key === 'ArrowRight') setLightbox(prev => ({ ...prev, index: Math.min(prev.images.length - 1, prev.index + 1) }));
+          }}
+          tabIndex={0}
+          ref={(el) => el && el.focus()}
+        >
+          {/* Close button */}
+          <button
+            onClick={closeLightbox}
+            className="absolute top-4 right-4 text-white/80 hover:text-white transition-colors z-10 cursor-pointer"
+          >
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {/* Counter */}
+          <div className="absolute top-4 left-4 text-white/70 text-sm font-medium">
+            {lightbox.index + 1} / {lightbox.images.length}
+          </div>
+
+          {/* Prev button */}
+          {lightbox.images.length > 1 && lightbox.index > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setLightbox(prev => ({ ...prev, index: prev.index - 1 })); }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/25 text-white rounded-full p-2 transition-all cursor-pointer"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+
+          {/* Image */}
+          <img
+            src={lightbox.images[lightbox.index]}
+            alt={`Ảnh ${lightbox.index + 1}`}
+            className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {/* Next button */}
+          {lightbox.images.length > 1 && lightbox.index < lightbox.images.length - 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setLightbox(prev => ({ ...prev, index: prev.index + 1 })); }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/25 text-white rounded-full p-2 transition-all cursor-pointer"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
     </section>

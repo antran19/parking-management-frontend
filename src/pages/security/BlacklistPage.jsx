@@ -90,6 +90,7 @@ export default function BlacklistPage({ showToast, user }) {
   // State filter/search để lọc danh sách
   const [searchText, setSearchText] = useState("");
   const [filterActive, setFilterActive] = useState("all"); // "all" | "active" | "removed"
+  const [currentPage, setCurrentPage] = useState(1);
 
   // State cho modal chi tiết và ảnh
   const [viewingImage, setViewingImage] = useState(null);
@@ -442,6 +443,11 @@ export default function BlacklistPage({ showToast, user }) {
     return matchSearch && matchStatus;
   });
 
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredBlacklist.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedBlacklist = filteredBlacklist.slice(startIndex, startIndex + itemsPerPage);
+
   // Số liệu tổng hợp
   const activeCount = blacklist.filter((p) => p.isActive !== false).length;
   const removedCount = blacklist.filter((p) => p.isActive === false).length;
@@ -451,19 +457,19 @@ export default function BlacklistPage({ showToast, user }) {
       {/* Summary badges */}
       <div className="flex flex-wrap items-center gap-3">
         <button 
-          onClick={() => setFilterActive("active")}
+          onClick={() => { setFilterActive("active"); setCurrentPage(1); }}
           className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${filterActive === "active" ? "bg-red-600 text-white shadow-md ring-2 ring-red-200 ring-offset-1" : "bg-red-50 border border-red-100 text-red-700 hover:bg-red-100"}`}
         >
           🚫 Đang chặn: {activeCount}
         </button>
         <button 
-          onClick={() => setFilterActive("removed")}
+          onClick={() => { setFilterActive("removed"); setCurrentPage(1); }}
           className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${filterActive === "removed" ? "bg-slate-600 text-white shadow-md ring-2 ring-slate-200 ring-offset-1" : "bg-slate-100 border border-slate-200 text-slate-500 hover:bg-slate-200"}`}
         >
           ✅ Đã gỡ: {removedCount}
         </button>
         <button 
-          onClick={() => setFilterActive("all")}
+          onClick={() => { setFilterActive("all"); setCurrentPage(1); }}
           className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${filterActive === "all" ? "bg-blue-600 text-white shadow-md ring-2 ring-blue-200 ring-offset-1" : "bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100"}`}
         >
           📋 Tổng cộng: {blacklist.length}
@@ -674,13 +680,13 @@ export default function BlacklistPage({ showToast, user }) {
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
             <input
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1); }}
               placeholder="Tìm biển số hoặc mô tả..."
               className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-red-300 focus:ring-2 focus:ring-red-100"
             />
             <select
               value={filterActive}
-              onChange={(e) => setFilterActive(e.target.value)}
+              onChange={(e) => { setFilterActive(e.target.value); setCurrentPage(1); }}
               className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none"
             >
               <option value="all">Tất cả</option>
@@ -691,7 +697,7 @@ export default function BlacklistPage({ showToast, user }) {
 
           {!loading && (
             <p className="mb-3 text-xs text-slate-400 font-semibold">
-              Hiển thị {filteredBlacklist.length}/{blacklist.length} biển số
+              Hiển thị {filteredBlacklist.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + itemsPerPage, filteredBlacklist.length)} trên tổng số {filteredBlacklist.length} biển số (Trang {currentPage}/{totalPages || 1})
             </p>
           )}
 
@@ -701,7 +707,7 @@ export default function BlacklistPage({ showToast, user }) {
             <Empty text={searchText ? "Không tìm thấy biển số phù hợp." : "Chưa có biển số nào trong blacklist."} />
           ) : (
             <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-              {filteredBlacklist.map((item) => {
+              {paginatedBlacklist.map((item) => {
                 const isActive = item.isActive !== false;
                 return (
                   <div key={item.id} onClick={() => setViewingBlacklistDetail(item)} className={`cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col gap-2 ${!isActive ? "opacity-60" : ""}`}>
@@ -741,7 +747,7 @@ export default function BlacklistPage({ showToast, user }) {
 
                     {/* Image Thumbnails */}
                     {(() => {
-                      const validImages = item.imageUrls ? item.imageUrls.filter(url => url && url.startsWith('http')) : [];
+                      const validImages = item.imageUrls ? item.imageUrls.filter(url => url) : [];
                       return validImages.length > 0 ? (
                         <div className="flex flex-wrap gap-2 mt-1">
                           {validImages.map((url, idx) => (
@@ -762,6 +768,41 @@ export default function BlacklistPage({ showToast, user }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Phân trang */}
+          {!loading && totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+              >
+                Trước
+              </button>
+              <div className="flex items-center gap-1 overflow-x-auto max-w-[200px] sm:max-w-none custom-scrollbar pb-1 sm:pb-0">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-sm font-medium transition-colors ${
+                      currentPage === page
+                        ? "border-red-600 bg-red-600 text-white shadow-sm"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+              >
+                Tiếp
+              </button>
             </div>
           )}
         </Panel>
