@@ -200,6 +200,7 @@ export default function ProfileTab({
   const [selectedPassDetail, setSelectedPassDetail] = useState(null);
   const [selectedVehicleDetail, setSelectedVehicleDetail] = useState(null);
   const [profileSectionTab, setProfileSectionTab] = useState("MARKETPLACE");
+  const [plateSearchQuery, setPlateSearchQuery] = useState("");
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -647,16 +648,33 @@ export default function ProfileTab({
     };
   }).filter((group) => group.passes.length > 0);
 
+  const matchPlateSearch = (plate, code) => {
+    if (!plateSearchQuery.trim()) return true;
+    const q = plateSearchQuery.toLowerCase().trim();
+    const cleanQ = q.replace(/[^a-z0-9]/g, "");
+    const rawPlate = (plate || "").toLowerCase();
+    const cleanPlate = rawPlate.replace(/[^a-z0-9]/g, "");
+    const rawCode = (code || "").toLowerCase();
+    return rawPlate.includes(q) || cleanPlate.includes(cleanQ) || rawCode.includes(q);
+  };
+
   const pendingPasses = myPasses.filter((p) => p.status === "PENDING_PAYMENT");
+  const filteredPendingPasses = pendingPasses.filter((p) => matchPlateSearch(p.licensePlate, p.parkingPassCode));
+
   const expiredPasses = myPasses.filter(
     (p) => !["ACTIVE", "PENDING_PAYMENT"].includes(p.status),
   );
+  const filteredExpiredPasses = expiredPasses.filter((p) => matchPlateSearch(p.licensePlate, p.parkingPassCode));
+
+  const filteredVehicleRegistry = displayedVehicleRegistry.filter((v) =>
+    matchPlateSearch(getPlateValue(v))
+  );
 
   const EXPIRED_PASS_PAGE_SIZE = 5;
-  const totalExpiredPassesPages = Math.ceil(expiredPasses.length / EXPIRED_PASS_PAGE_SIZE);
+  const totalExpiredPassesPages = Math.ceil(filteredExpiredPasses.length / EXPIRED_PASS_PAGE_SIZE);
   const currentExpiredPassesPage = Math.max(1, Math.min(expiredPassesPage, totalExpiredPassesPages || 1));
 
-  const visibleExpiredPasses = expiredPasses.slice(
+  const visibleExpiredPasses = filteredExpiredPasses.slice(
     (currentExpiredPassesPage - 1) * EXPIRED_PASS_PAGE_SIZE,
     currentExpiredPassesPage * EXPIRED_PASS_PAGE_SIZE,
   );
@@ -1010,30 +1028,66 @@ export default function ProfileTab({
       {/* ===== QUẢN LÝ BIỂN SỐ XE ===== */}
       {profileSectionTab === "PLATES" && (
         <div className="action-panel-item overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 bg-gradient-to-r from-slate-950 to-slate-800 p-6 text-white md:p-8">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-200">
-              Vehicle Registry
-            </p>
-            <h4 className="mt-2 text-xl font-black tracking-tight">
-              Danh sách biển số xe đăng ký
-            </h4>
-            <p className="mt-2 text-xs font-medium text-slate-400">
-              Các biển số này được dùng khi đặt chỗ, check-in và tra cứu phiên gửi
-              xe.
-            </p>
+          <div className="border-b border-slate-100 bg-gradient-to-r from-slate-950 to-slate-800 p-6 text-white md:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-200">
+                Vehicle Registry
+              </p>
+              <h4 className="mt-2 text-xl font-black tracking-tight">
+                Danh sách biển số xe đăng ký
+              </h4>
+              <p className="mt-2 text-xs font-medium text-slate-400">
+                Các biển số này được dùng khi đặt chỗ, check-in và tra cứu phiên gửi
+                xe.
+              </p>
+            </div>
+
+            <div className="relative w-full md:w-64">
+              <svg
+                className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              <input
+                type="text"
+                placeholder="Lọc biển số (vd: 30A, 79H3)..."
+                value={plateSearchQuery}
+                onChange={(e) => setPlateSearchQuery(e.target.value)}
+                className="w-full rounded-xl border border-white/20 bg-white/10 py-2 pl-9 pr-8 text-xs font-semibold text-white placeholder-slate-400 backdrop-blur-md transition focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
+              />
+              {plateSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setPlateSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
           <div className="space-y-6 p-6 md:p-8">
             <div>
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-3.5">
-                Phương tiện và mã xe đạp đã đăng ký
+                Phương tiện và mã xe đạp đã đăng ký ({filteredVehicleRegistry.length})
               </span>
-              {displayedVehicleRegistry.length === 0 ? (
+              {filteredVehicleRegistry.length === 0 ? (
                 <p className="text-slate-400 font-bold italic py-2 text-xs">
-                  Chưa có phương tiện nào được liên kết với tài khoản.
+                  {plateSearchQuery
+                    ? `Không tìm thấy biển số nào khớp với "${plateSearchQuery}".`
+                    : "Chưa có phương tiện nào được liên kết với tài khoản."}
                 </p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {displayedVehicleRegistry.map((plate, idx) => {
+                  {filteredVehicleRegistry.map((plate, idx) => {
                     const isBicyclePass = plate.source === "BICYCLE_PASS";
                     const passLabel =
                       PASS_TYPE_INFO[plate.passType]?.label || "Gói hội viên";
@@ -1352,15 +1406,57 @@ export default function ProfileTab({
       {profileSectionTab === "PENDING" && (
         pendingPasses.length > 0 ? (
           <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 md:p-8">
-            <h4 className="text-sm font-extrabold text-amber-900 uppercase tracking-[0.18em]">
-              Đơn chờ thanh toán ({pendingPasses.length})
-            </h4>
-            <p className="mt-1 text-xs font-medium text-amber-700/70">
-              Các gói này đã tạo đơn nhưng chưa được VNPay xác nhận thanh toán
-              thành công.
-            </p>
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-              {pendingPasses.map((pass) => (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-extrabold text-amber-900 uppercase tracking-[0.18em]">
+                  Đơn chờ thanh toán ({filteredPendingPasses.length})
+                </h4>
+                <p className="mt-1 text-xs font-medium text-amber-700/70">
+                  Các gói này đã tạo đơn nhưng chưa được VNPay xác nhận thanh toán
+                  thành công.
+                </p>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <svg
+                  className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Lọc biển số (vd: 30A, 79H3)..."
+                  value={plateSearchQuery}
+                  onChange={(e) => setPlateSearchQuery(e.target.value)}
+                  className="w-full rounded-xl border border-amber-200 bg-white py-2 pl-9 pr-8 text-xs font-semibold text-slate-800 placeholder-slate-400 shadow-sm transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
+                {plateSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setPlateSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {filteredPendingPasses.length === 0 ? (
+              <div className="py-8 text-center text-xs font-bold text-amber-700/70">
+                Không tìm thấy đơn chờ thanh toán nào khớp với biển số "{plateSearchQuery}".
+              </div>
+            ) : (
+              <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredPendingPasses.map((pass) => (
                 <div
                   key={pass.id}
                   className="rounded-2xl border border-amber-200 bg-white p-5 text-xs shadow-sm"
@@ -1412,7 +1508,8 @@ export default function ProfileTab({
                 </div>
               ))}
             </div>
-          </div>
+          )}
+        </div>
         ) : (
           <EmptyProfileSection
             title="Không có đơn chờ thanh toán"
@@ -1437,6 +1534,38 @@ export default function ProfileTab({
                     <p className="mt-1 text-xs font-medium text-slate-400">
                       Chọn loại xe để xem chi tiết các gói đăng ký tương ứng.
                     </p>
+                  </div>
+
+                  <div className="relative w-full sm:w-64">
+                    <svg
+                      className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+                    <input
+                      type="text"
+                      placeholder="Lọc biển số (vd: 30A, 79H3)..."
+                      value={plateSearchQuery}
+                      onChange={(e) => setPlateSearchQuery(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-8 text-xs font-semibold text-slate-800 placeholder-slate-400 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                    {plateSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setPlateSearchQuery("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1596,7 +1725,7 @@ export default function ProfileTab({
       {profileSectionTab === "EXPIRED" && (
         expiredPasses.length > 0 ? (
           <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
-            <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-rose-50/40 p-6 md:flex-row md:items-end md:justify-between">
+            <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-rose-50/40 p-6 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.22em] text-rose-500">
                   Expired / Cancelled Passes
@@ -1611,13 +1740,61 @@ export default function ProfileTab({
                 </p>
               </div>
 
-              <span className="w-fit rounded-full border border-rose-100 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-rose-600">
-                {expiredPasses.length} gói
-              </span>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                {/* Thanh tìm kiếm / lọc biển số xe */}
+                <div className="relative w-full sm:w-64">
+                  <svg
+                    className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="Lọc biển số (vd: 30A, 79H3)..."
+                    value={plateSearchQuery}
+                    onChange={(e) => {
+                      setPlateSearchQuery(e.target.value);
+                      setExpiredPassesPage(1);
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-8 text-xs font-semibold text-slate-800 placeholder-slate-400 shadow-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-400/20"
+                  />
+                  {plateSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlateSearchQuery("");
+                        setExpiredPassesPage(1);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <span className="w-fit rounded-full border border-rose-100 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                  {filteredExpiredPasses.length} gói
+                </span>
+              </div>
             </div>
 
             <div className="space-y-3 bg-slate-50/60 p-4 md:p-5">
-              {visibleExpiredPasses.map((pass) => {
+              {visibleExpiredPasses.length === 0 ? (
+                <div className="py-8 text-center text-xs font-bold text-slate-400">
+                  {plateSearchQuery
+                    ? `Không tìm thấy gói nào khớp với biển số "${plateSearchQuery}".`
+                    : "Không có gói hết hạn hoặc đã hủy nào."}
+                </div>
+              ) : (
+                visibleExpiredPasses.map((pass) => {
                 const vehicleTypeName =
                   pass.vehicleTypeName || pass.vehicleType?.name || "Xe";
 
@@ -1690,7 +1867,7 @@ export default function ProfileTab({
                     </div>
                   </div>
                 );
-              })}
+              }))}
             </div>
 
             {totalExpiredPassesPages > 1 && (
