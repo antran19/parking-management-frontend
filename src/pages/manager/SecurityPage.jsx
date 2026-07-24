@@ -11,12 +11,6 @@ const INCIDENT_TYPE_LABELS = {
   UNPAID: "Chưa thanh toán",
   SUSPICIOUS_BEHAVIOR: "Hành vi đáng ngờ",
   OTHER: "Khác",
-
-  BLACKLIST_DETECTED: "Phát hiện biển số đen",
-  UNAUTHORIZED_ACCESS: "Truy cập trái phép",
-  TAILGATING: "Xe theo đuôi",
-  OVERSTAY: "Quá giờ",
-  SUSPICIOUS_ACTIVITY: "Hoạt động đáng ngờ",
 };
 
 const REASON_LABELS = {
@@ -193,6 +187,16 @@ const SecurityPage = () => {
 
   const unresolvedCount = incidents.filter(i => !i.resolvedAt).length;
 
+  const incidentTypeOptions = useMemo(() => {
+    const dbTypes = new Set(incidents.map(i => i.exceptionType).filter(Boolean));
+    const baseTypes = Object.keys(INCIDENT_TYPE_LABELS);
+    const combinedTypes = Array.from(new Set([...baseTypes, ...dbTypes]));
+    return combinedTypes.map(type => ({
+      value: type,
+      label: INCIDENT_TYPE_LABELS[type] || type,
+    }));
+  }, [incidents]);
+
   const visibleIncidents = useMemo(() => {
     let list = showResolved ? incidents : incidents.filter(i => !i.resolvedAt);
     if (typeFilter !== "ALL") list = list.filter(i => i.exceptionType === typeFilter);
@@ -321,11 +325,11 @@ const SecurityPage = () => {
                   <select
                     value={typeFilter}
                     onChange={e => setTypeFilter(e.target.value)}
-                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 bg-white"
+                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 bg-white cursor-pointer"
                   >
                     <option value="ALL">Tất cả loại</option>
-                    {Object.entries(INCIDENT_TYPE_LABELS).map(([type, label]) => (
-                      <option key={type} value={type}>{label}</option>
+                    {incidentTypeOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
                 </div>
