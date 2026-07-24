@@ -782,9 +782,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
                     </div>
 
                     {/* Action buttons */}
-
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {!isResolved && canResolve && (
+                      {!isResolved && (
                         <button onClick={(e) => { e.stopPropagation(); openResolveModal(log); }} className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded shadow-sm transition-colors whitespace-nowrap">
 
                           Giải quyết
@@ -983,7 +982,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
                       <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
                       <div className="flex items-stretch gap-2">
                         <span className="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm whitespace-nowrap">
-                          {viewingLogDetail.licensePlate}
+                          {viewingLogDetail.licensePlate !== "Chưa xác định" ? formatLicensePlate(viewingLogDetail.licensePlate, viewingLogDetail.vehicleType) : viewingLogDetail.licensePlate}
                         </span>
                         {viewingLogDetail.vehicleType && (
                           <span className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 shadow-sm whitespace-nowrap">
