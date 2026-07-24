@@ -13,6 +13,13 @@ import ParkingDigitalTwin3D from "../manager/ParkingDigitalTwin3D";
 import VehicleSearchPage from "./VehicleSearchPage";
 import { formatLicensePlate } from "../../utils/licensePlate";
 
+const REASON_LABELS = {
+  STOLEN: "Xe trộm cắp",
+  DISTURBANCE: "Gây rối / nguy cơ an ninh",
+  UNPAID_FEE: "Nợ phí / chưa thanh toán",
+  SECURITY_RISK: "Rủi ro an ninh",
+  OTHER: "Khác",
+};
 
 /**
  * SecurityDashboard — Dashboard bảo vệ (Thiên phụ trách)
@@ -358,7 +365,7 @@ export default function SecurityDashboard({ onLogout }) {
             <h2 className="mt-2 md:mt-3 text-3xl md:text-5xl font-black">🚫 XE BLACKLIST</h2>
             <div className="mt-4 md:mt-6 grid gap-3 md:gap-4 rounded-2xl bg-black/20 p-4 md:p-5 text-left text-sm md:text-base">
               <p><span className="text-red-100">Biển số:</span> <span className="font-mono text-3xl font-black">{formatLicensePlate(blacklistAlert.licensePlate, blacklistAlert.vehicleType)}</span></p>
-              <p><span className="text-red-100">Lý do:</span> <span className="font-bold">{blacklistAlert.reason}</span></p>
+              <p><span className="text-red-100">Lý do:</span> <span className="font-bold">{REASON_LABELS[blacklistAlert.reason] || blacklistAlert.reason}</span></p>
               <p><span className="text-red-100">Cổng:</span> <span className="font-bold">{blacklistAlert.gateName || blacklistAlert.gateCode || "Không rõ cổng"}</span></p>
               <p><span className="text-red-100">Tòa nhà:</span> <span className="font-bold">{blacklistAlert.buildingName || "—"}</span></p>
             </div>
