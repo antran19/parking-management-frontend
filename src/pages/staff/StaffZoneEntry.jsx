@@ -24,6 +24,7 @@ export default function StaffZoneEntry() {
 
   const lastScannedRef = useRef({ text: "", time: 0 });
   const handleZoneCheckInRef = useRef();
+  const scannerTimeoutRef = useRef(null); // Track setTimeout để cleanup khi unmount
 
   useEffect(() => {
     handleZoneCheckInRef.current = handleZoneCheckIn;
@@ -44,7 +45,7 @@ export default function StaffZoneEntry() {
 
         // Lấy các cổng Zone đầu vào (ZONE_ENTRY hoặc ZONE_BOTH)
         const zoneGates = (config.gates || [])
-          .filter(g => g.gateType === 'ZONE_ENTRY' )
+          .filter(g => g.gateType === 'ZONE_ENTRY')
           .map(g => {
             const maintenanceLabel = g.isActive ? "" : " (BẢO TRÌ)";
             if (g.zoneId) {
@@ -77,7 +78,7 @@ export default function StaffZoneEntry() {
           const valA = getFloorVal(a.displayName);
           const valB = getFloorVal(b.displayName);
           if (valA !== valB) return valB - valA; // Cao xuống thấp
-          
+
           // Cùng tầng thì sắp xếp theo tên hiển thị
           return a.displayName.localeCompare(b.displayName);
         });
@@ -135,7 +136,14 @@ export default function StaffZoneEntry() {
       setApiSuccess("");
       setIsScannerOn(true);
 
-      setTimeout(async () => {
+      // Dọn dẹp timeout cũ nếu có
+      if (scannerTimeoutRef.current) {
+        clearTimeout(scannerTimeoutRef.current);
+        scannerTimeoutRef.current = null;
+      }
+
+      scannerTimeoutRef.current = setTimeout(async () => {
+        scannerTimeoutRef.current = null;
         try {
           const scanner = new Html5Qrcode("zone-qr-reader");
           qrScannerRef.current = scanner;
@@ -143,9 +151,9 @@ export default function StaffZoneEntry() {
           await scanner.start(
             { facingMode: "environment" },
             {
-              fps: 20,
+              fps: 13,
               qrbox: (width, height) => {
-                const size = Math.min(width, height) * 0.55;
+                const size = Math.min(width, height) * 0.70;
                 return { width: size, height: size };
               }
             },
@@ -166,8 +174,22 @@ export default function StaffZoneEntry() {
           );
         } catch (err) {
           console.error("Error starting QR scanner:", err);
-          setApiError("Không thể truy cập camera hoặc khởi động bộ quét: " + (err.message || err));
+          const errStr = String(err.message || err);
+          let friendlyError = "Không thể truy cập camera hoặc khởi động bộ quét: " + errStr;
+          if (errStr.includes("NotAllowedError") || errStr.toLowerCase().includes("permission denied")) {
+            friendlyError = "Quyền truy cập camera bị từ chối. Vui lòng click vào biểu tượng ổ khóa ở đầu thanh địa chỉ trình duyệt, bật quyền truy cập camera (Camera) cho trang web này và tải lại trang.";
+          } else if (errStr.includes("NotFoundError") || errStr.toLowerCase().includes("devicesnotfound")) {
+            friendlyError = "Không tìm thấy thiết bị camera nào được kết nối với máy tính/điện thoại của bạn.";
+          } else if (errStr.includes("NotReadableError") || errStr.toLowerCase().includes("could not start video source")) {
+            friendlyError = "Camera đang bị sử dụng bởi một ứng dụng khác. Vui lòng tắt các ứng dụng đang dùng camera và tải lại trang.";
+          }
+          setApiError(friendlyError);
           setIsScannerOn(false);
+          // Cleanup scanner khi khởi tạo thất bại để tránh lỗi cleanup khi unmount
+          if (qrScannerRef.current) {
+            try { await qrScannerRef.current.clear(); } catch (e) { /* ignore */ }
+            qrScannerRef.current = null;
+          }
         }
       }, 300);
     } catch (err) {
@@ -176,11 +198,17 @@ export default function StaffZoneEntry() {
   };
 
   const stopScanner = async () => {
+    // Hủy timeout nếu scanner chưa kịp khởi tạo
+    if (scannerTimeoutRef.current) {
+      clearTimeout(scannerTimeoutRef.current);
+      scannerTimeoutRef.current = null;
+    }
     if (qrScannerRef.current) {
       try {
         if (qrScannerRef.current.isScanning) {
           await qrScannerRef.current.stop();
         }
+        await qrScannerRef.current.clear();
       } catch (err) {
         console.error("Error stopping QR scanner:", err);
       } finally {
@@ -194,14 +222,21 @@ export default function StaffZoneEntry() {
 
   useEffect(() => {
     return () => {
+      // Hủy timeout nếu scanner chưa kịp khởi tạo
+      if (scannerTimeoutRef.current) {
+        clearTimeout(scannerTimeoutRef.current);
+        scannerTimeoutRef.current = null;
+      }
       if (qrScannerRef.current) {
-        qrScannerRef.current.stop()
+        const scanner = qrScannerRef.current;
+        qrScannerRef.current = null; // Xóa ref ngay để tránh gọi lại
+        // Dùng Promise chain an toàn: stop trước, clear sau, bỏ qua mọi lỗi
+        Promise.resolve()
           .then(() => {
-            if (qrScannerRef.current) {
-              qrScannerRef.current.clear();
-            }
+            if (scanner.isScanning) return scanner.stop();
           })
-          .catch(err => console.error("Lỗi stop scanner entry on unmount:", err));
+          .then(() => scanner.clear())
+          .catch(() => { /* ignore cleanup errors */ });
       }
     };
   }, []);
@@ -253,7 +288,7 @@ export default function StaffZoneEntry() {
     }
   };
 
-  
+
 
   return (
     <section className="flex-1 space-y-6 p-1">
@@ -285,7 +320,7 @@ export default function StaffZoneEntry() {
                   {isScannerOn && (
                     /* Scanning red/green laser line */
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                      
+
                     </div>
                   )}
 
@@ -448,7 +483,7 @@ export default function StaffZoneEntry() {
             </p>
           </div>
 
-          
+
 
           {/* Thông tin xe quét chi tiết */}
           {scanResult && (

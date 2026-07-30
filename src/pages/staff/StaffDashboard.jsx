@@ -16,8 +16,13 @@ const LicensePlate = ({ plate, vehicleType }) => (
  */
 export default function StaffDashboard() {
   // Lấy thông tin tài khoản đăng nhập từ localStorage
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const fullName = user.fullName || "Nguyễn Văn A";
+  let user = {};
+  try {
+    user = JSON.parse(localStorage.getItem("user") || "{}");
+  } catch (e) {
+    console.error("Failed to parse user from localStorage in StaffDashboard:", e);
+  }
+  const fullName = user?.fullName || "Nguyễn Văn A";
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -51,7 +56,12 @@ export default function StaffDashboard() {
       const backendStats = statsRes.data.data || {};
 
       // 2. Tải danh sách Zone và tính toán phân khu bảo trì
-      const closedZonesArray = JSON.parse(localStorage.getItem("closedZones") || "[]");
+      let closedZonesArray = [];
+      try {
+        closedZonesArray = JSON.parse(localStorage.getItem("closedZones") || "[]");
+      } catch (e) {
+        console.error("Failed to parse closedZones from localStorage in StaffDashboard:", e);
+      }
       setClosedZones(closedZonesArray);
 
       let zonesData = [];
@@ -231,19 +241,16 @@ export default function StaffDashboard() {
               to="/staff/check-in"
               title="Check-in xe vào"
               desc="Quét mã đặt chỗ hoặc nhập biển số"
-              icon="🚗"
             />
             <QuickAction
               to="/staff/check-out"
               title="Check-out xe ra"
               desc="Tính toán biểu phí & thu phí"
-              icon="💳"
             />
             <QuickAction
               to="/staff/map"
               title="Sơ đồ phân khu"
               desc="Điều phối vị trí trống"
-              icon="🅿️"
             />
           </div>
         </div>
@@ -461,13 +468,12 @@ function StatCard({ title, value, color }) {
 }
 
 // Component liên kết thao tác nhanh
-function QuickAction({ title, desc, to, icon }) {
+function QuickAction({ title, desc, to }) {
   return (
     <Link
       to={to}
       className="rounded-2xl border border-slate-200/65 p-6 transition-all hover:border-indigo-500/35 hover:shadow-lg hover:shadow-indigo-500/5 flex flex-col group h-full bg-white shadow-sm"
     >
-      <span className="text-2xl mb-4 p-2 bg-slate-50 rounded-xl w-fit group-hover:bg-indigo-50 transition-colors duration-250">{icon}</span>
       <p className="font-extrabold text-slate-900 group-hover:text-indigo-600 transition-colors">
         {title}
       </p>

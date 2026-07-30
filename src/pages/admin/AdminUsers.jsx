@@ -23,7 +23,7 @@ export default function AdminUsers({
           <p className="text-xs text-slate-400">Quản trị phân quyền, gán vai trò & trạng thái các nhân viên bãi đỗ.</p>
         </div>
         <button onClick={handleOpenAddUser} className="rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-purple-500/10">
-          ➕ Thêm tài khoản mới
+          Thêm tài khoản mới
         </button>
       </div>
 

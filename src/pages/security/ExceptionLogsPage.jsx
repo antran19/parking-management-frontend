@@ -65,40 +65,49 @@ function Empty({ text }) {
 // COMPONENT CHÍNH — Trang ghi nhận sự cố an ninh (Exception Logs)
 // ==============================================================
 export default function ExceptionLogsPage({ showToast, user }) {
+  // --- QUẢN LÝ TRẠNG THÁI (STATE) CỦA COMPONENT ---
+  // State quản lý danh sách sự cố và trạng thái tải dữ liệu
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(false); // Trạng thái khi đang gửi form (submit)
 
-  // Danh sách loại phương tiện tải từ API thực
+  // Danh sách loại phương tiện (xe số, xe ga, ô tô...) lấy từ cấu hình bãi xe
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [loadingConfig, setLoadingConfig] = useState(true);
 
-  // Upload file
+  // Upload file: Lưu trữ danh sách các file ảnh được chọn từ thiết bị
   const [selectedFiles, setSelectedFiles] = useState([]);
 
-  // Webcam
+  // Webcam: Các state và ref để bật/tắt camera trực tiếp trên trình duyệt
   const [showWebcam, setShowWebcam] = useState(false);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
+  const videoRef = useRef(null); // Ref để gắn stream vào thẻ <video>
+  const streamRef = useRef(null); // Ref giữ stream để tắt luồng video (track) khi không dùng nữa
 
-  // Lọc
+  // Lọc (Filter): State lưu giá trị bộ lọc trên danh sách
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchText, setSearchText] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
-  // Edit mode
+  // Edit mode: Chứa ID của sự cố đang được chỉnh sửa. Nếu null nghĩa là đang tạo mới.
   const [editingId, setEditingId] = useState(null);
 
-  // Image Modal
+  // Image Modal: Chứa URL của ảnh đang được phóng to
   const [viewingImage, setViewingImage] = useState(null);
 
-  // Detail Modal
+  // Detail Modal: Chứa object sự cố đang xem chi tiết (mở modal)
   const [viewingLogDetail, setViewingLogDetail] = useState(null);
 
-  // Resolve Modal
+  // Resolve Modal (Giải quyết sự cố): State quản lý luồng "Đánh dấu đã giải quyết"
   const [resolvingLog, setResolvingLog] = useState(null);
+  const [canResolve, setCanResolve] = useState(false);
+  useEffect(() => {
+    staffApi.getMyPermissions()
+      .then((res) => setCanResolve(!!res.data?.data?.canResolveIncident))
+      .catch(() => setCanResolve(false));
+  }, []);
   const [resolveForm, setResolveForm] = useState({
-    resolutionNote: "",
+    resolutionNote: "", // Ghi chú lý do / kết quả giải quyết
     selectedFiles: [],
   });
   const [resolvingSubmitting, setResolvingSubmitting] = useState(false);
@@ -106,10 +115,10 @@ export default function ExceptionLogsPage({ showToast, user }) {
   const resolveVideoRef = useRef(null);
   const resolveStreamRef = useRef(null);
 
-  // State: Có liên quan phương tiện hay không?
+  // State: Có liên quan phương tiện hay không? (để hiện/ẩn ô nhập biển số)
   const [isVehicleRelated, setIsVehicleRelated] = useState(false);
 
-  // Form
+  // Form: State lưu trữ dữ liệu của Form tạo mới hoặc chỉnh sửa sự cố
   const [form, setForm] = useState({
     exceptionType: "LOST_TICKET",
     description: "",
@@ -120,6 +129,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
     existingImages: [],
   });
 
+  // Hàm xử lý sự kiện khi người dùng nhập xong biển số (blur khỏi ô input)
+  // Tính năng: Tự động format biển số chuẩn (VD: 59A112345 -> 59A1-123.45)
+  // và gọi API kiểm tra xem xe này có đang đỗ trong bãi hay không.
   const handleLicensePlateBlur = async () => {
     if (!isVehicleRelated) return;
 
@@ -137,9 +149,14 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
       if (!editingId) {
         try {
-          await staffApi.getActiveSessionByPlate(formattedPlate);
+          const checkRes = await staffApi.checkPlateForException(formattedPlate);
+          const { hasActiveSession, hasActivePass } = checkRes.data.data;
+          if (!hasActiveSession && !hasActivePass) {
+            showToast("Hiện tại xe chưa có trong bãi và không có gói cước hoạt động", "error");
+            setForm(prev => ({ ...prev, licensePlate: "" }));
+          }
         } catch (err) {
-          showToast("Hiện tại xe chưa có trong bãi", "error");
+          showToast(err.response?.data?.message || "Lỗi khi kiểm tra biển số xe", "error");
           setForm(prev => ({ ...prev, licensePlate: "" }));
         }
       }
@@ -152,7 +169,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
     setForm({ ...form, sessionId: val });
   };
 
-  // Fetch logs
+  // Hàm gọi API lấy danh sách toàn bộ sự cố từ Server
+  // Sau khi lấy về sẽ sắp xếp theo thời gian mới nhất (descending)
   const fetchLogs = async () => {
     setLoading(true);
     try {
@@ -221,7 +239,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
     e.target.value = null;
   };
 
-  // Webcam
+  // --- CÁC HÀM XỬ LÝ WEBCAM VÀ ẢNH ---
+  // Hàm xin quyền và bật camera của thiết bị (máy tính/điện thoại)
   const startWebcam = async () => {
     setShowWebcam(true);
     try {
@@ -234,6 +253,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
+  // Hàm tắt camera, giải phóng tài nguyên khi không dùng nữa
   const stopWebcam = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -242,6 +262,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
     setShowWebcam(false);
   };
 
+  // Hàm chụp ảnh từ camera: Lấy khung hình hiện tại trên thẻ <video> vẽ ra <canvas> rồi convert sang file ảnh
   const captureImage = () => {
     if (videoRef.current) {
       const canvas = document.createElement("canvas");
@@ -392,6 +413,8 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
+  // Hàm gọi API để lưu thông tin "Giải quyết sự cố"
+  // Sẽ upload ảnh lên Cloudinary (nếu có) trước, sau đó gửi data giải quyết lên backend
   const submitResolve = async (e) => {
     e.preventDefault();
     if (!user?.id) {
@@ -440,7 +463,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
-  // Submit Form (Create / Edit)
+  // --- HÀM SUBMIT FORM CHÍNH ---
+  // Hàm xử lý gửi dữ liệu khi tạo mới hoặc chỉnh sửa sự cố
+  // Sẽ validate dữ liệu, upload ảnh lên Cloudinary (nếu có) và gọi API tương ứng
   const submitException = async (e) => {
     e.preventDefault();
     if (!form.description.trim()) {
@@ -458,9 +483,14 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
       if (!editingId) {
         try {
-          await staffApi.getActiveSessionByPlate(formattedPlate);
+          const checkRes = await staffApi.checkPlateForException(formattedPlate);
+          const { hasActiveSession, hasActivePass } = checkRes.data.data;
+          if (!hasActiveSession && !hasActivePass) {
+            showToast("Hiện tại xe chưa có trong bãi và không có gói cước hoạt động", "error");
+            return;
+          }
         } catch (err) {
-          showToast("Hiện tại xe chưa có trong bãi", "error");
+          showToast(err.response?.data?.message || "Lỗi khi kiểm tra biển số xe", "error");
           return;
         }
       }
@@ -529,6 +559,9 @@ export default function ExceptionLogsPage({ showToast, user }) {
     }
   };
 
+  // --- LOGIC LỌC DỮ LIỆU HIỂN THỊ ---
+  // Mảng chứa các sự cố sau khi đã đi qua các bộ lọc (Loại, Trạng thái, Tìm kiếm)
+  // Đây là mảng sẽ được dùng để render ra danh sách trên UI thay vì mảng 'logs' gốc
   const filteredLogs = logs.filter((log) => {
     const matchType = filterType === "all" || log.exceptionType === filterType;
     const matchStatus =
@@ -541,6 +574,11 @@ export default function ExceptionLogsPage({ showToast, user }) {
       (log.licensePlate || "").toLowerCase().includes(searchText.toLowerCase());
     return matchType && matchStatus && matchSearch;
   });
+
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedLogs = filteredLogs.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] mt-8 relative">
@@ -692,15 +730,15 @@ export default function ExceptionLogsPage({ showToast, user }) {
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1); }}
             placeholder="Tìm theo mô tả hoặc biển số..."
             className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none"
           />
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
+          <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setCurrentPage(1); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
             <option value="all">Tất cả loại</option>
             {Object.entries(EXCEPTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
+          <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setCurrentPage(1); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-600 outline-none min-w-[140px]">
             <option value="all">Tất cả trạng thái</option>
             <option value="pending">⏳ Đang xử lý</option>
             <option value="resolved">✓ Đã giải quyết</option>
@@ -709,7 +747,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
         {!loading && (
           <p className="mb-3 text-xs text-slate-400 font-semibold">
-            Hiển thị {filteredLogs.length}/{logs.length} sự cố
+            Hiển thị {filteredLogs.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + itemsPerPage, filteredLogs.length)} trên tổng số {filteredLogs.length} sự cố (Trang {currentPage}/{totalPages || 1})
           </p>
         )}
 
@@ -719,7 +757,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
           <Empty text="Không tìm thấy sự cố phù hợp." />
         ) : (
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-            {filteredLogs.map((log) => {
+            {paginatedLogs.map((log) => {
               const isResolved = log.status === "RESOLVED";
               return (
                 <div key={log.id} onClick={() => setViewingLogDetail(log)} className="cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:bg-slate-50 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col gap-2">
@@ -738,7 +776,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
                       {log.licensePlate && (
                         <div className="flex items-center gap-1">
                           <span className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-black tracking-widest text-slate-900 shadow-sm">
-                            {log.licensePlate}
+                            {log.licensePlate !== "Chưa xác định" ? formatLicensePlate(log.licensePlate, log.vehicleType) : log.licensePlate}
                           </span>
                           {log.vehicleType && (
                             <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
@@ -750,14 +788,14 @@ export default function ExceptionLogsPage({ showToast, user }) {
                     </div>
 
                     {/* Action buttons */}
-                    <div className="flex items-center gap-2">
-                      {!isResolved && (
-                        <button onClick={(e) => { e.stopPropagation(); openResolveModal(log); }} className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {!isResolved && canResolve && (
+                        <button onClick={(e) => { e.stopPropagation(); openResolveModal(log); }} className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded shadow-sm transition-colors whitespace-nowrap">
                           Giải quyết
                         </button>
                       )}
                       {!isResolved && (
-                        <button onClick={(e) => { e.stopPropagation(); handleEdit(log); }} className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-2 py-1 rounded shadow-sm transition-colors">
+                        <button onClick={(e) => { e.stopPropagation(); handleEdit(log); }} className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-2 py-1 rounded shadow-sm transition-colors whitespace-nowrap">
                           Sửa
                         </button>
                       )}
@@ -766,35 +804,28 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
                   {/* Body */}
                   <div className="text-sm font-medium leading-relaxed text-slate-700 my-1">
-                    {(() => {
-                      const fullDesc = log.description || "—";
-                      const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
-                      if (separatorRegex.test(fullDesc)) {
-                        const [desc, res] = fullDesc.split(separatorRegex);
-                        return (
-                          <div className="flex flex-col gap-2.5">
-                            <p className="whitespace-pre-wrap">{desc.trim()}</p>
-                            <div className="rounded-xl border-l-2 border-emerald-400 bg-emerald-50/70 p-3 shadow-inner">
-                              <span className="block text-[9px] font-black uppercase tracking-wider text-emerald-600 mb-1 flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                Ghi chú giải quyết
-                              </span>
-                              <p className="font-semibold text-emerald-900 text-xs whitespace-pre-wrap">{res.trim()}</p>
-                            </div>
-                          </div>
-                        );
-                      }
-                      return <p className="whitespace-pre-wrap">{fullDesc.trim()}</p>;
-                    })()}
+                    <div className="flex flex-col gap-2.5">
+                      <p className="whitespace-pre-wrap">{log.description || "—"}</p>
+                      {log.resolution && (
+                        <div className="rounded-xl border-l-2 border-emerald-400 bg-emerald-50/70 p-3 shadow-inner">
+                          <span className="block text-[9px] font-black uppercase tracking-wider text-emerald-600 mb-1 flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            Ghi chú giải quyết
+                          </span>
+                          <p className="font-semibold text-emerald-900 text-xs whitespace-pre-wrap">{log.resolution}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Image Thumbnails */}
                   {(() => {
-                    const validImages = log.imageUrls ? log.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http'))) : [];
-                    const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
-                    const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+                    const evidenceImages = (log.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                    const resolveImages = (log.resolutionImageUrls || []).length > 0
+                      ? log.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                      : (log.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
-                    return validImages.length > 0 ? (
+                    return (evidenceImages.length > 0 || resolveImages.length > 0) ? (
                       <div className="flex flex-wrap gap-6 mt-2">
                         {evidenceImages.length > 0 && (
                           <div className="flex-1 min-w-[120px]">
@@ -836,6 +867,40 @@ export default function ExceptionLogsPage({ showToast, user }) {
             })}
           </div>
         )}
+
+        {/* Phân trang */}
+        {!loading && totalPages > 1 && (
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+            >
+              Trước
+            </button>
+            <div className="flex items-center gap-1 overflow-x-auto max-w-[250px] sm:max-w-none custom-scrollbar pb-1 sm:pb-0">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-sm font-medium transition-colors ${currentPage === page
+                    ? "border-red-600 bg-red-600 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors"
+            >
+              Tiếp
+            </button>
+          </div>
+        )}
       </Panel>
 
       {/* Image Modal Full Size */}
@@ -855,101 +920,95 @@ export default function ExceptionLogsPage({ showToast, user }) {
 
       {/* Chi tiết sự cố Modal */}
       {viewingLogDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setViewingLogDetail(null)}>
-          <div className="relative max-w-lg w-full max-h-[90vh] overflow-y-auto rounded-3xl bg-white shadow-2xl p-8" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setViewingLogDetail(null)} className="absolute top-6 right-6 text-slate-400 hover:bg-slate-100 hover:text-slate-800 p-2 rounded-full transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-
-            <h3 className="text-2xl font-black text-slate-900 mb-6 flex items-center gap-3">
-              <span className="text-3xl">📋</span> Chi tiết sự cố
-            </h3>
-
-            <div className="space-y-6">
-              {/* Type and Status */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Loại sự cố</span>
-                  <span className={`inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border ${EXCEPTION_BADGE_COLOR[viewingLogDetail.exceptionType] || "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                    {EXCEPTION_LABELS[viewingLogDetail.exceptionType] || viewingLogDetail.exceptionType}
-                  </span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setViewingLogDetail(null)}>
+          <div className="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-xl border border-slate-200/80 p-6 space-y-5 transform transition-all scale-100" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+              <div className="flex gap-4 items-start">
+                {/* Icon */}
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 border border-indigo-200 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <svg className="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                 </div>
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="block text-xs font-black tracking-widest uppercase text-slate-400 mb-2">Trạng thái</span>
-                  <span className={`inline-block rounded-full px-3 py-1.5 text-xs font-black tracking-wider uppercase border ${viewingLogDetail.status === "RESOLVED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
-                    {viewingLogDetail.status === "RESOLVED" ? "✓ Đã giải quyết" : "⏳ Đang xử lý"}
-                  </span>
+                {/* Title & Badges */}
+                <div className="flex flex-col gap-1.5">
+                  <h3 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-800 to-slate-800 leading-tight">Chi tiết sự cố an ninh</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-0.5 font-mono text-[11px] font-bold tracking-widest text-slate-700 shadow-sm">
+                      {viewingLogDetail.licensePlate ? (viewingLogDetail.licensePlate !== "Chưa xác định" ? formatLicensePlate(viewingLogDetail.licensePlate, viewingLogDetail.vehicleType) : viewingLogDetail.licensePlate) : "—"}
+                    </span>
+                    <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${viewingLogDetail.status === "RESOLVED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                      {viewingLogDetail.status === "RESOLVED" ? "✓ Đã giải quyết" : "⏳ Chưa giải quyết"}
+                    </span>
+                  </div>
                 </div>
               </div>
+              <button onClick={() => setViewingLogDetail(null)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full p-1.5 transition-colors cursor-pointer self-start -mt-1 -mr-1">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
 
-              {/* Vehicle & Session info */}
-              {(viewingLogDetail.licensePlate || viewingLogDetail.sessionId) && (
-                <div className="grid grid-cols-2 gap-4">
-                  {viewingLogDetail.licensePlate && (
-                    <div>
-                      <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
-                      <div className="flex items-stretch gap-2">
-                        <span className="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm whitespace-nowrap">
-                          {viewingLogDetail.licensePlate}
-                        </span>
-                        {viewingLogDetail.vehicleType && (
-                          <span className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 shadow-sm whitespace-nowrap">
-                            {viewingLogDetail.vehicleType}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
+            {/* Body */}
+            <div className="space-y-4 text-sm text-slate-700">
+              {/* Loại sự cố */}
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Loại sự cố</p>
+                <p className="font-semibold">{EXCEPTION_LABELS[viewingLogDetail.exceptionType] || viewingLogDetail.exceptionType || "—"}</p>
+              </div>
+
+              {/* Mô tả */}
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Mô tả</p>
+                <p className="whitespace-pre-wrap text-slate-700">{viewingLogDetail.description || "Không có mô tả."}</p>
+              </div>
 
 
+              {/* Ảnh minh chứng sự cố */}
+              {viewingLogDetail.imageUrls && viewingLogDetail.imageUrls.filter(url => url && !url.startsWith('[RESOLVE]')).length > 0 && (
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Ảnh minh chứng sự cố</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {viewingLogDetail.imageUrls.filter(url => url && !url.startsWith('[RESOLVE]')).map((url, idx) => (
+                      <img
+                        key={idx}
+                        src={url}
+                        alt={`Ảnh sự cố ${idx + 1}`}
+                        className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={(e) => { e.stopPropagation(); setViewingImage(url); }}
+                        onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f1f5f9" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%2394a3b8" font-size="10">Không tải được</text></svg>'; }}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {/* Description and Resolution */}
-              {(() => {
-                const fullDesc = viewingLogDetail.description || "Không có mô tả chi tiết.";
-                const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
+              {/* Người xử lý */}
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Người xử lý</p>
+                <p className="font-semibold">{viewingLogDetail.handledBy || "Chưa có"}</p>
+              </div>
 
-                if (separatorRegex.test(fullDesc)) {
-                  const [desc, res] = fullDesc.split(separatorRegex);
-                  return (
-                    <div className="space-y-4">
-                      <div>
-                        <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
-                        <div className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-4 leading-relaxed shadow-inner">
-                          <p>{desc.trim()}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <span className="block text-xs font-bold uppercase text-emerald-600 mb-2 flex items-center gap-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                          Ghi chú giải quyết
-                        </span>
-                        <div className="text-sm font-medium text-emerald-950 whitespace-pre-wrap rounded-2xl bg-emerald-50 border border-emerald-200 p-4 leading-relaxed shadow-inner">
-                          <p>{res.trim()}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div>
-                    <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Mô tả chi tiết</span>
-                    <div className="text-sm font-medium text-slate-700 whitespace-pre-wrap rounded-2xl bg-slate-50/50 border border-slate-200 p-4 leading-relaxed shadow-inner">
-                      <p>{fullDesc.trim()}</p>
-                    </div>
+              {/* Phần giải quyết - chỉ hiện khi đã giải quyết */}
+              {viewingLogDetail.status === "RESOLVED" && (
+                <>
+                  <div className="pt-2 border-t border-slate-100">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Phương án giải quyết</p>
+                    <p className="font-semibold text-slate-800 whitespace-pre-wrap">
+                      {viewingLogDetail.resolution || "Không có chi tiết giải quyết."}
+                    </p>
                   </div>
-                );
-              })()}
 
               {/* Images */}
-              {viewingLogDetail.imageUrls?.length > 0 && (() => {
-                const validImages = viewingLogDetail.imageUrls.filter(url => url && (url.startsWith('http') || url.startsWith('[RESOLVE]http')));
-                const evidenceImages = validImages.filter(url => !url.startsWith('[RESOLVE]'));
-                const resolveImages = validImages.filter(url => url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+              {(viewingLogDetail.imageUrls?.length > 0 || viewingLogDetail.resolutionImageUrls?.length > 0) && (() => {
+                const evidenceImages = (viewingLogDetail.imageUrls || []).filter(url => url && !url.startsWith('[RESOLVE]'));
+                const resolveImages = (viewingLogDetail.resolutionImageUrls || []).length > 0
+                  ? viewingLogDetail.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                  : (viewingLogDetail.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
 
-                if (validImages.length === 0) return null;
+                if (evidenceImages.length === 0 && resolveImages.length === 0) return null;
 
                 return (
                   <div className="flex flex-wrap gap-8">
@@ -985,31 +1044,30 @@ export default function ExceptionLogsPage({ showToast, user }) {
                     )}
                   </div>
                 );
-              })()}
+                  })()}
+                </>
+              )}
 
-              {/* Footer info */}
-              <div className="pt-6 mt-4 border-t border-slate-100 flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="font-bold text-slate-700">Người ghi nhận:</span>
-                  <span className="font-medium text-slate-600">{viewingLogDetail.handledBy || "—"}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="font-bold text-slate-700">Thời gian tạo:</span>
-                  <span className="font-medium text-slate-600">{formatTime(viewingLogDetail.createdAt)}</span>
-                </div>
-                {viewingLogDetail.status === "RESOLVED" && viewingLogDetail.resolvedAt && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="font-bold text-emerald-700">Thời gian xử lý:</span>
-                    <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">{formatTime(viewingLogDetail.resolvedAt)}</span>
-                  </div>
-                )}
+              {/* Timestamps */}
+              <div className="text-slate-500 text-xs pt-2 border-t border-slate-100">
+                Tạo lúc {viewingLogDetail.createdAt ? formatTime(viewingLogDetail.createdAt) : "—"}
+                {viewingLogDetail.resolvedAt && ` · Giải quyết lúc ${formatTime(viewingLogDetail.resolvedAt)}`}
               </div>
             </div>
 
-            <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end">
-              <button onClick={() => setViewingLogDetail(null)} className="rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-8 py-3.5 transition-colors active:scale-95 shadow-sm">
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+              <button onClick={() => setViewingLogDetail(null)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-xl transition-all cursor-pointer">
                 Đóng
               </button>
+              {viewingLogDetail.status !== "RESOLVED" && canResolve && (
+                <button
+                  onClick={() => { setViewingLogDetail(null); openResolveModal(viewingLogDetail); }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl transition-all shadow-md shadow-rose-100 cursor-pointer"
+                >
+                  Giải quyết
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1049,7 +1107,7 @@ export default function ExceptionLogsPage({ showToast, user }) {
                   <span className="block text-xs font-bold uppercase text-slate-500 mb-2">Biển số xe</span>
                   <div className="flex items-stretch gap-2">
                     <span className="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-4 py-2 font-mono text-xl font-black tracking-widest text-slate-900 shadow-sm whitespace-nowrap">
-                      {resolvingLog.licensePlate}
+                      {resolvingLog.licensePlate !== "Chưa xác định" ? formatLicensePlate(resolvingLog.licensePlate, resolvingLog.vehicleType) : resolvingLog.licensePlate}
                     </span>
                     {resolvingLog.vehicleType && (
                       <span className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 shadow-sm whitespace-nowrap">

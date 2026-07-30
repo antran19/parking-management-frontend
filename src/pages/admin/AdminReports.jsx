@@ -4,7 +4,6 @@ export default function AdminReports({
   todayRevenue,
   todaySessionRevenue,
   todayPaymentRevenue,
-  sessions,
   payments,
   occupancyPercent,
   activePassesCount,
@@ -14,12 +13,21 @@ export default function AdminReports({
   maxWeeklyVal,
 }) {
   const weekTotal = weeklyRevenueData.reduce((s, d) => s + d.raw, 0);
-  const monthlyPaymentRevenue = payments
-    .filter(p => { if (!p.paidAt) return false; const d = p.paidAt; const now = new Date(); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
+  // Doanh thu chỉ cộng từ `payments` (nguồn duy nhất, không trùng lặp) — mỗi lượt checkout
+  // backend đều ghi cả session.totalFee LẪN 1 Payment record riêng cho cùng giao dịch, nên
+  // cộng thêm sessions.fee vào đây sẽ bị tính gấp đôi. referenceType thật của Payment vé định
+  // kỳ là "PASS" (không phải "MONTHLY_PASS" như comment trong Payment.java ghi).
+  const paymentsThisMonth = payments.filter(p => {
+    if (!p.paidAt) return false;
+    const d = p.paidAt; const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  const monthlySessionRevenue = paymentsThisMonth
+    .filter(p => p.referenceType === "SESSION")
     .reduce((s, p) => s + p.amount, 0);
-  const monthlySessionRevenue = sessions
-    .filter(s => { if (!s.exitTime) return false; const d = new Date(s.exitTime); const now = new Date(); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
-    .reduce((s, c) => s + (c.fee || 0), 0);
+  const monthlyPaymentRevenue = paymentsThisMonth
+    .filter(p => p.referenceType === "PASS")
+    .reduce((s, p) => s + p.amount, 0);
   const monthlyTotal = monthlySessionRevenue + monthlyPaymentRevenue;
   const recentPayments = [...payments].sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0)).slice(0, 8);
 
@@ -167,8 +175,8 @@ export default function AdminReports({
                 {recentPayments.map(p => (
                   <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="py-3 text-left">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${p.referenceType === "MONTHLY_PASS" ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-600"}`}>
-                        {p.referenceType === "MONTHLY_PASS" ? "Vé định kỳ" : p.referenceType === "SESSION" ? "Phí lượt" : p.referenceType}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${p.referenceType === "PASS" ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-600"}`}>
+                        {p.referenceType === "PASS" ? "Vé định kỳ" : p.referenceType === "SESSION" ? "Phí lượt" : p.referenceType}
                       </span>
                     </td>
                     <td className="py-3 text-left text-slate-600 font-medium">{p.paymentMethod === "ONLINE" ? "VNPAY" : p.paymentMethod}</td>

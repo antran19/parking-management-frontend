@@ -77,7 +77,14 @@ const RevenuePage = () => {
   const [filterTo, setFilterTo] = useState("");
 
   useEffect(() => {
-    if (filterType === "custom" && (!filterFrom || !filterTo)) return;
+    if (filterType === "custom") {
+      if (!filterFrom || !filterTo) return;
+      if (new Date(filterFrom) > new Date(filterTo)) {
+        triggerToast("Ngày bắt đầu không được lớn hơn ngày kết thúc", "error");
+        setRevenueData(null);
+        return;
+      }
+    }
 
     const fetchRevenue = async () => {
       setLoading(true);
@@ -136,9 +143,45 @@ const RevenuePage = () => {
     }));
   })();
 
+  const handleExportExcel = async () => {
+    try {
+      const params = { filterType };
+      if (filterType === 'custom') {
+        params.from = filterFrom;
+        params.to = filterTo;
+      }
+      const res = await managerApi.exportExcel('revenue', params);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'BaoCaoDoanhThu.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      triggerToast("Xuất báo cáo thành công", "success");
+    } catch (err) {
+      triggerToast("Lỗi khi xuất báo cáo", "error");
+    }
+  };
+
   return (
     <section className="flex-1 space-y-8 p-8">
       <div className="space-y-6 fade-up-element">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+          <div>
+            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Doanh thu</h3>
+            <p className="text-xs text-slate-500 mt-1">Dữ liệu thống kê doanh thu gửi xe.</p>
+          </div>
+          <button
+            onClick={handleExportExcel}
+            className="px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer w-fit"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Xuất Excel
+          </button>
+        </div>
 
         {/* Bộ lọc */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
@@ -218,7 +261,7 @@ const RevenuePage = () => {
 
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} barCategoryGap="40%">
+                  <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis
                       dataKey="label"
@@ -237,7 +280,7 @@ const RevenuePage = () => {
                       labelStyle={{ fontWeight: "bold", color: "#1e293b" }}
                       cursor={{ fill: "#f1f5f9" }}
                     />
-                    <Bar dataKey="revenue" name="Doanh thu" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="revenue" name="Doanh thu" fill="#6366f1" radius={0} barSize={24} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

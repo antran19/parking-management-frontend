@@ -167,9 +167,16 @@ export default function StaffMapping() {
     setSelectedParkedZone(zone);
     setLoadingModalList(true);
     try {
-      const res = await staffApi.getAllSessionsHistory();
-      const activeInZone = (res.data.data || []).filter(
-        s => s.status === "ACTIVE" && s.zoneId === zone.id
+      const res = await staffApi.getAllSessionsHistory({ size: 1000, status: "ACTIVE" });
+      const rawData = res.data?.data;
+      const sessionsList = Array.isArray(rawData)
+        ? rawData
+        : Array.isArray(rawData?.content)
+          ? rawData.content
+          : [];
+
+      const activeInZone = sessionsList.filter(
+        s => s.status === "ACTIVE" && String(s.zoneId || "").toLowerCase() === String(zone.id || "").toLowerCase()
       );
       setZoneSessions(activeInZone);
     } catch (err) {
@@ -185,8 +192,11 @@ export default function StaffMapping() {
     setLoadingModalList(true);
     try {
       const res = await staffApi.getAllReservations({ zoneId: zone.id });
-      const activeRes = (res.data.data || []).filter(
-        r => r.status === "PENDING" || r.status === "CONFIRMED"
+      const rawData = res.data?.data;
+      const resList = Array.isArray(rawData) ? rawData : Array.isArray(rawData?.content) ? rawData.content : [];
+      const activeRes = resList.filter(
+        r => (r.status === "PENDING" || r.status === "CONFIRMED") &&
+          (!r.zoneId || String(r.zoneId).toLowerCase() === String(zone.id || "").toLowerCase())
       );
       setZoneReservations(activeRes);
     } catch (err) {
@@ -233,7 +243,7 @@ export default function StaffMapping() {
             <div class="info-row"><span>Biển số xe:</span><span class="info-value">${formatLicensePlate(res.licensePlate, res.vehicleTypeName) || "---"}</span></div>
             <div class="info-row"><span>Phương tiện:</span><span class="info-value">${res.vehicleTypeName || "---"}</span></div>
             <div class="info-row"><span>Khách hàng:</span><span class="info-value">${res.customerName || "---"}</span></div>
-            <div class="info-row"><span>Vị trí đỗ:</span><span class="info-value">${res.floorName}-ZONE-${res.zoneCode}</span></div>
+            <div class="info-row"><span>Vị trí đỗ:</span><span class="info-value">${res.floorName} - Khu ${res.zoneCode}</span></div>
             <div class="info-row"><span>Thời gian hẹn:</span><span class="info-value" style="font-size:10px;">${new Date(res.reservedFrom).toLocaleString("vi-VN")}</span></div>
             <div class="info-row"><span>Hạn đến:</span><span class="info-value" style="font-size:10px;">${new Date(res.reservedTo).toLocaleString("vi-VN")}</span></div>
             
@@ -357,98 +367,41 @@ export default function StaffMapping() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        {/* Cột trái: Bảng thống kê các Zone */}
-        <div className="lg:col-span-8 space-y-10">
-          {groups.map((group) => {
-            const matchedZones = group.zones.filter(filterZone);
-            if (matchedZones.length === 0) return null;
-            return (
-              <section key={group.category} className="space-y-6">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-md font-extrabold uppercase text-slate-900 tracking-wide">
-                    {group.category}
-                  </h2>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {matchedZones.map((zone) => {
-                    const isClosed = closedZones.has(zone.id);
-                    return (
-                      <ZoneCard
-                        key={zone.id}
-                        zone={zone}
-                        isClosed={isClosed}
-                        onViewParked={handleViewParked}
-                        onViewReserved={handleViewReserved}
-                      />
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-
-          {groups.length === 0 && (
-            <div className="text-center py-16 text-slate-550 font-bold text-sm">
-              Không tìm thấy cấu hình bãi xe nào phù hợp
-            </div>
-          )}
-        </div>
-
-        <div className="action-panel-item lg:col-span-4 space-y-6">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
-              <span className="text-xl">🗺️</span>
-              <h3 className="text-sm font-bold text-slate-800">Định vị nhanh ({activeFloor === "B1" || activeFloor === "B2" ? "Tầng Hầm" : "Tầng Nổi"})</h3>
-            </div>
-
-            {/* SVG Live Direction Map */}
-            <div className="relative rounded-2xl bg-slate-900 aspect-[4/3] w-full flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
-              <div className="absolute inset-0 bg-[linear-gradient(rgba(79,70,229,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(79,70,229,0.05)_1px,transparent_1px)] bg-[size:16px_16px]" />
-
-              <svg className="w-4/5 h-4/5 text-slate-600 z-10" viewBox="0 0 200 150">
-                <rect x="10" y="10" width="180" height="130" rx="8" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
-
-                <text x="25" y="25" className="fill-emerald-400 font-sans text-[7px] font-black tracking-widest">CỔNG VÀO</text>
-                <path d="M 10 30 L 40 30" stroke="#34d399" strokeWidth="1.5" />
-
-                <text x="130" y="138" className="fill-rose-400 font-sans text-[7px] font-black tracking-widest">CỔNG RA</text>
-                <path d="M 160 120 L 190 120" stroke="#f87171" strokeWidth="1.5" />
-
-                <line x1="85" y1="10" x2="85" y2="140" stroke="#475569" strokeWidth="1.5" strokeDasharray="3 3" />
-
-                <g className="opacity-50">
-                  <rect x="25" y="45" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                  <rect x="25" y="65" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                  <rect x="25" y="85" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
-
-                  <rect x="155" y="45" width="20" height="12" rx="1.5" fill="none" stroke="#6366f1" strokeWidth="1.5" />
-                  <text x="157" y="53" className="fill-indigo-400 font-mono text-[5px] font-bold">B1-B</text>
-                  <rect x="155" y="65" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                  <rect x="155" y="85" width="20" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                </g>
-
-                <circle cx="100" cy="75" r="16" className="fill-indigo-500/10 stroke-indigo-500/30" strokeWidth="1" />
-                <text x="100" y="78" textAnchor="middle" className="fill-indigo-400 font-sans text-[8px] font-bold">Lối di chuyển</text>
-              </svg>
-
-              <div className="absolute bottom-3 left-4 text-[9px] font-semibold text-slate-550 flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Hệ thống lưu thông thông minh
+      <div className="space-y-10">
+        {groups.map((group) => {
+          const matchedZones = group.zones.filter(filterZone);
+          if (matchedZones.length === 0) return null;
+          return (
+            <section key={group.category} className="space-y-6">
+              <div className="flex items-center gap-3">
+                <h2 className="text-md font-extrabold uppercase text-slate-900 tracking-wide">
+                  {group.category}
+                </h2>
               </div>
-            </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {matchedZones.map((zone) => {
+                  const isClosed = closedZones.has(zone.id);
+                  return (
+                    <ZoneCard
+                      key={zone.id}
+                      zone={zone}
+                      isClosed={isClosed}
+                      onViewParked={handleViewParked}
+                      onViewReserved={handleViewReserved}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+
+        {groups.length === 0 && (
+          <div className="text-center py-16 text-slate-550 font-bold text-sm">
+            Không tìm thấy cấu hình bãi xe nào phù hợp
           </div>
-
-
-
-          <div className="rounded-3xl border border-indigo-100 bg-indigo-50/50 p-6 shadow-sm space-y-3">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-600">💡 Chỉ dẫn nghiệp vụ nhân viên</h4>
-            <p className="text-xs text-indigo-900/80 leading-relaxed font-medium">
-              Nhấp trực tiếp vào con số 🔍 bên cạnh mục <b>Đang gửi</b> hoặc <b>Đặt trước</b> của phân khu đỗ để xem danh sách chi tiết các phương tiện.
-            </p>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Active Parked Sessions List Modal */}
@@ -560,7 +513,6 @@ function ZoneCard({ zone, isClosed, onViewParked, onViewReserved }) {
 
         <h3 className="mt-2 text-base font-extrabold text-slate-800 leading-snug">{zone.name}</h3>
         <p className="mt-0.5 text-[11px] font-bold text-slate-600 flex items-center gap-1">
-          <span>{zone.type === "bicycle" ? "🚲" : zone.type === "motorbike" ? "🏍️" : zone.type === "truck" ? "🚚" : "🚗"}</span>
           <span>{getVehicleLabel(zone.type)}</span>
         </p>
       </div>
@@ -624,16 +576,20 @@ function ZoneCard({ zone, isClosed, onViewParked, onViewReserved }) {
 
 // Modal hiển thị danh sách các xe đang đỗ (Đang gửi)
 function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }) {
-  const getTicketTypeLabel = (driverType, passType) => {
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
+  const getTicketTypeLabel = (driverType, passType, reservationCode) => {
     const dType = (driverType || "").toUpperCase();
     const pType = (passType || "").toUpperCase();
     if (dType === 'SUBSCRIBER') {
       const passTypeLabels = {
-        MONTHLY: "Vé tháng",
-        QUARTERLY: "Vé quý",
-        YEARLY: "Vé năm"
+        MONTHLY: "Vé đăng ký (Tháng)",
+        QUARTERLY: "Vé đăng ký (Quý)",
+        YEARLY: "Vé đăng ký (Năm)"
       };
-      return passTypeLabels[pType] || "Vé tháng";
+      const label = passTypeLabels[pType] || "Vé đăng ký (Tháng)";
+      return reservationCode ? `${label} - Đặt chỗ` : label;
     }
     if (dType === 'PRE_BOOKED') return "Vé đặt trước";
     return "Vé lượt";
@@ -648,13 +604,19 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
     return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
   };
 
+  const totalPages = Math.ceil(sessions.length / itemsPerPage);
+  const paginatedSessions = sessions.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 p-4 pt-[10vh]">
       <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-scale-up flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between bg-indigo-700 p-4 text-white shrink-0">
           <div>
             <h3 className="text-base font-extrabold uppercase tracking-wide">Danh sách xe đang gửi</h3>
-            <p className="text-xs text-slate-200 mt-0.5">Phân khu {zone.zoneCode} - Tầng {zone.name}</p>
+            <p className="text-xs text-slate-200 mt-0.5">Phân khu {zone.zoneCode} - Tầng {zone.name} • ({sessions.length} phương tiện)</p>
           </div>
           <button onClick={onClose} className="rounded-full p-1.5 hover:bg-white/10 text-white transition-colors cursor-pointer text-sm font-bold">
             ✕
@@ -685,7 +647,7 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {sessions.map((sess) => (
+                  {paginatedSessions.map((sess) => (
                     <tr key={sess.sessionId} className="hover:bg-slate-50/50">
                       <td className="p-3.5 font-mono font-bold text-slate-900">{sess.sessionCode}</td>
                       <td className="p-3.5">
@@ -700,7 +662,7 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
                             ? "bg-amber-50 text-amber-700 border border-amber-100"
                             : "bg-slate-100 text-slate-750"
                           }`}>
-                          {getTicketTypeLabel(sess.driverType, sess.passType)}
+                          {getTicketTypeLabel(sess.driverType, sess.passType, sess.reservationCode)}
                         </span>
                       </td>
                       <td className="p-3.5 text-slate-550">
@@ -717,7 +679,7 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
                         <button
                           type="button"
                           onClick={() => onViewReceipt(sess)}
-                          className="px-3 py-1.5  text-black rounded-lg text-[10px] font-bold  tracking-wider hover:bg-slate-200 cursor-pointer active:scale-95 transition-all shadow-xs border border-slate-300"
+                          className="px-3 py-1.5 text-black rounded-lg text-[10px] font-bold tracking-wider hover:bg-slate-200 cursor-pointer active:scale-95 transition-all shadow-xs border border-slate-300"
                         >
                           Biên Lai
                         </button>
@@ -730,10 +692,33 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
           )}
         </div>
 
-        <div className="flex gap-3 bg-slate-50 p-2 border-t border-slate-150 shrink-0">
+        <div className="flex items-center justify-between bg-slate-50 px-4 py-3 border-t border-slate-200 shrink-0">
+          <div className="text-xs font-bold text-slate-500">
+            Hiển thị {paginatedSessions.length} / {sessions.length} xe (Trang {currentPage}/{totalPages || 1})
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(prev => prev - 1)}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+              >
+                ◀ Trang trước
+              </button>
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(prev => prev + 1)}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+              >
+                Trang sau ▶
+              </button>
+            </div>
+          )}
+
           <button
             onClick={onClose}
-            className="ml-auto px-6 py-2.5 rounded-xl border border-slate-350 bg-white font-bold text-slate-700 hover:bg-slate-100 text-xs transition-colors cursor-pointer active:scale-95"
+            className="px-6 py-2 rounded-xl border border-slate-350 bg-white font-bold text-slate-700 hover:bg-slate-100 text-xs transition-colors cursor-pointer active:scale-95"
           >
             Đóng
           </button>
@@ -745,16 +730,17 @@ function ParkedVehiclesModal({ zone, sessions, loading, onClose, onViewReceipt }
 
 // Modal hiển thị Biên Lai của xe đang đỗ (Tương tự StaffHistory, KHÔNG có nút in)
 function ParkedReceiptModal({ session, onClose }) {
-  const getTicketTypeLabel = (driverType, passType) => {
+  const getTicketTypeLabel = (driverType, passType, reservationCode) => {
     const dType = (driverType || "").toUpperCase();
     const pType = (passType || "").toUpperCase();
     if (dType === 'SUBSCRIBER') {
       const passTypeLabels = {
-        MONTHLY: "Vé tháng",
-        QUARTERLY: "Vé quý",
-        YEARLY: "Vé năm"
+        MONTHLY: "Vé đăng ký (Tháng)",
+        QUARTERLY: "Vé đăng ký (Quý)",
+        YEARLY: "Vé đăng ký (Năm)"
       };
-      return passTypeLabels[pType] || "Vé tháng";
+      const label = passTypeLabels[pType] || "Vé đăng ký (Tháng)";
+      return reservationCode ? `${label} - Đặt chỗ` : label;
     }
     if (dType === 'PRE_BOOKED') return "Vé đặt trước";
     return "Vé lượt";
@@ -769,11 +755,12 @@ function ParkedReceiptModal({ session, onClose }) {
     return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
   };
 
-  const ticketType = getTicketTypeLabel(session.driverType, session.passType);
+  const ticketType = getTicketTypeLabel(session.driverType, session.passType, session.reservationCode);
   const duration = formatDuration(session.entryTime);
   const feeText = session.totalFee !== null && session.totalFee !== undefined
     ? `${Number(session.totalFee).toLocaleString("vi-VN")}đ`
     : "Đang tính...";
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${session.sessionCode}`;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs">
@@ -794,14 +781,28 @@ function ParkedReceiptModal({ session, onClose }) {
 
         {/* Ticket Header */}
         <div className="text-center border-b border-dashed border-slate-200 pb-3">
-          <h4 className="font-extrabold text-sm text-slate-800 tracking-wider">SMART PAYMENT TICKET</h4>
-          <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider mt-1">
-            HÓA ĐƠN TẠM TÍNH
+          <h4 className="font-extrabold text-sm text-slate-800 tracking-wider">SMART PARKING TICKET</h4>
+          <p className="text-[10px] text-indigo-650 font-extrabold uppercase tracking-wider mt-1">
+            VÉ ĐỖ XE
           </p>
         </div>
 
+        {/* QR Code at the top */}
+        <div className="flex flex-col items-center justify-center py-1">
+          <div className="p-1.5 bg-white rounded-xl shadow-inner border border-slate-100 flex items-center justify-center">
+            <img
+              src={qrUrl}
+              alt="QR Parking"
+              className="w-[85px] h-[85px] object-contain"
+            />
+          </div>
+          <span className="font-mono text-[9px] text-slate-500 font-extrabold tracking-wider mt-1.5 uppercase">
+            {session.sessionCode}
+          </span>
+        </div>
+
         {/* Ticket Details */}
-        <div className="space-y-2 text-xs font-semibold text-slate-500 pt-1">
+        <div className="space-y-2 text-xs font-semibold text-slate-500 pt-1 font-sans">
           <div className="flex justify-between items-center">
             <span>Mã phiên gửi:</span>
             <span className="text-slate-600 font-mono font-bold">
@@ -816,26 +817,20 @@ function ParkedReceiptModal({ session, onClose }) {
           </div>
           <div className="flex justify-between">
             <span>Loại xe:</span>
-            <span className="text-slate-600 font-black">
+            <span className="text-slate-600 font-extrabold">
               {getVehicleLabel(session.vehicleType)}
             </span>
           </div>
           <div className="flex justify-between">
-            <span>Loại vé:</span>
-            <span className="text-slate-600 font-black">
-              {ticketType}
-            </span>
-          </div>
-          <div className="flex justify-between">
             <span>Vị trí đỗ:</span>
-            <span className="text-slate-600 font-black">
-              {session.floorName}-ZONE-{session.zoneCode}
+            <span className="text-slate-600 font-extrabold">
+              {session.floorName} - Khu {session.zoneCode}
             </span>
           </div>
           <div className="flex justify-between">
             <span>Thời gian vào:</span>
-            <span className="text-slate-800 font-mono text-[11px] font-bold">
-              {new Date(session.entryTime).toLocaleString("vi-VN")}
+            <span className="text-slate-600 font-mono text-[11px] font-bold">
+              {session.entryTime ? new Date(session.entryTime).toLocaleString("vi-VN") : "---"}
             </span>
           </div>
           <div className="flex justify-between">
@@ -844,8 +839,34 @@ function ParkedReceiptModal({ session, onClose }) {
               {duration}
             </span>
           </div>
+          <div className="flex justify-between">
+            <span>Loại vé:</span>
+            <span className="text-slate-600 font-extrabold">
+              {ticketType}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span>Hình thức:</span>
+            <span className="text-slate-600 font-extrabold">
+              --
+            </span>
+          </div>
 
-          <div className="border-t border-dashed border-slate-200 pt-3 flex flex-col">
+          {session.customerName && (
+            <div className="flex justify-between">
+              <span>Khách hàng:</span>
+              <span className="text-slate-600 font-extrabold text-indigo-650">{session.customerName}</span>
+            </div>
+          )}
+
+          {session.reservationCode && (
+            <div className="flex justify-between">
+              <span>Mã đặt chỗ:</span>
+              <span className="text-slate-600 font-extrabold text-indigo-650">{session.reservationCode}</span>
+            </div>
+          )}
+
+          <div className="border-t border-dashed border-slate-200 pt-3 flex flex-col font-sans">
             <span className="text-[10px] text-slate-400 uppercase font-bold">
               Phí tạm tính:
             </span>
@@ -854,12 +875,12 @@ function ParkedReceiptModal({ session, onClose }) {
             </span>
           </div>
 
-          <div className="border-t border-dashed border-slate-200 pt-3 text-center text-[10px] text-slate-450 font-medium leading-normal mt-1">
+          <div className="border-t border-dashed border-slate-200 pt-3 text-center text-[10px] text-slate-450 font-medium leading-normal mt-1 font-sans">
             Chúc quý khách một ngày tốt lành!
           </div>
         </div>
 
-        <div className="flex border-t border-slate-100 pt-3 mt-1 ">
+        <div className="flex border-t border-slate-100 pt-3 mt-1">
           <button
             onClick={onClose}
             className="w-full rounded-xl border border-slate-250 bg-slate-50 py-2.5 font-bold text-slate-655 hover:bg-slate-100 text-xs transition-colors cursor-pointer text-center"
@@ -874,6 +895,9 @@ function ParkedReceiptModal({ session, onClose }) {
 
 // Modal hiển thị danh sách các xe đặt trước (Đặt trước)
 function ReservedVehiclesModal({ zone, reservations, loading, onClose, onViewTicket }) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
   const getStatusBadgeColor = (status) => {
     if (status === "CONFIRMED") return "bg-emerald-50 text-emerald-700 border-emerald-100";
     if (status === "PENDING") return "bg-amber-50 text-amber-700 border-amber-100";
@@ -886,13 +910,19 @@ function ReservedVehiclesModal({ zone, reservations, loading, onClose, onViewTic
     return status;
   };
 
+  const totalPages = Math.ceil(reservations.length / itemsPerPage);
+  const paginatedReservations = reservations.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 p-4 pt-[10vh]">
       <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-scale-up flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between bg-indigo-700 p-4 text-white shrink-0">
           <div>
             <h3 className="text-base font-extrabold uppercase tracking-wide">Danh sách xe đặt chỗ trước</h3>
-            <p className="text-xs text-slate-200 mt-0.5">Phân khu {zone.zoneCode} - Tầng {zone.name}</p>
+            <p className="text-xs text-slate-200 mt-0.5">Phân khu {zone.zoneCode} - Tầng {zone.name} • ({reservations.length} lượt đặt chỗ)</p>
           </div>
           <button onClick={onClose} className="rounded-full p-1.5 hover:bg-white/10 text-white transition-colors cursor-pointer text-sm font-bold">
             ✕
@@ -922,7 +952,7 @@ function ReservedVehiclesModal({ zone, reservations, loading, onClose, onViewTic
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {reservations.map((res) => (
+                  {paginatedReservations.map((res) => (
                     <tr key={res.reservationId} className="hover:bg-slate-50/50">
                       <td className="p-3.5 font-mono font-bold text-slate-900">{res.reservationCode}</td>
                       <td className="p-3.5">
@@ -967,10 +997,33 @@ function ReservedVehiclesModal({ zone, reservations, loading, onClose, onViewTic
           )}
         </div>
 
-        <div className="flex gap-3 bg-slate-50 p-2 border-t border-slate-150 shrink-0">
+        <div className="flex items-center justify-between bg-slate-50 px-4 py-3 border-t border-slate-200 shrink-0">
+          <div className="text-xs font-bold text-slate-500">
+            Hiển thị {paginatedReservations.length} / {reservations.length} lượt (Trang {currentPage}/{totalPages || 1})
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(prev => prev - 1)}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+              >
+                ◀ Trang trước
+              </button>
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(prev => prev + 1)}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+              >
+                Trang sau ▶
+              </button>
+            </div>
+          )}
+
           <button
             onClick={onClose}
-            className="ml-auto px-6 py-2.5 rounded-xl border border-slate-350 bg-white font-bold text-slate-700 hover:bg-slate-100 text-xs transition-colors cursor-pointer active:scale-95"
+            className="px-6 py-2 rounded-xl border border-slate-350 bg-white font-bold text-slate-700 hover:bg-slate-100 text-xs transition-colors cursor-pointer active:scale-95"
           >
             Đóng
           </button>
@@ -1052,7 +1105,7 @@ function ReservationTicketModal({ reservation, onClose, onPrint }) {
           <div className="flex justify-between">
             <span>Vị trí đỗ:</span>
             <span className="text-slate-600 font-black">
-              {reservation.floorName}-ZONE-{reservation.zoneCode}
+              {reservation.floorName} - Khu {reservation.zoneCode}
             </span>
           </div>
           <div className="flex justify-between">

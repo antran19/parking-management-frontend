@@ -123,9 +123,8 @@ const GateMonitoringPage = () => {
                       >
                         {/* Trái: Icon + Thông tin */}
                         <div className="flex items-center gap-4">
-                          <div className={`p-3 rounded-xl flex-shrink-0 ${
-                            gate.gateType?.includes("ENTRY") ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"
-                          }`}>
+                          <div className={`p-3 rounded-xl flex-shrink-0 ${gate.gateType?.includes("ENTRY") ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"
+                            }`}>
                             {gate.gateType?.includes("ENTRY") ? (
                               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
@@ -146,9 +145,8 @@ const GateMonitoringPage = () => {
                             </div>
 
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                gate.gateType?.includes("ENTRY") ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"
-                              }`}>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${gate.gateType?.includes("ENTRY") ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"
+                                }`}>
                                 {GATE_TYPE_LABELS[gate.gateType] || gate.gateType}
                               </span>
                               {gate.zone && (
@@ -171,11 +169,10 @@ const GateMonitoringPage = () => {
 
                           <button
                             onClick={() => toggleGateStatus(gate)}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap ${
-                              gate.isActive === true
-                                ? "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 border border-rose-200"
-                                : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 border border-emerald-200"
-                            }`}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap ${gate.isActive === true
+                              ? "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 border border-rose-200"
+                              : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 border border-emerald-200"
+                              }`}
                           >
                             {gate.isActive === true ? "Tạm dừng" : "Kích hoạt"}
                           </button>

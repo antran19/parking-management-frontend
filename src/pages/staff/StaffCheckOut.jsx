@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { staffApi } from "../../api/parkingApi";
-import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError } from "../../utils/licensePlate";
+import { isValidVietnamLicensePlate, normalizeLicensePlate, LICENSE_PLATE_HINT, formatLicensePlate, getLicensePlateValidationError, getVehicleTypeKey } from "../../utils/licensePlate";
 import { getCloudinaryFolder, uploadToCloudinary } from "../../utils/cloudinary";
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
@@ -43,7 +43,7 @@ const AlertTriangleIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
-const getTicketTypeLabel = (driverType, passType) => {
+const getTicketTypeLabel = (driverType, passType, reservationCode) => {
   const dType = (driverType || "").toUpperCase();
   const pType = (passType || "").toUpperCase();
   if (dType === 'SUBSCRIBER') {
@@ -52,7 +52,8 @@ const getTicketTypeLabel = (driverType, passType) => {
       QUARTERLY: "Vé đăng ký (Quý)",
       YEARLY: "Vé đăng ký (Năm)"
     };
-    return passTypeLabels[pType] || "Vé đăng ký (Tháng)";
+    const label = passTypeLabels[pType] || "Vé đăng ký (Tháng)";
+    return reservationCode ? `${label} - Đặt chỗ` : label;
   }
   if (dType === 'PRE_BOOKED') {
     return "Vé đặt trước";
@@ -152,12 +153,8 @@ export default function StaffCheckOut() {
   const [ticketMessage, setTicketMessage] = useState("Đang chờ quét vé...");
   const ticketScannerRef = useRef(null);
 
-  const fallbackExitGates = [
-    { id: "e0f0e151-627e-47a8-9660-f6b6ab4c7c2d", gateCode: "MAIN-OUT", gateName: "Cổng chính - Lối ra", gateType: "MAIN_EXIT" }
-  ];
-
-  const [exitGates, setExitGates] = useState(fallbackExitGates);
-  const [selectedGateId, setSelectedGateId] = useState(fallbackExitGates[0].id);
+  const [exitGates, setExitGates] = useState([]);
+  const [selectedGateId, setSelectedGateId] = useState("");
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState("");
 
@@ -190,10 +187,13 @@ export default function StaffCheckOut() {
 
   const fetchCheckoutHistory = async () => {
     try {
-      const res = await staffApi.getAllSessionsHistory();
-      const data = res.data.data || [];
+      // Gọi lịch sử các phiên đã checkout (status = checked_out) với kích thước lớn hơn để lọc ngày hôm nay
+      const res = await staffApi.getAllSessionsHistory({ status: "checked_out", size: 50 });
+      const pageObj = res.data?.data;
+      const data = pageObj?.content || (Array.isArray(pageObj) ? pageObj : []);
+      const todayStr = new Date().toDateString();
       const completedSessions = data
-        .filter(s => s.status === "COMPLETED")
+        .filter(s => s.status === "COMPLETED" && s.exitTime && new Date(s.exitTime).toDateString() === todayStr)
         .sort((a, b) => new Date(b.exitTime || 0) - new Date(a.exitTime || 0))
         .slice(0, 5)
         .map(s => {
@@ -205,7 +205,7 @@ export default function StaffCheckOut() {
             s.vehicleType || "Xe",
             `${feeStr} (${formatDuration(duration)})`,
             s.paymentMethod === "VIETQR"
-              ? "VietQR CK" 
+              ? "VietQR CK"
               : (s.paymentMethod === "NCB" ? "Ngân hàng NCB" : (s.paymentMethod === "ONLINE" || s.paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt")),
             s
           ];
@@ -227,12 +227,12 @@ export default function StaffCheckOut() {
       try {
         if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
         if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
-      } catch (e) {}
+      } catch (e) { }
 
       try {
         if (sharedStreamRef.current) {
           sharedStreamRef.current.getTracks().forEach(track => {
-            try { track.stop(); } catch (e) {}
+            try { track.stop(); } catch (e) { }
           });
         }
       } catch (err) {
@@ -246,11 +246,11 @@ export default function StaffCheckOut() {
           if (scanner.isScanning) {
             scanner.stop()
               .then(() => {
-                try { scanner.clear(); } catch (e) {}
+                try { scanner.clear(); } catch (e) { }
               })
               .catch(err => console.warn("Lỗi stop scanner checkout on unmount:", err));
           } else {
-            try { scanner.clear(); } catch (e) {}
+            try { scanner.clear(); } catch (e) { }
           }
         }
       } catch (err) {
@@ -282,7 +282,7 @@ export default function StaffCheckOut() {
       if (faceVideoRef.current) faceVideoRef.current.srcObject = null;
       if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
       sharedStream.getTracks().forEach(track => {
-        try { track.stop(); } catch (e) {}
+        try { track.stop(); } catch (e) { }
       });
       setSharedStream(null);
     }
@@ -495,7 +495,7 @@ export default function StaffCheckOut() {
       ticketScannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 20, qrbox: { width: 155, height: 155 } },
+        { fps: 13, qrbox: { width: 190, height: 190 } },
         async (decodedText) => {
           const now = Date.now();
           if (decodedText === lastScannedTicketRef.current.text && now - lastScannedTicketRef.current.time < 3000) {
@@ -545,6 +545,15 @@ export default function StaffCheckOut() {
   };
 
   const performUpload = async (blob) => {
+    const isBicycle = sessionData?.vehicleType ? getVehicleTypeKey(sessionData.vehicleType) === "BICYCLE" : false;
+    if (isBicycle) {
+      setPlateMessage("✅ Đã chụp ảnh xe đạp.");
+      setIsUploading(false);
+      setPlateBlob(blob);
+      setUploadedUrl("");
+      return;
+    }
+
     try {
       setIsUploading(true);
       setPlateBlob(blob);
@@ -603,7 +612,7 @@ export default function StaffCheckOut() {
       if (plateVideoRef.current) plateVideoRef.current.srcObject = null;
       if (sharedStream) {
         sharedStream.getTracks().forEach(track => {
-          try { track.stop(); } catch (e) {}
+          try { track.stop(); } catch (e) { }
         });
         setSharedStream(null);
       }
@@ -753,6 +762,14 @@ export default function StaffCheckOut() {
         setPlateBlob(blob);
         setUploadedUrl("");
         stopPlateScanner();
+
+        // Kiểm tra xe đạp
+        const isBicycle = sessionData?.vehicleType ? getVehicleTypeKey(sessionData.vehicleType) === "BICYCLE" : false;
+        if (isBicycle) {
+          setPlateMessage("✅ Đã chụp ảnh xe đạp.");
+          setIsUploading(false);
+          return;
+        }
 
         // Chạy OCR
         try {
@@ -946,7 +963,7 @@ export default function StaffCheckOut() {
   };
 
   const autoSearchPlate = async (query) => {
-    if (!query || !query.trim()) return false;
+    if (!query || !query.trim()) return null;
     const searchTerm = query.trim().toUpperCase();
 
     setIsSearching(true);
@@ -964,7 +981,7 @@ export default function StaffCheckOut() {
       if (plateError) {
         setApiError(plateError);
         setIsSearching(false);
-        return false;
+        return null;
       }
     }
 
@@ -980,22 +997,22 @@ export default function StaffCheckOut() {
         setApiError(errorMsg);
         setTicketMessage(errorMsg);
         setSessionData(null);
-        return false;
+        return null;
       }
       setSessionData(session);
-      return true;
+      return session;
     } catch (err) {
       setSessionData(null);
       const errMsg = err.response?.data?.message || 'Không tìm thấy phiên gửi xe đang hoạt động cho biển số này';
       setApiError(errMsg);
       setTicketMessage(errMsg);
-      return false;
+      return null;
     } finally {
       setIsSearching(false);
     }
   };
 
-  const triggerAutoCaptureSequence = async () => {
+  const triggerAutoCaptureSequence = async (isBicyclePassed = false, vehicleTypePassed = null) => {
     // Nếu đang chạy countdown rồi thì thôi
     if (countdown !== null) return;
 
@@ -1043,6 +1060,13 @@ export default function StaffCheckOut() {
               setUploadedUrl("");
               stopPlateScanner();
 
+              // Kiểm tra xe đạp từ tham số truyền vào
+              if (isBicyclePassed) {
+                setPlateMessage("✅ Đã chụp ảnh xe đạp.");
+                setIsUploading(false);
+                return;
+              }
+
               // OCR chạy ngầm, không block luồng chụp mặt
               try {
                 setIsUploading(true);
@@ -1069,7 +1093,7 @@ export default function StaffCheckOut() {
                     if (ocrRes.results && ocrRes.results.length > 0) {
                       detectedPlate = ocrRes.results[0].plate.toUpperCase();
                       const normalized = normalizeLicensePlate(detectedPlate);
-                      const formatted = formatLicensePlate(normalized, sessionData?.vehicleType);
+                      const formatted = formatLicensePlate(normalized, vehicleTypePassed);
                       setPlateInput(formatted);
                       setPlateMessage(`Nhận diện thành công: ${formatted}`);
                     }
@@ -1127,8 +1151,8 @@ export default function StaffCheckOut() {
     const cleanedText = qrText.trim().toUpperCase();
 
     // Kiểm tra tính hợp lệ của phiên gửi xe trước khi khởi động camera
-    const isValid = await autoSearchPlate(cleanedText);
-    if (!isValid) {
+    const activeSession = await autoSearchPlate(cleanedText);
+    if (!activeSession) {
       setTicketMessage("KHÔNG TÌM THẤY PHIÊN GỬI XE HOẠT ĐỘNG");
       return; // Dừng lại luôn
     }
@@ -1141,8 +1165,11 @@ export default function StaffCheckOut() {
       setTicketMessage(`ĐÃ ĐỌC BIỂN SỐ QR: ${cleanedText}`);
     }
 
+    // Xác định xem có phải xe đạp từ activeSession hay không
+    const isBicycle = activeSession.vehicleType ? getVehicleTypeKey(activeSession.vehicleType) === "BICYCLE" : false;
+
     // Tự động kích hoạt chuỗi chụp ảnh (biển số 7s, sau đó mặt 3s)
-    triggerAutoCaptureSequence();
+    triggerAutoCaptureSequence(isBicycle, activeSession.vehicleType);
   };
 
   const handleCheckOut = async () => {
@@ -1261,9 +1288,16 @@ export default function StaffCheckOut() {
       </div>
     ` : '';
 
-    const ticketType = getTicketTypeLabel(checkOutResult.driverType, checkOutResult.passType);
+    const resCodeRow = checkOutResult.reservationCode ? `
+      <div class="info-row">
+        <span>Mã đặt chỗ:</span>
+        <span class="info-value">${checkOutResult.reservationCode}</span>
+      </div>
+    ` : '';
+
+    const ticketType = getTicketTypeLabel(checkOutResult.driverType, checkOutResult.passType, checkOutResult.reservationCode);
     const location = checkOutResult.floorName && checkOutResult.zoneCode
-      ? `${checkOutResult.floorName} - ZONE-${checkOutResult.zoneCode}`
+      ? `${checkOutResult.floorName} - Khu ${checkOutResult.zoneCode}`
       : (checkOutResult.floorName && checkOutResult.zoneName ? `${checkOutResult.floorName} - ${checkOutResult.zoneName}` : "---");
 
     printWindow.document.write(`
@@ -1356,10 +1390,6 @@ export default function StaffCheckOut() {
               <span class="info-value">${location}</span>
             </div>
             <div class="info-row">
-              <span>Loại vé:</span>
-              <span class="info-value">${ticketType}</span>
-            </div>
-            <div class="info-row">
               <span>Thời gian vào:</span>
               <span class="info-value">${formatDateTime(checkOutResult.entryTime)}</span>
             </div>
@@ -1372,10 +1402,15 @@ export default function StaffCheckOut() {
               <span class="info-value">${formatDuration(checkOutResult.durationMinutes || 0)}</span>
             </div>
             <div class="info-row">
+              <span>Loại vé:</span>
+              <span class="info-value">${ticketType}</span>
+            </div>
+            <div class="info-row">
               <span>Hình thức:</span>
               <span class="info-value">${paymentMethod === "VIETQR" ? "VietQR CK" : (paymentMethod === "NCB" ? "Ngân hàng NCB" : (paymentMethod === "ONLINE" || paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt"))}</span>
             </div>
             ${customerRow}
+            ${resCodeRow}
             
             <div class="total-section">
               <div class="total-label">Tổng tiền thanh toán</div>
@@ -1414,6 +1449,8 @@ export default function StaffCheckOut() {
           setExitGates(exits);
           const firstActiveGate = exits.find(g => g.isActive) || exits[0];
           setSelectedGateId(firstActiveGate.id);
+        } else {
+          setApiError('Không tìm thấy cổng ra hợp lệ (MAIN_EXIT hoặc MAIN_BOTH) trong cấu hình bãi xe.');
         }
         // Tự động khởi động cả hai camera và đầu đọc QR sau 400ms trễ
         mountTimer = setTimeout(() => {
@@ -1422,8 +1459,9 @@ export default function StaffCheckOut() {
           startTicketScanner();
         }, 400);
       } catch (err) {
-        console.warn('Failed to load dynamic config, keeping fallback gates:', err);
-        // Fallback khởi động camera sau 400ms trễ
+        console.error('Failed to load dynamic config:', err);
+        setApiError('Không thể tải cấu hình bãi xe từ máy chủ backend. Vui lòng kiểm tra kết nối API.');
+        // Vẫn khởi động camera để giao diện sẵn sàng
         mountTimer = setTimeout(() => {
           startFaceScanner();
           startPlateScanner();
@@ -1589,16 +1627,20 @@ export default function StaffCheckOut() {
                     <button
                       type="button"
                       onClick={toggleBothCameras}
-                      className={`flex-1 py-1 rounded text-[9px] font-black uppercase transition-all cursor-pointer ${
-                        (isFaceScanning || isPlateScanning) ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'
-                      }`}
+                      disabled={showSuccess || !!previewFaceUrl || !!previewUrl}
+                      className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase transition-all cursor-pointer ${(showSuccess || previewFaceUrl || previewUrl)
+                        ? 'bg-slate-350 text-slate-500 cursor-not-allowed opacity-50'
+                        : (isFaceScanning || isPlateScanning)
+                          ? 'bg-rose-600 text-white'
+                          : 'bg-indigo-600 text-white'
+                        }`}
                     >
                       {(isFaceScanning || isPlateScanning) ? 'Tắt Cam' : 'Bật Cam'}
                     </button>
                     <button
                       type="button"
                       onClick={handleNormalCapture}
-                      disabled={!(isFaceScanning && isPlateScanning) || isUploading || countdown !== null}
+                      disabled={showSuccess || !!previewFaceUrl || !!previewUrl || !(isFaceScanning && isPlateScanning) || isUploading || countdown !== null}
                       className="flex-1 bg-emerald-600 disabled:bg-slate-250 disabled:text-slate-400 text-white py-1 rounded text-[9px] font-black uppercase transition-all cursor-pointer"
                     >
                       Chụp
@@ -1606,8 +1648,11 @@ export default function StaffCheckOut() {
                   </div>
                   <div className="flex flex-col items-center justify-center gap-1.5 mt-0.5">
 
-                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 rounded border border-indigo-200 transition-all text-[8px] font-black uppercase active:scale-[0.98] shadow-sm">
-                      <svg className="w-3.5 h-3.5 text-indigo-650" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                    <label className={`inline-flex items-center gap-1.5 px-3 py-1 rounded border transition-all text-[8px] font-black uppercase shadow-sm ${showSuccess
+                      ? "bg-slate-100 text-slate-455 border-slate-200 cursor-not-allowed pointer-events-none"
+                      : "cursor-pointer bg-indigo-50 hover:bg-indigo-100 text-indigo-650 border border-indigo-200 active:scale-[0.98]"
+                      }`}>
+                      <svg className={`w-3.5 h-3.5 ${showSuccess ? 'text-slate-455' : 'text-indigo-650'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                       </svg>
                       Tải ảnh (Face & Plate)
@@ -1616,6 +1661,7 @@ export default function StaffCheckOut() {
                         multiple
                         accept="image/*"
                         className="hidden"
+                        disabled={showSuccess}
                         onChange={handleDoubleUpload}
                       />
                     </label>
@@ -1677,7 +1723,7 @@ export default function StaffCheckOut() {
 
                 {/* Điều khiển Cột 2 */}
                 <div className="bg-slate-50 p-2.5 flex flex-col gap-1.5 mt-auto min-h-[85px] justify-center">
-                  {(previewUrl || previewFaceUrl) ? (
+                  {!showSuccess && (previewUrl || previewFaceUrl) ? (
                     <div className="flex gap-1 w-full">
                       {/* Cột 1: Chân dung */}
                       {previewFaceUrl ? (
@@ -1720,8 +1766,8 @@ export default function StaffCheckOut() {
                       )}
                     </div>
                   ) : (
-                    <div className="text-center text-[9px] font-bold text-slate-400 uppercase py-1">
-                      Chờ chụp biển & mặt...
+                    <div className={`text-center text-[9px] font-bold uppercase py-1 ${showSuccess ? 'text-emerald-600 font-sans font-black' : 'text-slate-400'}`}>
+                      {showSuccess ? "✅ Check-out thành công!" : "Chờ chụp biển & mặt..."}
                     </div>
                   )}
                   <div className="flex gap-1 items-center mt-0.5 h-[22px]">
@@ -1845,7 +1891,8 @@ export default function StaffCheckOut() {
                     <button
                       type="button"
                       onClick={() => parseQrData(ticketInput)}
-                      className="h-[32px] px-3 bg-slate-700 hover:bg-green-600 text-white rounded-lg text-[9px] font-bold transition-all active:scale-[0.98] cursor-pointer shrink-0 flex items-center justify-center font-sans shadow-xs"
+                      disabled={showSuccess}
+                      className="h-[32px] px-3 bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400 text-white hover:bg-green-600 rounded-lg text-[9px] font-bold transition-all active:scale-[0.98] cursor-pointer shrink-0 flex items-center justify-center font-sans shadow-xs disabled:cursor-not-allowed"
                     >
                       Tìm
                     </button>
@@ -1864,12 +1911,17 @@ export default function StaffCheckOut() {
                 value={selectedGateId}
                 onChange={(e) => setSelectedGateId(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 bg-white cursor-pointer shadow-sm font-sans"
+                disabled={exitGates.length === 0}
               >
-                {exitGates.map(g => (
-                  <option key={g.id} value={g.id} disabled={!g.isActive}>
-                    {g.gateName}{g.isActive ? "" : " (BẢO TRÌ)"}
-                  </option>
-                ))}
+                {exitGates.length === 0 ? (
+                  <option value="">-- Chưa tải được cấu hình cổng --</option>
+                ) : (
+                  exitGates.map(g => (
+                    <option key={g.id} value={g.id} disabled={!g.isActive}>
+                      {g.gateName}{g.isActive ? "" : " (BẢO TRÌ)"}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -1943,7 +1995,7 @@ export default function StaffCheckOut() {
               <div className="flex justify-between">
                 <span>Loại vé:</span>
                 <span className="text-slate-600 font-extrabold text-indigo-600">
-                  {sessionData ? getTicketTypeLabel(sessionData.driverType, sessionData.passType) : "---"}
+                  {sessionData ? getTicketTypeLabel(sessionData.driverType, sessionData.passType, sessionData.reservationCode) : "---"}
                 </span>
               </div>
 
@@ -2020,17 +2072,18 @@ export default function StaffCheckOut() {
               </div>
             )}
             <label className="block text-[9px] font-black uppercase tracking-wider text-slate-600 text-center mt-1">Phương thức thanh toán</label>
-            <div className="grid grid-cols-2 gap-4 px-3 ">
+            <div className="flex justify-center px-3">
               <button
                 type="button"
                 onClick={() => setPaymentMethod("CASH")}
-                className={`rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "CASH"
+                className={`w-full max-w-[185px] rounded-xl border py-1.5 font-bold transition-all text-[11px] flex items-center justify-center gap-1 cursor-pointer shadow-sm ${paymentMethod === "CASH"
                   ? "border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm border-2"
                   : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
                   }`}
               >
                 💵 Tiền mặt
               </button>
+              {/* 
               <button
                 type="button"
                 onClick={() => setPaymentMethod("VIETQR")}
@@ -2041,6 +2094,7 @@ export default function StaffCheckOut() {
               >
                 ▣ VietQR CK
               </button>
+              */}
             </div>
 
 
@@ -2050,7 +2104,7 @@ export default function StaffCheckOut() {
           <div className="flex gap-2 w-full">
             <button
               onClick={handleCheckOut}
-              disabled={isSubmitting || !sessionData}
+              disabled={isSubmitting || !sessionData || !selectedGateId}
               className="flex-1 rounded-xl bg-slate-900 py-3 text-xs font-bold text-white shadow-md hover:bg-slate-800 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:not-allowed flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
@@ -2238,7 +2292,7 @@ export default function StaffCheckOut() {
               <div className="flex justify-between">
                 <span>Vị trí đỗ:</span>
                 <span className="text-slate-600 font-extrabold">
-                  {checkOutResult.zoneCode ? `${checkOutResult.floorName}-ZONE-${checkOutResult.zoneCode}` : "--"}
+                  {checkOutResult.zoneCode ? `${checkOutResult.floorName} - Khu ${checkOutResult.zoneCode}` : "--"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -2262,7 +2316,7 @@ export default function StaffCheckOut() {
               <div className="flex justify-between">
                 <span>Loại vé:</span>
                 <span className="text-slate-600 font-extrabold">
-                  {getTicketTypeLabel(checkOutResult?.driverType, checkOutResult?.passType)}
+                  {getTicketTypeLabel(checkOutResult?.driverType, checkOutResult?.passType, checkOutResult?.reservationCode)}
                 </span>
               </div>
 
@@ -2272,6 +2326,20 @@ export default function StaffCheckOut() {
                   {paymentMethod === "VIETQR" ? "VietQR CK" : (paymentMethod === "NCB" ? "Ngân hàng NCB" : (paymentMethod === "ONLINE" || paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt"))}
                 </span>
               </div>
+
+              {checkOutResult.customerName && (
+                <div className="flex justify-between">
+                  <span>Khách hàng:</span>
+                  <span className="text-slate-600 font-extrabold text-indigo-650">{checkOutResult.customerName}</span>
+                </div>
+              )}
+
+              {checkOutResult.reservationCode && (
+                <div className="flex justify-between">
+                  <span>Mã đặt chỗ:</span>
+                  <span className="text-slate-600 font-extrabold text-indigo-650">{checkOutResult.reservationCode}</span>
+                </div>
+              )}
 
               <div className="border-t border-dashed border-slate-200 pt-3 flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase font-bold">

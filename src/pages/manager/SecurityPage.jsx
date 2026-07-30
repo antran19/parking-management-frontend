@@ -11,12 +11,6 @@ const INCIDENT_TYPE_LABELS = {
   UNPAID: "Chưa thanh toán",
   SUSPICIOUS_BEHAVIOR: "Hành vi đáng ngờ",
   OTHER: "Khác",
-
-  BLACKLIST_DETECTED: "Phát hiện biển số đen",
-  UNAUTHORIZED_ACCESS: "Truy cập trái phép",
-  TAILGATING: "Xe theo đuôi",
-  OVERSTAY: "Quá giờ",
-  SUSPICIOUS_ACTIVITY: "Hoạt động đáng ngờ",
 };
 
 const REASON_LABELS = {
@@ -30,6 +24,16 @@ const REASON_LABELS = {
 const SecurityPage = () => {
   const { triggerToast, currentUser } = useContext(ManagerContext);
   const [incidents, setIncidents] = useState([]);
+  const [canResolve, setCanResolve] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  useEffect(() => {
+    managerApi.getMyPermissions()
+      .then((res) => {
+        setCanResolve(!!res.data?.data?.canResolveIncident);
+        setCanManage(!!res.data?.data?.canManageBlacklist);
+      })
+      .catch(() => { setCanResolve(false); setCanManage(false); });
+  }, []);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [blacklist, setBlacklist] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -37,10 +41,21 @@ const SecurityPage = () => {
   const [tab, setTab] = useState("incidents");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [showResolved, setShowResolved] = useState(false); // mặc định chỉ show việc cần làm
+  
+  const [incidentsPage, setIncidentsPage] = useState(1);
+  const [blacklistPage, setBlacklistPage] = useState(1);
+
+  useEffect(() => {
+    setIncidentsPage(1);
+  }, [showResolved, typeFilter]);
   const [resolveModal, setResolveModal] = useState({ show: false, incidentId: null });
   const [resolutionText, setResolutionText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [submittingResolution, setSubmittingResolution] = useState(false);
+  const [lightbox, setLightbox] = useState({ show: false, images: [], index: 0 });
+
+  const openLightbox = (images, index) => setLightbox({ show: true, images, index });
+  const closeLightbox = () => setLightbox({ show: false, images: [], index: 0 });
 
   const fetchIncidents = async () => {
     setLoading(true);
@@ -172,21 +187,62 @@ const SecurityPage = () => {
 
   const unresolvedCount = incidents.filter(i => !i.resolvedAt).length;
 
+  const incidentTypeOptions = useMemo(() => {
+    const dbTypes = new Set(incidents.map(i => i.exceptionType).filter(Boolean));
+    const baseTypes = Object.keys(INCIDENT_TYPE_LABELS);
+    const combinedTypes = Array.from(new Set([...baseTypes, ...dbTypes]));
+    return combinedTypes.map(type => ({
+      value: type,
+      label: INCIDENT_TYPE_LABELS[type] || type,
+    }));
+  }, [incidents]);
+
   const visibleIncidents = useMemo(() => {
     let list = showResolved ? incidents : incidents.filter(i => !i.resolvedAt);
     if (typeFilter !== "ALL") list = list.filter(i => i.exceptionType === typeFilter);
     return [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [incidents, showResolved, typeFilter]);
 
+  const incidentsPerPage = 10;
+  const totalIncidentsPages = Math.ceil(visibleIncidents.length / incidentsPerPage);
+  const paginatedIncidents = visibleIncidents.slice(
+    (incidentsPage - 1) * incidentsPerPage,
+    incidentsPage * incidentsPerPage
+  );
+
   const visibleBlacklist = useMemo(() => {
-    return blacklist.filter(item => item.isActive);
+    return blacklist.filter(item => item.isActive).sort((a, b) => new Date(b.addedAt || 0) - new Date(a.addedAt || 0));
   }, [blacklist]);
+
+  const blacklistPerPage = 10;
+  const totalBlacklistPages = Math.ceil(visibleBlacklist.length / blacklistPerPage);
+  
+  const handleExportExcel = async (exportType) => {
+    try {
+      const res = await managerApi.exportExcel(exportType);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', exportType === 'incidents' ? 'SuCoAnNinh.xlsx' : 'BienSoDen.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      triggerToast("Xuất báo cáo thành công", "success");
+    } catch (err) {
+      triggerToast("Lỗi khi xuất báo cáo", "error");
+    }
+  };
+
+  const paginatedBlacklist = visibleBlacklist.slice(
+    (blacklistPage - 1) * blacklistPerPage,
+    blacklistPage * blacklistPerPage
+  );
 
   return (
     <section className="flex-1 space-y-6 p-8">
       <div className="space-y-6 fade-up-element">
         {/* Header + segmented control */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-2xl font-black text-slate-900 tracking-tight">Sự cố An ninh</h3>
             <p className="text-xs text-slate-500 mt-1">
@@ -196,36 +252,49 @@ const SecurityPage = () => {
             </p>
           </div>
 
-          <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            {/* Nút xuất Excel */}
             <button
-              onClick={() => setTab("incidents")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === "incidents"
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-                }`}
+              onClick={() => handleExportExcel(tab)}
+              className="px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer flex-shrink-0"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Sự cố
-              {unresolvedCount > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {unresolvedCount}
-                </span>
-              )}
+              Xuất Excel
             </button>
-            <button
-              onClick={() => setTab("blacklist")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === "blacklist"
+
+            <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1 flex-shrink-0">
+              <button
+                onClick={() => setTab("incidents")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === "incidents"
                   ? "bg-white text-indigo-600 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
-                }`}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-              </svg>
-              Biển số đen
-            </button>
+                  }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                Sự cố
+                {unresolvedCount > 0 && (
+                  <span className="bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                    {unresolvedCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setTab("blacklist")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === "blacklist"
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+                  }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                Biển số đen
+              </button>
+            </div>
           </div>
         </div>
 
@@ -256,11 +325,11 @@ const SecurityPage = () => {
                   <select
                     value={typeFilter}
                     onChange={e => setTypeFilter(e.target.value)}
-                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 bg-white"
+                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 bg-white cursor-pointer"
                   >
                     <option value="ALL">Tất cả loại</option>
-                    {Object.entries(INCIDENT_TYPE_LABELS).map(([type, label]) => (
-                      <option key={type} value={type}>{label}</option>
+                    {incidentTypeOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
                 </div>
@@ -282,7 +351,7 @@ const SecurityPage = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {visibleIncidents.map(item => (
+                          {paginatedIncidents.map(item => (
                             <tr
                               key={item.id}
                               className={`cursor-pointer hover:bg-slate-50 transition-colors ${selectedIncident?.id === item.id ? "bg-indigo-50" : ""}`}
@@ -296,12 +365,14 @@ const SecurityPage = () => {
                               <td className="px-6 py-4 text-slate-550 text-xs">{item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : "—"}</td>
                               <td className="px-6 py-4">
                                 {!item.resolvedAt ? (
+                                  canResolve && (
                                   <button
                                     onClick={(e) => handleResolveIncident(item.id, e)}
                                     className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 transition-all cursor-pointer shadow-sm shadow-rose-100 border border-rose-600/10 flex items-center justify-center"
                                   >
                                     Giải quyết
                                   </button>
+                                  )
                                 ) : (
                                   <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100/50">Đã giải quyết</span>
                                 )}
@@ -310,6 +381,64 @@ const SecurityPage = () => {
                           ))}
                         </tbody>
                       </table>
+                    )}
+                    
+                    {/* Phân trang sự cố */}
+                    {totalIncidentsPages > 1 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between border-t border-slate-100 p-4 gap-4 bg-white">
+                        <span className="text-xs text-slate-500 font-medium">
+                          Hiển thị {((incidentsPage - 1) * incidentsPerPage) + 1} - {Math.min(incidentsPage * incidentsPerPage, visibleIncidents.length)} trong tổng số {visibleIncidents.length} sự cố
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setIncidentsPage(prev => Math.max(prev - 1, 1))}
+                            disabled={incidentsPage === 1}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-bold"
+                          >
+                            Trước
+                          </button>
+                          <div className="flex items-center gap-1">
+                            {(() => {
+                              const pages = [];
+                              if (totalIncidentsPages <= 5) {
+                                for (let i = 1; i <= totalIncidentsPages; i++) pages.push(i);
+                              } else {
+                                if (incidentsPage <= 3) {
+                                  pages.push(1, 2, 3, 4, '...', totalIncidentsPages);
+                                } else if (incidentsPage >= totalIncidentsPages - 2) {
+                                  pages.push(1, '...', totalIncidentsPages - 3, totalIncidentsPages - 2, totalIncidentsPages - 1, totalIncidentsPages);
+                                } else {
+                                  pages.push(1, '...', incidentsPage - 1, incidentsPage, incidentsPage + 1, '...', totalIncidentsPages);
+                                }
+                              }
+                              return pages.map((page, idx) => (
+                                page === '...' ? (
+                                  <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
+                                ) : (
+                                  <button
+                                    key={`page-${page}-${idx}`}
+                                    onClick={() => setIncidentsPage(page)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                      incidentsPage === page
+                                        ? "bg-indigo-600 text-white shadow-sm"
+                                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    {page}
+                                  </button>
+                                )
+                              ));
+                            })()}
+                          </div>
+                          <button
+                            onClick={() => setIncidentsPage(prev => Math.min(prev + 1, totalIncidentsPages))}
+                            disabled={incidentsPage === totalIncidentsPages}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-bold"
+                          >
+                            Sau
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -331,21 +460,49 @@ const SecurityPage = () => {
                         </div>
                         <div>
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Mô tả</p>
-                          <p className="whitespace-pre-wrap text-slate-700">{selectedIncident.description || "Không có mô tả."}</p>
+                          <p className="whitespace-pre-wrap text-slate-700">
+                            {(() => {
+                              const fullDesc = selectedIncident.description || "Không có mô tả.";
+                              const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
+                              if (separatorRegex.test(fullDesc)) {
+                                return fullDesc.split(separatorRegex)[0].trim();
+                              }
+                              return fullDesc;
+                            })()}
+                          </p>
                         </div>
-                        {selectedIncident.imageUrls && selectedIncident.imageUrls.length > 0 && (
+                        {(() => {
+                          const fullDesc = selectedIncident.description || "";
+                          const separatorRegex = /\s*===\s*GHI CHÚ GIẢI QUYẾT\s*===\s*/;
+                          if (separatorRegex.test(fullDesc)) {
+                            const resNote = fullDesc.split(separatorRegex)[1]?.trim();
+                            if (resNote) {
+                              return (
+                                <div className="text-sm font-medium text-emerald-950 whitespace-pre-wrap rounded-2xl bg-emerald-50 border border-emerald-200 p-4 leading-relaxed mt-4">
+                                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-600 mb-2 font-bold">Ghi chú giải quyết</p>
+                                  <p>{resNote}</p>
+                                </div>
+                              );
+                            }
+                          }
+                          return null;
+                        })()}
+                        {selectedIncident.imageUrls && selectedIncident.imageUrls.filter(url => url && !url.startsWith('[RESOLVE]')).length > 0 && (
                           <div>
                             <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Ảnh minh chứng sự cố</p>
                             <div className="grid grid-cols-2 gap-2">
-                              {selectedIncident.imageUrls.map((url, idx) => (
-                                <img
-                                  key={idx}
-                                  src={url}
-                                  alt={`Ảnh sự cố ${idx + 1}`}
-                                  className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
-                                  onClick={() => window.open(url, "_blank")}
-                                />
-                              ))}
+                              {(() => {
+                                const imgs = selectedIncident.imageUrls.filter(url => url && !url.startsWith('[RESOLVE]')); return imgs.map((url, idx) => (
+                                  <img
+                                    key={idx}
+                                    src={url}
+                                    alt={`Ảnh sự cố ${idx + 1}`}
+                                    className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
+                                    onClick={() => openLightbox(imgs, idx)}
+                                    onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f1f5f9" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%2394a3b8" font-size="10">Không tải được</text></svg>'; }}
+                                  />
+                                ));
+                              })()}
                             </div>
                           </div>
                         )}
@@ -359,22 +516,28 @@ const SecurityPage = () => {
                               <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Phương án giải quyết</p>
                               <p className="font-semibold text-slate-800 whitespace-pre-wrap">{selectedIncident.resolution || "Không có chi tiết giải quyết."}</p>
                             </div>
-                            {selectedIncident.resolutionImageUrls && selectedIncident.resolutionImageUrls.length > 0 && (
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Ảnh minh chứng giải quyết</p>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {selectedIncident.resolutionImageUrls.map((url, idx) => (
-                                    <img
-                                      key={idx}
-                                      src={url}
-                                      alt={`Ảnh giải quyết ${idx + 1}`}
-                                      className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
-                                      onClick={() => window.open(url, "_blank")}
-                                    />
-                                  ))}
+                            {(() => {
+                              const resolveImgs = (selectedIncident.resolutionImageUrls && selectedIncident.resolutionImageUrls.length > 0)
+                                ? selectedIncident.resolutionImageUrls.map(url => url.replace('[RESOLVE]', ''))
+                                : (selectedIncident.imageUrls || []).filter(url => url && url.startsWith('[RESOLVE]')).map(url => url.replace('[RESOLVE]', ''));
+                              return resolveImgs.length > 0 && (
+                                <div>
+                                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Ảnh minh chứng giải quyết</p>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {resolveImgs.map((url, idx) => (
+                                      <img
+                                        key={idx}
+                                        src={url}
+                                        alt={`Ảnh giải quyết ${idx + 1}`}
+                                        className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
+                                        onClick={() => openLightbox(resolveImgs, idx)}
+                                        onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f1f5f9" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%2394a3b8" font-size="10">Không tải được</text></svg>'; }}
+                                      />
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </>
                         )}
                         <div className="text-slate-500 text-xs pt-2 border-t border-slate-100">
@@ -413,7 +576,7 @@ const SecurityPage = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {visibleBlacklist.map(item => (
+                      {paginatedBlacklist.map(item => (
                         <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4 font-mono font-bold text-slate-800">{item.licensePlate}</td>
                           <td className="px-6 py-4 text-slate-655 font-medium">{REASON_LABELS[item.reason] || item.reason || "—"}</td>
@@ -427,7 +590,7 @@ const SecurityPage = () => {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            {item.isActive && (
+                            {item.isActive && canManage && (
                               <button
                                 onClick={() => handleRemoveFromBlacklist(item)}
                                 disabled={removingId === item.id}
@@ -441,6 +604,64 @@ const SecurityPage = () => {
                       ))}
                     </tbody>
                   </table>
+                )}
+
+                {/* Phân trang biển số đen */}
+                {totalBlacklistPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between border-t border-slate-100 p-4 gap-4 bg-white">
+                    <span className="text-xs text-slate-500 font-medium">
+                      Hiển thị {((blacklistPage - 1) * blacklistPerPage) + 1} - {Math.min(blacklistPage * blacklistPerPage, visibleBlacklist.length)} trong tổng số {visibleBlacklist.length} biển số
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setBlacklistPage(prev => Math.max(prev - 1, 1))}
+                        disabled={blacklistPage === 1}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-bold"
+                      >
+                        Trước
+                      </button>
+                      <div className="flex items-center gap-1">
+                        {(() => {
+                          const pages = [];
+                          if (totalBlacklistPages <= 5) {
+                            for (let i = 1; i <= totalBlacklistPages; i++) pages.push(i);
+                          } else {
+                            if (blacklistPage <= 3) {
+                              pages.push(1, 2, 3, 4, '...', totalBlacklistPages);
+                            } else if (blacklistPage >= totalBlacklistPages - 2) {
+                              pages.push(1, '...', totalBlacklistPages - 3, totalBlacklistPages - 2, totalBlacklistPages - 1, totalBlacklistPages);
+                            } else {
+                              pages.push(1, '...', blacklistPage - 1, blacklistPage, blacklistPage + 1, '...', totalBlacklistPages);
+                            }
+                          }
+                          return pages.map((page, idx) => (
+                            page === '...' ? (
+                              <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
+                            ) : (
+                              <button
+                                key={`page-${page}-${idx}`}
+                                onClick={() => setBlacklistPage(page)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                  blacklistPage === page
+                                    ? "bg-indigo-600 text-white shadow-sm"
+                                    : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                {page}
+                              </button>
+                            )
+                          ));
+                        })()}
+                      </div>
+                      <button
+                        onClick={() => setBlacklistPage(prev => Math.min(prev + 1, totalBlacklistPages))}
+                        disabled={blacklistPage === totalBlacklistPages}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-bold"
+                      >
+                        Sau
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -460,7 +681,7 @@ const SecurityPage = () => {
                 </svg>
                 Giải quyết sự cố an ninh
               </h3>
-              <button 
+              <button
                 onClick={() => setResolveModal({ show: false, incidentId: null })}
                 disabled={submittingResolution}
                 className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
@@ -470,7 +691,7 @@ const SecurityPage = () => {
                 </svg>
               </button>
             </div>
-            
+
             {/* Body */}
             <div className="space-y-4">
               <div className="space-y-2">
@@ -491,7 +712,7 @@ const SecurityPage = () => {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                   Ảnh minh chứng (nếu có)
                 </label>
-                
+
                 <div className="flex items-center gap-3">
                   <label className="flex items-center gap-2 px-4 py-2 border border-dashed border-slate-300 hover:border-indigo-500 hover:bg-indigo-50/20 rounded-xl cursor-pointer text-xs font-semibold text-slate-600 transition-all">
                     <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -561,6 +782,67 @@ const SecurityPage = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Lightbox Modal */}
+      {lightbox.show && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
+          onClick={closeLightbox}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeLightbox();
+            if (e.key === 'ArrowLeft') setLightbox(prev => ({ ...prev, index: Math.max(0, prev.index - 1) }));
+            if (e.key === 'ArrowRight') setLightbox(prev => ({ ...prev, index: Math.min(prev.images.length - 1, prev.index + 1) }));
+          }}
+          tabIndex={0}
+          ref={(el) => el && el.focus()}
+        >
+          {/* Close button */}
+          <button
+            onClick={closeLightbox}
+            className="absolute top-4 right-4 text-white/80 hover:text-white transition-colors z-10 cursor-pointer"
+          >
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {/* Counter */}
+          <div className="absolute top-4 left-4 text-white/70 text-sm font-medium">
+            {lightbox.index + 1} / {lightbox.images.length}
+          </div>
+
+          {/* Prev button */}
+          {lightbox.images.length > 1 && lightbox.index > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setLightbox(prev => ({ ...prev, index: prev.index - 1 })); }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/25 text-white rounded-full p-2 transition-all cursor-pointer"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+
+          {/* Image */}
+          <img
+            src={lightbox.images[lightbox.index]}
+            alt={`Ảnh ${lightbox.index + 1}`}
+            className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {/* Next button */}
+          {lightbox.images.length > 1 && lightbox.index < lightbox.images.length - 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setLightbox(prev => ({ ...prev, index: prev.index + 1 })); }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/25 text-white rounded-full p-2 transition-all cursor-pointer"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
     </section>

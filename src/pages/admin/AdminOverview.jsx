@@ -16,7 +16,7 @@ function StatCard({ title, value, icon, accentColor, subtext }) {
   );
 }
 
-export default function AdminOverview({ users, gates, zones, logs, todayRevenue, settings, toggleBarrier }) {
+export default function AdminOverview({ users, gates, zones, logs, todayRevenue, settings }) {
   return (
     <>
       {/* Stats Grid */}
@@ -27,10 +27,10 @@ export default function AdminOverview({ users, gates, zones, logs, todayRevenue,
         <StatCard title="Log an ninh khẩn" value={`${logs.length} biên bản`} icon="" accentColor="bg-rose-500" subtext="Cần giám sát khẩn cấp" />
       </div>
 
-      {/* Grid 2 Columns */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Phân khu đỗ */}
-        <div className="action-panel-item lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-4">
+      {/* Phân khu đỗ — Điều khiển barrier cưỡng chế đã chuyển hẳn sang tab "Cổng kiểm soát"
+          (dùng chung 1 API, tránh 2 nơi cùng điều khiển 1 dữ liệu gây lệch trạng thái) */}
+      <div className="grid grid-cols-1 gap-6">
+        <div className="action-panel-item bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 space-y-4">
           <h3 className="font-extrabold text-slate-900 text-base text-left flex items-center gap-2">
             <span className="w-1 h-5 rounded-full bg-purple-600 block"></span>
             Công suất đỗ thực tế các phân khu
@@ -81,33 +81,6 @@ export default function AdminOverview({ users, gates, zones, logs, todayRevenue,
                 );
               });
             })()}
-          </div>
-        </div>
-
-        {/* Barrier Control Panel */}
-        <div className="action-panel-item bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm shadow-slate-100/50 flex flex-col space-y-4 text-left">
-          <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-            <span className="w-1 h-5 rounded-full bg-purple-600 block"></span>
-            Khống chế Barrier cưỡng chế
-          </h3>
-          <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-1">
-            {gates.map(g => (
-              <div key={g.id} className="p-3.5 bg-slate-50/50 rounded-xl flex items-center justify-between border border-slate-100 hover:bg-slate-50 transition-colors">
-                <div>
-                  <p className="text-xs font-bold text-slate-800">{g.name}</p>
-                  <p className="text-[10px] text-slate-400 font-mono">Camera: {g.cameraIp}</p>
-                </div>
-                <button
-                  onClick={() => toggleBarrier(g.id, g.barrier)}
-                  className={`px-3 py-1.5 rounded-xl text-[10px] font-bold border cursor-pointer transition-colors ${g.barrier === "OPEN"
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                    : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
-                    }`}
-                >
-                  {g.barrier === "OPEN" ? "ĐANG MỞ" : "ĐANG ĐÓNG"}
-                </button>
-              </div>
-            ))}
           </div>
         </div>
       </div>

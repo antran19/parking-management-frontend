@@ -1696,7 +1696,7 @@ export function LoginScreen({ onLogin }) {
                   <div>
                     <h3 className="font-extrabold text-white text-sm uppercase tracking-wide">Trụ Sở Bãi Xe</h3>
                     <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
-                      Khu Công nghệ cao Hòa Lạc, Km 29 Đại lộ Thăng Long, Thạch Thất, Hà Nội.
+                      NVH Sinh Viên ĐH FPT HCMC.
                     </p>
                   </div>
                 </div>
@@ -1705,7 +1705,7 @@ export function LoginScreen({ onLogin }) {
                   <span className="mt-1 h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.5)]" />
                   <div>
                     <h3 className="font-extrabold text-white text-sm uppercase tracking-wide">Hotline Kỹ Thuật 24/7</h3>
-                    <p className="text-[#00ff87] font-mono text-sm font-black mt-1">+84 (24) 7300-1866</p>
+                    <p className="text-[#00ff87] font-mono text-sm font-black mt-1">+84 974114657</p>
                     <p className="text-slate-500 text-[9px] mt-0.5">Tiếp nhận giải quyết sự cố an ninh & sự cố thẻ</p>
                   </div>
                 </div>

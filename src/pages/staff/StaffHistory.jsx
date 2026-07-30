@@ -4,8 +4,8 @@ import { formatLicensePlate, normalizeLicensePlate } from "../../utils/licensePl
 
 const LicensePlate = ({ plate, vehicleType }) => {
   const formatted = formatLicensePlate(plate, vehicleType);
-  const isBicycle = 
-    String(vehicleType || "").toUpperCase().includes("BICYCLE") || 
+  const isBicycle =
+    String(vehicleType || "").toUpperCase().includes("BICYCLE") ||
     String(plate || "").toUpperCase().startsWith("BC");
 
   if (isBicycle) {
@@ -23,16 +23,17 @@ const LicensePlate = ({ plate, vehicleType }) => {
   );
 };
 
-const getTicketTypeLabel = (driverType, passType) => {
+const getTicketTypeLabel = (driverType, passType, reservationCode) => {
   const dType = (driverType || "").toUpperCase();
   const pType = (passType || "").toUpperCase();
   if (dType === 'SUBSCRIBER') {
     const passTypeLabels = {
-      MONTHLY: "Vé tháng",
-      QUARTERLY: "Vé quý",
-      YEARLY: "Vé năm"
+      MONTHLY: "Vé đăng ký (Tháng)",
+      QUARTERLY: "Vé đăng ký (Quý)",
+      YEARLY: "Vé đăng ký (Năm)"
     };
-    return passTypeLabels[pType] || "Vé tháng";
+    const label = passTypeLabels[pType] || "Vé đăng ký (Tháng)";
+    return reservationCode ? `${label} - Đặt chỗ` : label;
   }
   if (dType === 'PRE_BOOKED') {
     return "Vé đặt trước";
@@ -83,10 +84,35 @@ export default function StaffHistory() {
     }
   };
 
-  const fetchHistoryData = async () => {
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+
+  const fetchHistoryData = async (targetPage = page) => {
     try {
-      const res = await staffApi.getAllSessionsHistory();
-      const rawData = res.data.data || [];
+      const params = {
+        page: targetPage,
+        size: 20,
+      };
+      if (search && search.trim()) {
+        params.licensePlate = search.trim();
+      }
+      if (statusFilter && statusFilter !== "all") {
+        params.status = statusFilter;
+      }
+
+      const res = await staffApi.getAllSessionsHistory(params);
+      const dataObj = res.data?.data;
+      const rawData = dataObj?.content || (Array.isArray(dataObj) ? dataObj : []);
+
+      if (dataObj?.totalPages !== undefined) {
+        setTotalPages(dataObj.totalPages || 1);
+        setTotalElements(dataObj.totalElements || rawData.length);
+      } else {
+        setTotalPages(1);
+        setTotalElements(rawData.length);
+      }
+
       const formattedData = rawData.map((item) => ({
         id: item.sessionCode || `PS-${item.sessionId?.slice(0, 6).toUpperCase()}`,
         plate: item.licensePlate,
@@ -104,7 +130,7 @@ export default function StaffHistory() {
           " • " +
           new Date(item.exitTime).toLocaleDateString("vi-VN")
           : "--",
-        slot: item.zoneCode ? `${item.floorName}-ZONE-${item.zoneCode}` : "--",
+        slot: item.zoneCode ? `${item.floorName}-ZONE ${item.zoneCode}` : "--",
         floor: item.floorName ? `Tầng ${item.floorName}` : "--",
         fee: (item.totalFee !== null && item.totalFee !== undefined)
           ? `${Number(item.totalFee).toLocaleString("vi-VN")}đ${item.status === "ACTIVE" ? " (Tạm tính)" : ""}`
@@ -112,11 +138,13 @@ export default function StaffHistory() {
         status: item.status === "ACTIVE" ? "parked" : "checked_out",
         paymentMethod: item.status === "ACTIVE" ? "--" : (
           item.paymentMethod === "VIETQR"
-            ? "VietQR CK" 
+            ? "VietQR CK"
             : (item.paymentMethod === "NCB" ? "Ngân hàng NCB" : (item.paymentMethod === "ONLINE" || item.paymentMethod === "VNPAY" ? "VNPAY Online" : "Tiền mặt"))
         ),
         driverType: item.driverType,
         passType: item.passType,
+        customerName: item.customerName,
+        reservationCode: item.reservationCode,
         durationMinutes: item.durationMinutes || (item.entryTime ? Math.floor((new Date(item.exitTime || Date.now()).getTime() - new Date(item.entryTime).getTime()) / 60000) : 0),
       }));
       setHistoryList(formattedData);
@@ -126,10 +154,17 @@ export default function StaffHistory() {
     }
   };
 
+  const handlePageChange = (newPage) => {
+    if (newPage >= 0 && newPage < totalPages) {
+      setPage(newPage);
+      fetchHistoryData(newPage);
+    }
+  };
+
   useEffect(() => {
-    fetchHistoryData();
+    fetchHistoryData(0);
     fetchConfig();
-  }, []);
+  }, [search, statusFilter]);
 
   const getVehicleLabel = (type) => {
     if (!type) return "---";
@@ -185,23 +220,87 @@ export default function StaffHistory() {
       return;
     }
 
-    const ticketType = getTicketTypeLabel(selectedReceipt.driverType, selectedReceipt.passType);
+    const customerRow = selectedReceipt.customerName ? `
+      <div class="info-row">
+        <span>Khách hàng:</span>
+        <span class="info-value">${selectedReceipt.customerName}</span>
+      </div>
+    ` : '';
+
+    const resCodeRow = selectedReceipt.reservationCode ? `
+      <div class="info-row">
+        <span>Mã đặt chỗ:</span>
+        <span class="info-value">${selectedReceipt.reservationCode}</span>
+      </div>
+    ` : '';
+
+    const ticketType = getTicketTypeLabel(selectedReceipt.driverType, selectedReceipt.passType, selectedReceipt.reservationCode);
 
     printWindow.document.write(`
       <html>
         <head>
           <title>Hóa đơn thanh toán - #${selectedReceipt.id}</title>
           <style>
-            body { font-family: Consolas, 'Courier New', monospace; text-align: center; padding: 20px; color: #333; background: #fff; }
-            .ticket-container { border: 2px dashed #444; padding: 20px; display: inline-block; width: 280px; }
-            .header { font-size: 18px; font-weight: bold; margin-bottom: 5px; letter-spacing: 2px; }
-            .subtitle { font-size: 11px; margin-bottom: 15px; text-transform: uppercase; font-weight: 600; }
-            .info-row { display: flex; justify-content: space-between; font-size: 12px; margin: 5px 0; border-bottom: 1px dotted #bbb; padding-bottom: 3px; font-weight: 600; }
-            .info-value { font-weight: 600; }
-            .total-section { margin-top: 15px; border-top: 2px dashed #444; padding-top: 10px; }
-            .total-label { font-size: 11px; font-weight: bold; color: #555; text-transform: uppercase; }
-            .total-fee { font-size: 20px; font-weight: 900; margin: 8px 0; color: #111; }
-            .footer { font-size: 10px; margin-top: 15px; border-top: 1px dashed #444; padding-top: 10px; }
+            body {
+              font-family: Consolas, 'Courier New', monospace;
+              text-align: center;
+              padding: 20px;
+              color: #333;
+              background: #fff;
+            }
+            .ticket-container {
+              border: 2px dashed #444;
+              padding: 20px;
+              display: inline-block;
+              width: 280px;
+            }
+            .header {
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
+              letter-spacing: 2px;
+            }
+            .subtitle {
+              font-size: 11px;
+              margin-bottom: 15px;
+              text-transform: uppercase;
+              font-weight: 600;
+            }
+            .info-row {
+              display: flex;
+              justify-content: space-between;
+              font-size: 12px;
+              margin: 5px 0;
+              border-bottom: 1px dotted #bbb;
+              padding-bottom: 3px;
+              font-weight: 600;
+            }
+            .info-value {
+              font-weight: 600;
+            }
+            .total-section {
+              margin-top: 15px;
+              border-top: 2px dashed #444;
+              padding-top: 10px;
+            }
+            .total-label {
+              font-size: 11px;
+              font-weight: bold;
+              color: #555;
+              text-transform: uppercase;
+            }
+            .total-fee {
+              font-size: 20px;
+              font-weight: 900;
+              margin: 8px 0;
+              color: #111;
+            }
+            .footer {
+              font-size: 10px;
+              margin-top: 15px;
+              border-top: 1px dashed #444;
+              padding-top: 10px;
+            }
           </style>
         </head>
         <body>
@@ -209,15 +308,46 @@ export default function StaffHistory() {
             <div class="header">SMART PARKING TICKET</div>
             <div class="subtitle">Hóa đơn thanh toán / In lại</div>
             
-            <div class="info-row"><span>Mã phiên:</span><span class="info-value">#${selectedReceipt.id}</span></div>
-            <div class="info-row"><span>Biển số xe:</span><span class="info-value">${formatLicensePlate(selectedReceipt.plate, selectedReceipt.type) || "---"}</span></div>
-            <div class="info-row"><span>Phương tiện:</span><span class="info-value">${selectedReceipt.type || "---"}</span></div>
-            <div class="info-row"><span>Vị trí đỗ:</span><span class="info-value">${selectedReceipt.slot}</span></div>
-            <div class="info-row"><span>Loại vé:</span><span class="info-value">${ticketType}</span></div>
-            <div class="info-row"><span>Thời gian vào:</span><span class="info-value">${selectedReceipt.inTime}</span></div>
-            ${selectedReceipt.status !== "parked" ? '<div class="info-row"><span>Thời gian ra:</span><span class="info-value">' + selectedReceipt.outTime + '</span></div>' : ''}
-            <div class="info-row"><span>Thời gian gửi:</span><span class="info-value">${formatDuration(selectedReceipt.durationMinutes)}</span></div>
-            <div class="info-row"><span>Hình thức:</span><span class="info-value">${selectedReceipt.status === "parked" ? "--" : selectedReceipt.paymentMethod}</span></div>
+            <div class="info-row">
+              <span>Mã phiên:</span>
+              <span class="info-value">#${selectedReceipt.id}</span>
+            </div>
+            <div class="info-row">
+              <span>Biển số xe:</span>
+              <span class="info-value">${formatLicensePlate(selectedReceipt.plate, selectedReceipt.type) || "---"}</span>
+            </div>
+            <div class="info-row">
+              <span>Phương tiện:</span>
+              <span class="info-value">${selectedReceipt.type || "---"}</span>
+            </div>
+            <div class="info-row">
+              <span>Vị trí đỗ:</span>
+              <span class="info-value">${selectedReceipt.slot}</span>
+            </div>
+            <div class="info-row">
+              <span>Thời gian vào:</span>
+              <span class="info-value">${selectedReceipt.inTime}</span>
+            </div>
+            ${selectedReceipt.status !== "parked" ? `
+              <div class="info-row">
+                <span>Thời gian ra:</span>
+                <span class="info-value">${selectedReceipt.outTime}</span>
+              </div>
+            ` : ''}
+            <div class="info-row">
+              <span>Thời gian gửi:</span>
+              <span class="info-value">${formatDuration(selectedReceipt.durationMinutes)}</span>
+            </div>
+            <div class="info-row">
+              <span>Loại vé:</span>
+              <span class="info-value">${ticketType}</span>
+            </div>
+            <div class="info-row">
+              <span>Hình thức:</span>
+              <span class="info-value">${selectedReceipt.status === "parked" ? "--" : selectedReceipt.paymentMethod}</span>
+            </div>
+            ${customerRow}
+            ${resCodeRow}
             
             <div class="total-section">
               <div class="total-label">${selectedReceipt.status === "parked" ? "Phí tạm tính" : "Tổng tiền thanh toán"}</div>
@@ -372,7 +502,7 @@ export default function StaffHistory() {
                     {getTicketTypeLabel(row.driverType, row.passType)}
                   </td>
                   <td className="px-6 py-4 text-slate-700 font-semibold text-xs">
-                    {row.slot} ({row.floor})
+                    {row.slot}
                   </td>
                   <td className="px-6 py-4 text-slate-600 font-medium font-mono text-xs">
                     {row.inTime}
@@ -386,8 +516,8 @@ export default function StaffHistory() {
                   <td className="px-6 py-4">
                     <span
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${row.status === "checked_out"
-                          ? "bg-slate-100 text-slate-755 border-slate-200"
-                          : "bg-emerald-50 text-emerald-700 border-emerald-100 "
+                        ? "bg-slate-100 text-slate-755 border-slate-200"
+                        : "bg-emerald-50 text-emerald-700 border-emerald-100 "
                         }`}
                     >
                       <span className={`h-1.5 w-1.5 rounded-full ${row.status === "checked_out" ? "bg-slate-500" : "bg-emerald-500"}`} />
@@ -414,6 +544,32 @@ export default function StaffHistory() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Thanh Phân Trang Cố Định 20 Items/Trang */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 px-2">
+        <div className="text-xs font-semibold text-slate-500">
+          Hiển thị trang <span className="font-bold text-slate-900">{page + 1}</span> / <span className="font-bold text-slate-900">{totalPages || 1}</span> (Tổng <span className="font-bold text-slate-900">{totalElements}</span> bản ghi, cố định 20 bản ghi/trang)
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handlePageChange(page - 1)}
+            disabled={page <= 0}
+            className="px-3.5 py-1.5 rounded-xl border border-slate-250 bg-white font-bold text-slate-700 text-xs shadow-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+          >
+            ← Trang trước
+          </button>
+          <span className="text-xs font-bold font-mono px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100">
+            {page + 1}
+          </span>
+          <button
+            onClick={() => handlePageChange(page + 1)}
+            disabled={page >= totalPages - 1}
+            className="px-3.5 py-1.5 rounded-xl border border-slate-250 bg-white font-bold text-slate-700 text-xs shadow-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+          >
+            Trang sau →
+          </button>
         </div>
       </div>
 
@@ -459,32 +615,26 @@ export default function StaffHistory() {
               </div>
               <div className="flex justify-between">
                 <span>Loại xe:</span>
-                <span className="text-slate-600 font-black">
+                <span className="text-slate-600 font-extrabold">
                   {getVehicleLabel(selectedReceipt.type)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Loại vé:</span>
-                <span className="text-slate-600 font-black">
-                  {getTicketTypeLabel(selectedReceipt.driverType, selectedReceipt.passType)}
-                </span>
-              </div>
-              <div className="flex justify-between">
                 <span>Vị trí đỗ:</span>
-                <span className="text-slate-600 font-black">
+                <span className="text-slate-600 font-extrabold">
                   {selectedReceipt.slot}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Thời gian vào:</span>
-                <span className="text-slate-800 font-mono text-[11px] font-bold">
+                <span className="text-slate-600 font-mono text-[11px] font-bold">
                   {selectedReceipt.inTime}
                 </span>
               </div>
               {selectedReceipt.status !== "parked" && (
                 <div className="flex justify-between">
                   <span>Thời gian ra:</span>
-                  <span className="text-slate-800 font-mono text-[11px] font-bold">
+                  <span className="text-slate-600 font-mono text-[11px] font-bold">
                     {selectedReceipt.outTime}
                   </span>
                 </div>
@@ -496,11 +646,31 @@ export default function StaffHistory() {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span>Loại vé:</span>
+                <span className="text-slate-600 font-extrabold">
+                  {getTicketTypeLabel(selectedReceipt.driverType, selectedReceipt.passType, selectedReceipt.reservationCode)}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span>Hình thức:</span>
-                <span className="text-slate-600 font-black">
+                <span className="text-slate-600 font-extrabold">
                   {selectedReceipt.status === "parked" ? "--" : selectedReceipt.paymentMethod}
                 </span>
               </div>
+
+              {selectedReceipt.customerName && (
+                <div className="flex justify-between">
+                  <span>Khách hàng:</span>
+                  <span className="text-slate-600 font-extrabold text-indigo-650">{selectedReceipt.customerName}</span>
+                </div>
+              )}
+
+              {selectedReceipt.reservationCode && (
+                <div className="flex justify-between">
+                  <span>Mã đặt chỗ:</span>
+                  <span className="text-slate-600 font-extrabold text-indigo-650">{selectedReceipt.reservationCode}</span>
+                </div>
+              )}
 
               <div className="border-t border-dashed border-slate-200 pt-3 flex flex-col">
                 <span className="text-[10px] text-slate-400 uppercase font-bold">

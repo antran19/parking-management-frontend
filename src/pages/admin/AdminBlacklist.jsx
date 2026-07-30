@@ -118,7 +118,7 @@ export default function AdminBlacklist({ showToast, user }) {
           onClick={() => { resetForm(); setShowForm(true); }}
           className="rounded-xl bg-red-600 hover:bg-red-500 px-4 py-2.5 text-xs font-bold text-white cursor-pointer transition-colors shadow-lg shadow-red-500/10"
         >
-          ➕ Thêm biển số blacklist
+          Thêm biển số blacklist
         </button>
       </div>
 
@@ -126,7 +126,7 @@ export default function AdminBlacklist({ showToast, user }) {
       {showForm && (
         <div className="rounded-2xl border border-red-200 bg-red-50/30 p-5 space-y-4">
           <h4 className="text-sm font-extrabold text-slate-900">
-            {editingId ? "✏️ Chỉnh sửa blacklist" : "➕ Thêm biển số vào blacklist"}
+            {editingId ? " Chỉnh sửa blacklist" : " Thêm biển số vào blacklist"}
           </h4>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -156,7 +156,7 @@ export default function AdminBlacklist({ showToast, user }) {
               <div className="flex items-end gap-2">
                 <button type="submit" disabled={submitting}
                   className="flex-1 rounded-xl bg-red-600 text-white py-3 text-xs font-bold cursor-pointer transition-colors disabled:opacity-50">
-                  {submitting ? "Đang lưu..." : editingId ? "💾 Lưu" : "✅ Thêm"}
+                  {submitting ? "Đang lưu..." : editingId ? " Lưu" : " Thêm"}
                 </button>
                 <button type="button" onClick={resetForm}
                   className="rounded-xl border border-slate-200 bg-white py-3 px-4 text-xs font-bold text-slate-500 cursor-pointer hover:bg-slate-50">
@@ -183,27 +183,27 @@ export default function AdminBlacklist({ showToast, user }) {
         <input
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          placeholder="🔍 Tìm theo biển số hoặc mô tả..."
+          placeholder=" Tìm theo biển số hoặc mô tả..."
           className="flex-1 min-w-[200px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-700 focus:outline-none"
         />
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
           className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 focus:outline-none min-w-[140px]">
           <option value="all">Tất cả trạng thái</option>
-          <option value="active">🚫 Đang chặn</option>
-          <option value="removed">✅ Đã gỡ</option>
+          <option value="active"> Đang chặn</option>
+          <option value="removed"> Đã gỡ</option>
         </select>
       </div>
 
       {/* Summary badges */}
       <div className="flex flex-wrap gap-3">
         <span className="rounded-full bg-red-50 border border-red-100 px-3 py-1 text-xs font-bold text-red-700">
-          🚫 Đang chặn: {blacklist.filter(item => item.isActive !== false).length}
+          Đang chặn: {blacklist.filter(item => item.isActive !== false).length}
         </span>
         <span className="rounded-full bg-slate-100 border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500">
-          ✅ Đã gỡ: {blacklist.filter(item => item.isActive === false).length}
+          Đã gỡ: {blacklist.filter(item => item.isActive === false).length}
         </span>
         <span className="rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-xs font-bold text-blue-600">
-          📋 Tổng: {blacklist.length}
+          Tổng: {blacklist.length}
         </span>
       </div>
 
@@ -250,7 +250,7 @@ export default function AdminBlacklist({ showToast, user }) {
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border ${item.isActive !== false
                       ? "bg-red-50 text-red-700 border-red-200"
                       : "bg-slate-100 text-slate-500 border-slate-200"
-                    }`}>
+                      }`}>
                       <span className={`h-1.5 w-1.5 rounded-full ${item.isActive !== false ? "bg-red-500" : "bg-slate-400"}`} />
                       {item.isActive !== false ? "Đang chặn" : "Đã gỡ"}
                     </span>
@@ -266,7 +266,7 @@ export default function AdminBlacklist({ showToast, user }) {
                           <button
                             onClick={() => handleRemove(item.id, item.licensePlate)}
                             className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold border border-red-200 cursor-pointer transition-colors"
-                          >🔓 Gỡ chặn</button>
+                          > Gỡ chặn</button>
                         </>
                       )}
                       {item.isActive === false && (
